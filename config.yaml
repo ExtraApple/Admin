@@ -1,0 +1,18 @@
+server:
+  port: 8080
+mysql:
+  mysql:
+  host: 127.0.0.1
+  port: 3306
+  user: root
+  password: 000000
+  db: admin
+jwt:
+  secret: "admin-jwt-secret-key-2024"
+  expire: 15
+  refresh_expire: 10080
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: ""
+  db: 0
