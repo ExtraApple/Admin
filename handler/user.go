@@ -47,6 +47,35 @@ func (h *UserHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "登录成功", "data": resp})
 }
 
+// UpdateSelf 修改自己的基础信息
+func (h *UserHandler) UpdateSelf(c *gin.Context) {
+	var req request.UpdateSelfReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		return
+	}
+	user, err := service.UpdateSelf(c.GetUint("userID"), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": user})
+}
+
+// ChangePassword 修改自己的密码
+func (h *UserHandler) ChangePassword(c *gin.Context) {
+	var req request.ChangePasswordReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		return
+	}
+	if err := service.ChangePassword(c.GetUint("userID"), req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功"})
+}
+
 // GetInfo 获取当前用户信息（需 JWT 中间件）
 func (h *UserHandler) GetInfo(c *gin.Context) {
 	userID, _ := c.Get("userID")

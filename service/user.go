@@ -144,6 +144,59 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 	}, nil
 }
 
+// UpdateSelf 普通用户修改自己的基础信息（不可改密码、用户名、角色）
+func UpdateSelf(userID uint, req request.UpdateSelfReq) (*request.UserInfo, error) {
+	updates := map[string]interface{}{}
+	if req.Nickname != "" {
+		updates["nickname"] = req.Nickname
+	}
+	if req.Avatar != "" {
+		updates["avatar"] = req.Avatar
+	}
+	if req.Email != "" {
+		var exist int64
+		global.DB.Model(&model.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&exist)
+		if exist > 0 {
+			return nil, errors.New("邮箱已被占用")
+		}
+		updates["email"] = req.Email
+	}
+	if len(updates) == 0 {
+		return nil, errors.New("无修改内容")
+	}
+	if err := global.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+		return nil, errors.New("修改失败")
+	}
+	return GetUserInfo(userID)
+}
+
+// ChangePassword 修改自己的密码（需验证旧密码 + 两次新密码一致 + 复杂度）
+func ChangePassword(userID uint, req request.ChangePasswordReq) error {
+	if req.NewPassword != req.ConfirmPassword {
+		return errors.New("两次输入的新密码不一致")
+	}
+	if err := validatePassword(req.NewPassword); err != nil {
+		return err
+	}
+	if req.OldPassword == req.NewPassword {
+		return errors.New("新密码不能与旧密码相同")
+	}
+
+	var user model.User
+	if err := global.DB.First(&user, userID).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.OldPassword)); err != nil {
+		return errors.New("旧密码错误")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.New("密码加密失败")
+	}
+	return global.DB.Model(&user).Update("password", string(hashed)).Error
+}
+
 // GetUserInfo 通过 ID 查询用户（脱敏）
 func GetUserInfo(userID uint) (*request.UserInfo, error) {
 	var user model.User

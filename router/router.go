@@ -25,9 +25,11 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	}))
 
 	// ========== 依赖注入 ==========
-	userHandler    := &handler.UserHandler{JwtCfg: jwtCfg}
-	captchaHandler := &handler.CaptchaHandler{}
-	auth           := middleware.JWTAuth(jwtCfg.Secret)
+	userHandler      := &handler.UserHandler{JwtCfg: jwtCfg}
+	captchaHandler   := &handler.CaptchaHandler{}
+	adminUserHandler := &handler.AdminUserHandler{}
+	auth             := middleware.JWTAuth(jwtCfg.Secret)
+	adminOnly        := middleware.AdminOnly()
 
 	// ========== 路由 ==========
 	r.GET("/ping", func(c *gin.Context) {
@@ -47,8 +49,17 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 		user := api.Group("/user").Use(auth)
 		{
 			user.GET("/info", userHandler.GetInfo)
-			// TODO: user.PUT("/update", userHandler.Update)
-			// TODO: user.POST("/avatar", userHandler.UploadAvatar)
+			user.PUT("/info", userHandler.UpdateSelf)
+			user.PUT("/password", userHandler.ChangePassword)
+		}
+
+		// --- 管理员路由 ---
+		admin := api.Group("/admin").Use(auth, adminOnly)
+		{
+			admin.GET("/users", adminUserHandler.ListUsers)
+			admin.PUT("/users/:id", adminUserHandler.UpdateUser)
+			admin.DELETE("/users/:id", adminUserHandler.DeleteUser)
+			admin.PUT("/users/:id/status", adminUserHandler.ToggleStatus)
 		}
 	}
 
