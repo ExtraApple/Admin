@@ -40,9 +40,8 @@ func JWTAuth(secret string) gin.HandlerFunc {
 			return
 		}
 
-		// 把用户信息注入上下文，后续 handler 通过 c.Get("userID") 获取
 		c.Set("userID", claims.UserID)
-		c.Set("role", claims.Role)
+		c.Set("roles", claims.Roles)
 		c.Next()
 	}
 }

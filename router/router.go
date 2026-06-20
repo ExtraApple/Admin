@@ -28,8 +28,9 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	userHandler := &handler.UserHandler{JwtCfg: jwtCfg}
 	captchaHandler := &handler.CaptchaHandler{}
 	adminUserHandler := &handler.AdminUserHandler{}
+	roleHandler := &handler.RoleHandler{}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
-	adminOnly := middleware.AdminOnly()
+	requireAdmin := middleware.HasRole("admin")
 
 	// ========== 路由 ==========
 	r.GET("/ping", func(c *gin.Context) {
@@ -56,12 +57,20 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 		}
 
 		// --- 管理员路由 ---
-		admin := api.Group("/admin").Use(auth, adminOnly)
+		admin := api.Group("/admin").Use(auth, requireAdmin)
 		{
 			admin.GET("/users", adminUserHandler.ListUsers)
 			admin.PUT("/users/:id", adminUserHandler.UpdateUser)
 			admin.DELETE("/users/:id", adminUserHandler.DeleteUser)
 			admin.PUT("/users/:id/status", adminUserHandler.ToggleStatus)
+
+			// 角色管理
+			admin.GET("/roles", roleHandler.ListRoles)
+			admin.POST("/roles", roleHandler.CreateRole)
+			admin.PUT("/roles/:id", roleHandler.UpdateRole)
+			admin.DELETE("/roles/:id", roleHandler.DeleteRole)
+			admin.POST("/roles/:id/users", roleHandler.AssignUsers)
+			admin.GET("/roles/:id/users", roleHandler.GetRoleUsers)
 		}
 	}
 

@@ -123,8 +123,24 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 		return nil, errors.New("用户名或密码错误")
 	}
 
+	// 查询用户关联的角色码
+	var roles []string
+	var ur []model.UserRole
+	global.DB.Where("user_id = ?", user.ID).Find(&ur)
+	if len(ur) > 0 {
+		ids := make([]uint, len(ur))
+		for i, r := range ur {
+			ids[i] = r.RoleID
+		}
+		var rls []model.Role
+		global.DB.Where("id IN ? AND status = 1", ids).Find(&rls)
+		for _, r := range rls {
+			roles = append(roles, r.Code)
+		}
+	}
+
 	accessToken, refreshToken, err := utils.GenerateToken(
-		user.ID, user.Role,
+		user.ID, roles,
 		cfg.Secret, cfg.ExpireMins, cfg.RefreshExpireMins,
 	)
 	if err != nil {
