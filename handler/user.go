@@ -1,12 +1,18 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"admin/initialize"
 	"admin/request"
 	"admin/service"
+	"admin/utils"
 )
 
 type UserHandler struct {
@@ -74,6 +80,57 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功"})
+}
+
+// Logout 退出登录
+func (h *UserHandler) Logout(c *gin.Context) {
+	tokenStr := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+	service.Logout(tokenStr, h.JwtCfg.ExpireMins)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "退出成功"})
+}
+
+// UploadAvatar 上传/修改头像
+func (h *UserHandler) UploadAvatar(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "请选择文件"})
+		return
+	}
+	if file.Size > 2*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像大小不能超过 2MB"})
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像仅支持 jpg / jpeg / png / webp 格式"})
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "文件打开失败"})
+		return
+	}
+	defer f.Close()
+
+	userID := c.GetUint("userID")
+	prefix := "avatars/" + strconv.FormatUint(uint64(userID), 10) + "/"
+	objName, err := utils.UploadStream("image", prefix, ext, file.Header.Get("Content-Type"), f, file.Size)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像上传失败: " + err.Error()})
+		return
+	}
+
+	// 只保留最近 2 个头像，删除更旧的
+	utils.CleanOldFiles("image", prefix, 2)
+
+	conf := initialize.InitConfig()
+	avatarURL := fmt.Sprintf("http://%s:%d/image/%s", conf.Minio.Host, conf.Minio.Port, objName)
+	user, err := service.SetAvatar(c.GetUint("userID"), avatarURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "头像上传成功", "data": user})
 }
 
 // GetInfo 获取当前用户信息（需 JWT 中间件）

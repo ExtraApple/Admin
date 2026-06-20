@@ -21,6 +21,10 @@ func main() {
 	initialize.InitRedis(conf)
 	fmt.Println("Redis initialized")
 
+	// 3.5 初始化 MinIO
+	initialize.InitMinio(conf)
+	fmt.Println("MinIO initialized")
+
 	// 4. JWT 配置
 	jwtCfg := service.JWTConfig{
 		Secret:            conf.Jwt.Secret,

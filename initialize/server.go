@@ -17,6 +17,12 @@ type Config struct {
 		Port     int
 		DB       string
 	}
+	Minio struct {
+		Host     string
+		Port     int
+		Username string
+		Password string
+	}
 	Jwt struct {
 		Secret        string
 		Expire        int

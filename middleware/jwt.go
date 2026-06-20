@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"admin/global"
 	"admin/utils"
 )
 
@@ -24,9 +26,17 @@ func JWTAuth(secret string) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := utils.ParseToken(parts[1], secret)
+		tokenStr := parts[1]
+		claims, err := utils.ParseToken(tokenStr, secret)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Token 无效或已过期"})
+			return
+		}
+
+		// 检查黑名单（已登出的 token）
+		exist, _ := global.Redis.Exists(context.Background(), "blacklist:"+tokenStr).Result()
+		if exist > 0 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Token 已失效"})
 			return
 		}
 

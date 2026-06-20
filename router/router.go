@@ -25,11 +25,11 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	}))
 
 	// ========== 依赖注入 ==========
-	userHandler      := &handler.UserHandler{JwtCfg: jwtCfg}
-	captchaHandler   := &handler.CaptchaHandler{}
+	userHandler := &handler.UserHandler{JwtCfg: jwtCfg}
+	captchaHandler := &handler.CaptchaHandler{}
 	adminUserHandler := &handler.AdminUserHandler{}
-	auth             := middleware.JWTAuth(jwtCfg.Secret)
-	adminOnly        := middleware.AdminOnly()
+	auth := middleware.JWTAuth(jwtCfg.Secret)
+	adminOnly := middleware.AdminOnly()
 
 	// ========== 路由 ==========
 	r.GET("/ping", func(c *gin.Context) {
@@ -51,6 +51,8 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			user.GET("/info", userHandler.GetInfo)
 			user.PUT("/info", userHandler.UpdateSelf)
 			user.PUT("/password", userHandler.ChangePassword)
+			user.POST("/avatar", userHandler.UploadAvatar)
+			user.POST("/logout", userHandler.Logout)
 		}
 
 		// --- 管理员路由 ---

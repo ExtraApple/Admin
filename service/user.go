@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"time"
 	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
@@ -197,6 +199,14 @@ func ChangePassword(userID uint, req request.ChangePasswordReq) error {
 	return global.DB.Model(&user).Update("password", string(hashed)).Error
 }
 
+// SetAvatar 设置/更新用户头像 URL
+func SetAvatar(userID uint, avatarURL string) (*request.UserInfo, error) {
+	if err := global.DB.Model(&model.User{}).Where("id = ?", userID).Update("avatar", avatarURL).Error; err != nil {
+		return nil, errors.New("头像更新失败")
+	}
+	return GetUserInfo(userID)
+}
+
 // GetUserInfo 通过 ID 查询用户（脱敏）
 func GetUserInfo(userID uint) (*request.UserInfo, error) {
 	var user model.User
@@ -216,4 +226,9 @@ func GetUserInfo(userID uint) (*request.UserInfo, error) {
 		Role:     user.Role,
 		Status:   user.Status,
 	}, nil
+}
+
+// Logout 将 token 加入 Redis 黑名单，过期时间对齐 token 有效期
+func Logout(tokenStr string, expireMins int) {
+	global.Redis.Set(context.Background(), "blacklist:"+tokenStr, "1", time.Duration(expireMins)*time.Minute)
 }
