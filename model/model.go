@@ -5,4 +5,7 @@ var Models = []interface{}{
 	User{},
 	Role{},
 	UserRole{},
+	Permission{},
+	RolePermission{},
+	PermissionGroup{},
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 	"unicode"
 
@@ -107,6 +108,11 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 		return nil, errors.New("验证码错误或已过期")
 	}
 
+	// 检查是否被锁定
+	if ttl, ok := isLocked(req.Username); ok {
+		return nil, fmt.Errorf("账号已被锁定，请 %d 分钟后重试", ttl)
+	}
+
 	var user model.User
 	if err := global.DB.Where("username = ?", req.Username).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -120,8 +126,13 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, errors.New("用户名或密码错误")
+		count := incrFailed(req.Username)
+		lockAfterFail(req.Username, count)
+		return nil, fmt.Errorf("用户名或密码错误（剩余尝试: %d 次）", 5-count)
 	}
+
+	// 登录成功，清除失败记录
+	clearFailed(req.Username)
 
 	// 查询用户关联的角色码
 	var roles []string
@@ -139,8 +150,11 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 		}
 	}
 
+	// 查询用户关联的权限码
+	permissions := GetUserPermissions(user.ID)
+
 	accessToken, refreshToken, err := utils.GenerateToken(
-		user.ID, roles,
+		user.ID, roles, permissions,
 		cfg.Secret, cfg.ExpireMins, cfg.RefreshExpireMins,
 	)
 	if err != nil {
@@ -164,7 +178,7 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 
 // UpdateSelf 普通用户修改自己的基础信息（不可改密码、用户名、角色）
 func UpdateSelf(userID uint, req request.UpdateSelfReq) (*request.UserInfo, error) {
-	updates := map[string]interface{}{}
+	updates := map[string]any{}
 	if req.Nickname != "" {
 		updates["nickname"] = req.Nickname
 	}
@@ -247,4 +261,60 @@ func GetUserInfo(userID uint) (*request.UserInfo, error) {
 // Logout 将 token 加入 Redis 黑名单，过期时间对齐 token 有效期
 func Logout(tokenStr string, expireMins int) {
 	global.Redis.Set(context.Background(), "blacklist:"+tokenStr, "1", time.Duration(expireMins)*time.Minute)
+}
+
+// ========== 登录安全策略 ==========
+
+const maxFailures = 5
+
+// lockDuration 根据失败次数返回锁定时间（分钟）
+// 判断错误类型，根据错误类型返回不同的锁定时间
+func lockDuration(failures int) int {
+	switch {
+	case failures < 5:
+		return 0
+	case failures < 10:
+		return 1
+	case failures < 15:
+		return 5
+	case failures < 20:
+		return 15
+	default:
+		return 60 // 1 小时
+	}
+}
+// isLocked 检查是否被锁定
+func isLocked(username string) (int, bool) {
+	val, err := global.Redis.Get(context.Background(), "lock:"+username).Result()
+	if err != nil || val != "1" {
+		return 0, false
+	}
+	ttl, _ := global.Redis.TTL(context.Background(), "lock:"+username).Result()
+	mins := int(ttl.Minutes()) + 1
+	return mins, true
+}
+// incrFailed 增加失败次数
+func incrFailed(username string) int {
+	key := "fail:" + username
+	count, _ := global.Redis.Incr(context.Background(), key).Result()
+	global.Redis.Expire(context.Background(), key, 24*time.Hour)
+	return int(count)
+}
+// lockAfterFail 登录失败后锁定账号
+func lockAfterFail(username string, failures int) {
+	dur := lockDuration(failures)
+	if dur == 0 {
+		return
+	}
+	key := "lock:" + username
+	global.Redis.Set(context.Background(), key, "1", time.Duration(dur)*time.Minute)
+
+	// 如果已锁定，清除失败计数（重新开始计数周期）
+	if failures >= 10 {
+		global.Redis.Del(context.Background(), "fail:"+username)
+	}
+}
+// clearFailed 清除失败计数和锁定状态
+func clearFailed(username string) {
+	global.Redis.Del(context.Background(), "fail:"+username, "lock:"+username)
 }

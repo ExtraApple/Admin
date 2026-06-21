@@ -29,6 +29,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	captchaHandler := &handler.CaptchaHandler{}
 	adminUserHandler := &handler.AdminUserHandler{}
 	roleHandler := &handler.RoleHandler{}
+	permHandler := &handler.PermissionHandler{Engine: r}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
 	requireAdmin := middleware.HasRole("admin")
 
@@ -71,6 +72,22 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.DELETE("/roles/:id", roleHandler.DeleteRole)
 			admin.POST("/roles/:id/users", roleHandler.AssignUsers)
 			admin.GET("/roles/:id/users", roleHandler.GetRoleUsers)
+
+			// 权限管理
+			admin.GET("/permissions", permHandler.ListPermissions)
+			admin.POST("/permissions", permHandler.CreatePermission)
+			admin.PUT("/permissions/:id", permHandler.UpdatePermission)
+			admin.DELETE("/permissions/:id", permHandler.DeletePermission)
+			admin.GET("/permission-codes", permHandler.GetPermissionCodes)
+			admin.POST("/permissions/sync", permHandler.SyncPermissions)
+			admin.POST("/roles/:id/permissions", permHandler.AssignPermissions)
+			admin.GET("/roles/:id/permissions", permHandler.GetRolePermissions)
+
+			// 权限分组管理
+			admin.GET("/permission-groups", permHandler.ListPermGroups)
+			admin.POST("/permission-groups", permHandler.CreatePermGroup)
+			admin.PUT("/permission-groups/:id", permHandler.UpdatePermGroup)
+			admin.DELETE("/permission-groups/:id", permHandler.DeletePermGroup)
 		}
 	}
 
