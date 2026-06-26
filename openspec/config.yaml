@@ -1,0 +1,26 @@
+schema: spec-driven
+
+context: |
+  技术栈：Go、Gin、GORM、MySQL、Redis、MinIO、JWT。
+  领域：后台管理系统，包含用户管理、RBAC、菜单、文件存储、日志/审计，以及后续组织、字典、消息等模块。
+  架构：请求按 handler -> service -> model/utils 分层处理。HTTP DTO 放在 request/。路由集中注册在 router/router.go。
+  认证：公开接口包括 /api/captcha、/api/register、/api/login。已认证用户接口位于 /api/user。管理员接口位于 /api/admin，需要 JWT 和 admin 角色。
+  文档规则：openspec/specs 是当前产品行为的事实来源。openspec/changes 是未来变更的事实来源。docs/ 只保留实现说明、教程、运维说明、迁移说明和背景材料。
+  旧 docs 可以作为参考，但 specs 应描述可观察行为和约束，不要复制长篇实现过程。
+
+rules:
+  proposal:
+    - 优先说明用户或运维人员可感知的行为变化。
+    - 当需求容易扩张范围时，必须写明非目标。
+    - 如果涉及路由、模型、Redis key、MinIO bucket、权限码，需要明确列出。
+  design:
+    - 遵循现有 handler -> service -> model/request/utils 分层。
+    - 优先做增量修改，避免无关的跨模块重写。
+    - 如果需要数据迁移或补数据，必须明确说明。
+  specs:
+    - 使用 Requirement 和 Scenario 结构。
+    - 描述系统行为、约束和错误处理。
+    - 不写长代码块，不写 Apifox 长篇测试流程。
+  tasks:
+    - 按后端分层拆任务：model/request、service、handler、router、docs/spec 同步、验证。
+    - 至少包含一个路由行为或服务行为的验证任务。
