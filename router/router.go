@@ -30,6 +30,8 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	adminUserHandler := &handler.AdminUserHandler{}
 	roleHandler := &handler.RoleHandler{}
 	permHandler := &handler.PermissionHandler{Engine: r}
+	fileHandler := &handler.FileHandler{}
+	menuHandler := &handler.MenuHandler{}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
 	requireAdmin := middleware.HasRole("admin")
 
@@ -50,6 +52,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 		// --- 需认证路由 ---
 		user := api.Group("/user").Use(auth)
 		{
+			user.GET("/context", userHandler.InitialContext)
 			user.GET("/info", userHandler.GetInfo)
 			user.PUT("/info", userHandler.UpdateSelf)
 			user.PUT("/password", userHandler.ChangePassword)
@@ -88,6 +91,22 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.POST("/permission-groups", permHandler.CreatePermGroup)
 			admin.PUT("/permission-groups/:id", permHandler.UpdatePermGroup)
 			admin.DELETE("/permission-groups/:id", permHandler.DeletePermGroup)
+
+			// 文件管理
+			admin.POST("/files", fileHandler.Upload)
+			admin.GET("/files", fileHandler.ListFiles)
+			admin.GET("/files/:id", fileHandler.GetFile)
+			admin.PUT("/files/:id", fileHandler.UpdateFile)
+			admin.DELETE("/files/:id", fileHandler.DeleteFile)
+			admin.GET("/files-browse", fileHandler.BrowseFiles)
+
+			admin.GET("/menus", menuHandler.ListMenus)
+			admin.POST("/menus", menuHandler.CreateMenu)
+			admin.PUT("/menus/:id", menuHandler.UpdateMenu)
+			admin.DELETE("/menus/:id", menuHandler.DeleteMenu)
+			admin.POST("/menus/sync", menuHandler.SyncMenus)
+			admin.POST("/roles/:id/menus", menuHandler.AssignRoleMenus)
+			admin.GET("/roles/:id/menus", menuHandler.GetRoleMenus)
 		}
 	}
 

@@ -1,5 +1,6 @@
 server:
   port: 8080
+
 mysql:
   mysql:
   host: 127.0.0.1
@@ -7,17 +8,28 @@ mysql:
   user: root
   password: 000000
   db: admin
+
 minio:
   host: 127.0.0.1
   port: 9000
   username: minioadmin
   password: minioadmin
+
 jwt:
   secret: "admin-jwt-secret-key-2024"
   expire: 15
   refresh_expire: 10080
+
 redis:
   host: 127.0.0.1
   port: 6379
   password: ""
   db: 0
+
+# 文件轮转配置
+file_rotation:
+  enabled: false
+  days: 30
+  hot_bucket: "files"
+  cold_bucket: "files-archive"
+  batch_size: 100

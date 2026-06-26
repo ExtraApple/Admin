@@ -17,3 +17,7 @@ Api地址：http://localhost:9000
 Web地址：http://localhost:9001/minio
 ```
 
+## 检查
+/service/file
+/service/file_rotation
+/handler/file

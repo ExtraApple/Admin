@@ -65,3 +65,12 @@ type AdminUpdateUserReq struct {
 	Role     string `json:"role"`
 	Status   *int   `json:"status"`
 }
+
+// ========== 初始上下文 ==========
+
+type InitialContextResp struct {
+	User        UserInfo     `json:"user"`
+	Roles       []string     `json:"roles"`
+	Permissions []string     `json:"permissions"`
+	Menus       []MenuDetail `json:"menus"`
+}

@@ -23,7 +23,10 @@ func InitMinio(conf *Config) {
 	}
 
 	ctx := context.Background()
-	buckets := []string{"image"}
+	buckets := []string{"image", "files"}
+	if conf.FileRotation.Enabled {
+		buckets = append(buckets, conf.FileRotation.ColdBucket)
+	}
 	for _, bucket := range buckets {
 		exists, _ := global.Minio.BucketExists(ctx, bucket)
 		if !exists {

@@ -19,6 +19,14 @@ type UserHandler struct {
 	JwtCfg service.JWTConfig
 }
 
+func toStringSlice(v any) []string {
+	list, ok := v.([]string)
+	if !ok {
+		return []string{}
+	}
+	return list
+}
+
 // Register 用户注册
 func (h *UserHandler) Register(c *gin.Context) {
 	var req request.RegisterReq
@@ -60,11 +68,13 @@ func (h *UserHandler) UpdateSelf(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
 	}
+
 	user, err := service.UpdateSelf(c.GetUint("userID"), req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": user})
 }
 
@@ -75,10 +85,12 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
 	}
+
 	if err := service.ChangePassword(c.GetUint("userID"), req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "密码修改成功"})
 }
 
@@ -100,11 +112,13 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像大小不能超过 2MB"})
 		return
 	}
+
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像仅支持 jpg / jpeg / png / webp 格式"})
 		return
 	}
+
 	f, err := file.Open()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "文件打开失败"})
@@ -120,7 +134,6 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		return
 	}
 
-	// 只保留最近 2 个头像，删除更旧的
 	utils.CleanOldFiles("image", prefix, 2)
 
 	conf := initialize.InitConfig()
@@ -130,14 +143,36 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "头像上传成功", "data": user})
 }
 
-// GetInfo 获取当前用户信息（需 JWT 中间件）
-func (h *UserHandler) GetInfo(c *gin.Context) {
-	userID, _ := c.Get("userID")
+// InitialContext 获取初始上下文（用户信息 + 角色 + 权限 + 菜单）
+func (h *UserHandler) InitialContext(c *gin.Context) {
+	user, err := service.GetUserInfo(c.GetUint("userID"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
 
-	user, err := service.GetUserInfo(userID.(uint))
+	roles, _ := c.Get("roles")
+	permissions, _ := c.Get("permissions")
+	menus, _ := service.GetUserMenus(c.GetUint("userID"))
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"data": request.InitialContextResp{
+			User:        *user,
+			Roles:       toStringSlice(roles),
+			Permissions: toStringSlice(permissions),
+			Menus:       menus,
+		},
+	})
+}
+
+// GetInfo 获取当前用户信息
+func (h *UserHandler) GetInfo(c *gin.Context) {
+	user, err := service.GetUserInfo(c.GetUint("userID"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return

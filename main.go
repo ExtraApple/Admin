@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"admin/initialize"
 	"admin/router"
@@ -24,6 +25,18 @@ func main() {
 	// 3.5 初始化 MinIO
 	initialize.InitMinio(conf)
 	fmt.Println("MinIO initialized")
+
+	// 3.6 启动文件轮转定时任务
+	if conf.FileRotation.Enabled {
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				service.RotateFiles(conf)
+			}
+		}()
+		fmt.Println("File rotation started")
+	}
 
 	// 4. JWT 配置
 	jwtCfg := service.JWTConfig{

@@ -8,4 +8,7 @@ var Models = []interface{}{
 	Permission{},
 	RolePermission{},
 	PermissionGroup{},
+	File{},
+	Menu{},
+	RoleMenu{},
 }
