@@ -1,4 +1,4 @@
-package request
+package dto
 
 // ========== 角色请求参数 ==========
 

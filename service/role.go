@@ -5,14 +5,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 )
-		
 
 // GetAllRoles 获取角色列表（分页）
-func GetAllRoles(page, pageSize int) ([]request.RoleInfo, int64, error) {
+func GetAllRoles(page, pageSize int) ([]dto.RoleInfo, int64, error) {
 	var roles []model.Role
 	var total int64
 
@@ -21,9 +20,9 @@ func GetAllRoles(page, pageSize int) ([]request.RoleInfo, int64, error) {
 		return nil, 0, errors.New("查询角色列表失败")
 	}
 
-	list := make([]request.RoleInfo, len(roles))
+	list := make([]dto.RoleInfo, len(roles))
 	for i, r := range roles {
-		list[i] = request.RoleInfo{
+		list[i] = dto.RoleInfo{
 			ID:          r.ID,
 			Name:        r.Name,
 			Code:        r.Code,
@@ -36,7 +35,7 @@ func GetAllRoles(page, pageSize int) ([]request.RoleInfo, int64, error) {
 }
 
 // CreateRole 创建角色
-func CreateRole(req request.CreateRoleReq) (*request.RoleInfo, error) {
+func CreateRole(req dto.CreateRoleReq) (*dto.RoleInfo, error) {
 	var exist int64
 	global.DB.Model(&model.Role{}).Where("name = ? OR code = ?", req.Name, req.Code).Count(&exist)
 	if exist > 0 {
@@ -57,14 +56,14 @@ func CreateRole(req request.CreateRoleReq) (*request.RoleInfo, error) {
 		return nil, errors.New("创建角色失败: " + err.Error())
 	}
 
-	return &request.RoleInfo{
+	return &dto.RoleInfo{
 		ID: role.ID, Name: role.Name, Code: role.Code,
 		Description: role.Description, Sort: role.Sort, Status: role.Status,
 	}, nil
 }
 
 // UpdateRole 修改角色
-func UpdateRole(roleID uint, req request.UpdateRoleReq) (*request.RoleInfo, error) {
+func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -117,7 +116,7 @@ func UpdateRole(roleID uint, req request.UpdateRoleReq) (*request.RoleInfo, erro
 	}
 
 	global.DB.First(&role, roleID)
-	return &request.RoleInfo{
+	return &dto.RoleInfo{
 		ID: role.ID, Name: role.Name, Code: role.Code,
 		Description: role.Description, Sort: role.Sort, Status: role.Status,
 	}, nil
@@ -166,7 +165,7 @@ func AssignUsersToRole(roleID uint, userIDs []uint) error {
 }
 
 // GetRoleUsers 获取角色下的所有用户
-func GetRoleUsers(roleID uint) ([]request.UserInfo, error) {
+func GetRoleUsers(roleID uint) ([]dto.UserInfo, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		return nil, errors.New("角色不存在")
@@ -180,15 +179,15 @@ func GetRoleUsers(roleID uint) ([]request.UserInfo, error) {
 		userIDs[i] = ur.UserID
 	}
 	if len(userIDs) == 0 {
-		return []request.UserInfo{}, nil
+		return []dto.UserInfo{}, nil
 	}
 
 	var users []model.User
 	global.DB.Where("id IN ?", userIDs).Find(&users)
 
-	list := make([]request.UserInfo, len(users))
+	list := make([]dto.UserInfo, len(users))
 	for i, u := range users {
-		list[i] = request.UserInfo{
+		list[i] = dto.UserInfo{
 			ID: u.ID, Username: u.Username, Nickname: u.Nickname,
 			Avatar: u.Avatar, Email: u.Email, Role: u.Role, Status: u.Status,
 		}

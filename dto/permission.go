@@ -1,4 +1,4 @@
-package request
+package dto
 
 // ========== 权限请求参数 ==========
 

@@ -11,4 +11,8 @@ var Models = []interface{}{
 	File{},
 	Menu{},
 	RoleMenu{},
+	AuditLog{},
+	AuditLogArchive{},
+	DictType{},
+	DictItem{},
 }

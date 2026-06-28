@@ -62,9 +62,9 @@
 
 ## 字典管理
 
-- [ ] 字典类型列表/创建/修改/删除
-- [ ] 字典条目列表/创建/修改/删除
-- [ ] 按类型编码获取字典条目（前端下拉框）
+- [x] 字典类型列表/创建/修改/删除
+- [x] 字典条目列表/创建/修改/删除
+- [x] 按类型编码获取字典条目（前端下拉框）
 - [ ] 多语言字典
 
 ## 内部消息
@@ -78,11 +78,14 @@
 
 ## 操作日志
 
-- [ ] API调用日志（api-audit-logs）
-- [ ] 登录日志（login-audit-logs）
-- [ ] 操作日志（operation-audit-logs）
-- [ ] 权限变更日志（permission-audit-logs）
-- [ ] 数据访问日志（data-access-audit-logs）
+- [x] Zap运行日志模块
+- [x] API调用日志（api-audit-logs）
+- [x] 登录日志（login-audit-logs）
+- [x] 操作日志（operation-audit-logs）
+- [x] 权限变更日志（permission-audit-logs）
+- [x] 数据访问日志（data-access-audit-logs）
+- [x] 日志冷热归档策略
+- [ ] 日志按月分表策略
 
 ## 登录安全策略
 

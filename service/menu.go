@@ -5,13 +5,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 )
 
 // 创建菜单啊树
-func GetMenuTree() ([]request.MenuDetail, error) {
+func GetMenuTree() ([]dto.MenuDetail, error) {
 	var menus []model.Menu
 	// 根据ID升序查询
 	if err := global.DB.Order("sort asc, id asc").Find(&menus).Error; err != nil {
@@ -20,7 +20,7 @@ func GetMenuTree() ([]request.MenuDetail, error) {
 	return buildMenuTree(menus, 0), nil
 }
 
-func CreateMenu(req request.CreateMenuReq) (*request.MenuDetail, error) {
+func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 	if req.Path != "" {
 		var exist int64
 		global.DB.Model(&model.Menu{}).Where("path = ?", req.Path).Count(&exist)
@@ -45,7 +45,7 @@ func CreateMenu(req request.CreateMenuReq) (*request.MenuDetail, error) {
 	return toMenuDetail(menu), nil
 }
 
-func UpdateMenu(menuID uint, req request.UpdateMenuReq) (*request.MenuDetail, error) {
+func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 	var menu model.Menu
 	if err := global.DB.First(&menu, menuID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -138,7 +138,7 @@ func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 	return nil
 }
 
-func GetRoleMenus(roleID uint) ([]request.MenuDetail, error) {
+func GetRoleMenus(roleID uint) ([]dto.MenuDetail, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		return nil, errors.New("角色不存在")
@@ -147,7 +147,7 @@ func GetRoleMenus(roleID uint) ([]request.MenuDetail, error) {
 	var rms []model.RoleMenu
 	global.DB.Where("role_id = ?", roleID).Find(&rms)
 	if len(rms) == 0 {
-		return []request.MenuDetail{}, nil
+		return []dto.MenuDetail{}, nil
 	}
 
 	menuIDs := make([]uint, len(rms))
@@ -160,11 +160,11 @@ func GetRoleMenus(roleID uint) ([]request.MenuDetail, error) {
 	return buildMenuTree(menus, 0), nil
 }
 
-func GetUserMenus(userID uint) ([]request.MenuDetail, error) {
+func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 	var userRoles []model.UserRole
 	global.DB.Where("user_id = ?", userID).Find(&userRoles)
 	if len(userRoles) == 0 {
-		return []request.MenuDetail{}, nil
+		return []dto.MenuDetail{}, nil
 	}
 
 	roleIDs := make([]uint, len(userRoles))
@@ -175,7 +175,7 @@ func GetUserMenus(userID uint) ([]request.MenuDetail, error) {
 	var roleMenus []model.RoleMenu
 	global.DB.Where("role_id IN ?", roleIDs).Find(&roleMenus)
 	if len(roleMenus) == 0 {
-		return []request.MenuDetail{}, nil
+		return []dto.MenuDetail{}, nil
 	}
 
 	seen := map[uint]struct{}{}
@@ -193,7 +193,7 @@ func GetUserMenus(userID uint) ([]request.MenuDetail, error) {
 	return buildMenuTree(menus, 0), nil
 }
 
-func SyncMenus(routes []request.SyncMenuItem) (int, error) {
+func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 	created := 0
 	for _, route := range routes {
 		var exist int64

@@ -3,12 +3,13 @@ package initialize
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"admin/global"
+
+	"go.uber.org/zap"
 )
 
 func InitMinio(conf *Config) {
@@ -19,7 +20,7 @@ func InitMinio(conf *Config) {
 		Secure: false,
 	})
 	if err != nil {
-		log.Fatalf("MinIO connect failed: %v", err)
+		global.Logger.Fatal("minio connect failed", zap.Error(err))
 	}
 
 	ctx := context.Background()
@@ -31,9 +32,9 @@ func InitMinio(conf *Config) {
 		exists, _ := global.Minio.BucketExists(ctx, bucket)
 		if !exists {
 			if err := global.Minio.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
-				log.Fatalf("MinIO create bucket %s failed: %v", bucket, err)
+				global.Logger.Fatal("minio create bucket failed", zap.String("bucket", bucket), zap.Error(err))
 			}
-			log.Printf("MinIO bucket %s created", bucket)
+			global.Logger.Info("minio bucket created", zap.String("bucket", bucket))
 		}
 	}
 }

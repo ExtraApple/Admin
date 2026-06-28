@@ -70,13 +70,16 @@ var captchaDriver = base64Captcha.NewDriverDigit(80, 240, 6, 0.7, 80)
 // GenerateCaptcha 生成 6 位数字图片验证码。
 //
 // 流程:
+//
 //  1. 创建 Redis 存储实例（实现 base64Captcha.Store 接口）
+//
 //  2. 调用 base64Captcha 生成器产出图片 + 答案
+//
 //  3. 答案自动写入 Redis（key = "captcha:<id>"，5 分钟过期）
 //
-//	返回值 id:   验证码唯一标识（UUID，前端提交时回传）
-//	返回值 b64s: base64 编码的 PNG 图片（可直接放入 <img src>）
-//	返回值 err:  生成失败时非 nil（通常是字体/绘图异常）
+//     返回值 id:   验证码唯一标识（UUID，前端提交时回传）
+//     返回值 b64s: base64 编码的 PNG 图片（可直接放入 <img src>）
+//     返回值 err:  生成失败时非 nil（通常是字体/绘图异常）
 func GenerateCaptcha() (id string, b64s string, err error) {
 	store := &redisStore{}
 	c := base64Captcha.NewCaptcha(captchaDriver, store)
@@ -87,12 +90,14 @@ func GenerateCaptcha() (id string, b64s string, err error) {
 // VerifyCaptcha 校验验证码并立即删除（一次性消费）。
 //
 // 设计意图:
+//
 //   - 每个验证码只能使用一次，防止同一个 captcha_id 被重复提交
+//
 //   - 即使验证失败也会删除，防止暴力穷举
 //
-//	参数 id:     前端传回的 captcha_id
-//	参数 answer: 用户输入的 6 位数字
-//	返回值:      匹配成功返回 true
+//     参数 id:     前端传回的 captcha_id
+//     参数 answer: 用户输入的 6 位数字
+//     返回值:      匹配成功返回 true
 func VerifyCaptcha(id string, answer string) bool {
 	store := &redisStore{}
 	return store.Verify(id, answer, true)

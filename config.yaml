@@ -26,10 +26,25 @@ redis:
   password: ""
   db: 0
 
+logger:
+  level: "debug"
+  format: "console"
+  output: "logs/app.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true
+
 # 文件轮转配置
 file_rotation:
-  enabled: false
+  enabled: true
   days: 30
   hot_bucket: "files"
   cold_bucket: "files-archive"
   batch_size: 100
+
+# 审计日志冷热归档配置
+audit_log_archive:
+  enabled: true
+  retention_days: 90
+  batch_size: 1000

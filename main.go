@@ -4,27 +4,33 @@ import (
 	"fmt"
 	"time"
 
+	"admin/global"
 	"admin/initialize"
 	"admin/router"
 	"admin/service"
+
+	"go.uber.org/zap"
 )
 
 func main() {
 	// 1. 加载配置
 	conf := initialize.InitConfig()
-	fmt.Println("Config loaded")
+	initialize.InitLogger(conf)
+	defer global.Logger.Sync()
+
+	global.Logger.Info("config loaded")
 
 	// 2. 初始化 MySQL + 自动迁移
 	initialize.InitMysql(conf)
-	fmt.Println("MySQL initialized")
+	global.Logger.Info("mysql initialized")
 
 	// 3. 初始化 Redis
 	initialize.InitRedis(conf)
-	fmt.Println("Redis initialized")
+	global.Logger.Info("redis initialized")
 
 	// 3.5 初始化 MinIO
 	initialize.InitMinio(conf)
-	fmt.Println("MinIO initialized")
+	global.Logger.Info("minio initialized")
 
 	// 3.6 启动文件轮转定时任务
 	if conf.FileRotation.Enabled {
@@ -35,7 +41,20 @@ func main() {
 				service.RotateFiles(conf)
 			}
 		}()
-		fmt.Println("File rotation started")
+		global.Logger.Info("file rotation started")
+	}
+
+	// 3.7 启动审计日志冷热归档定时任务
+	if conf.AuditLogArchive.Enabled {
+		go func() {
+			service.ArchiveAuditLogs(conf)
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for range ticker.C {
+				service.ArchiveAuditLogs(conf)
+			}
+		}()
+		global.Logger.Info("audit log archive started")
 	}
 
 	// 4. JWT 配置
@@ -50,8 +69,8 @@ func main() {
 
 	// 6. 启动服务
 	addr := fmt.Sprintf(":%d", conf.Server.Port)
-	fmt.Printf("Server running at http://localhost%s\n", addr)
+	global.Logger.Info("server started", zap.String("addr", "http://localhost"+addr))
 	if err := r.Run(addr); err != nil {
-		panic(fmt.Sprintf("Server start failed: %v", err))
+		global.Logger.Fatal("server start failed", zap.Error(err))
 	}
 }

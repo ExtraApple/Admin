@@ -1,4 +1,4 @@
-package request
+package dto
 
 // ========== 文件请求参数 ==========
 
@@ -9,14 +9,14 @@ type UpdateFileReq struct {
 // ========== 文件响应 ==========
 
 type FileInfo struct {
-	ID         uint   `json:"id"`
-	Name       string `json:"name"`
-	Bucket     string `json:"bucket"`
-	ObjectName string `json:"object_name"`
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Bucket      string `json:"bucket"`
+	ObjectName  string `json:"object_name"`
 	ContentType string `json:"content_type"`
-	Size       int64  `json:"size"`
-	UploaderID uint   `json:"uploader_id"`
-	CreatedAt  string `json:"created_at"`
+	Size        int64  `json:"size"`
+	UploaderID  uint   `json:"uploader_id"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type FileListResp struct {

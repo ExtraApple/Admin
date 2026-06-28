@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"admin/request"
+	"admin/dto"
 	"admin/service"
 )
 
@@ -22,14 +22,14 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": request.RoleListResp{
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dto.RoleListResp{
 		List: list, Total: total, Page: page, Size: size,
 	}})
 }
 
 // CreateRole 创建角色
 func (h *RoleHandler) CreateRole(c *gin.Context) {
-	var req request.CreateRoleReq
+	var req dto.CreateRoleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -49,7 +49,7 @@ func (h *RoleHandler) UpdateRole(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.UpdateRoleReq
+	var req dto.UpdateRoleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -83,7 +83,7 @@ func (h *RoleHandler) AssignUsers(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.AssignUsersToRoleReq
+	var req dto.AssignUsersToRoleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return

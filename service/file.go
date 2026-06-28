@@ -7,20 +7,20 @@ import (
 
 	"gorm.io/gorm"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 	"admin/utils"
 )
 
 const fileBucket = "files"
 
 // UploadFile 上传文件，存入 MinIO 并在 files 表记录元数据
-func UploadFile(uploaderID uint, fileName, contentType string, size int64, reader io.Reader) (*request.FileInfo, error) {
+func UploadFile(uploaderID uint, fileName, contentType string, size int64, reader io.Reader) (*dto.FileInfo, error) {
 	if size > 50*1024*1024 {
 		return nil, errors.New("文件大小不能超过 50MB")
 	}
-	
+
 	ext := filepath.Ext(fileName)
 	objName, err := utils.UploadStream(fileBucket, "", ext, contentType, reader, size)
 	if err != nil {
@@ -44,7 +44,7 @@ func UploadFile(uploaderID uint, fileName, contentType string, size int64, reade
 }
 
 // GetFile 获取文件详情 + 预签名下载链接
-func GetFile(fileID uint) (*request.FileInfo, string, error) {
+func GetFile(fileID uint) (*dto.FileInfo, string, error) {
 	var file model.File
 	if err := global.DB.First(&file, fileID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -62,7 +62,7 @@ func GetFile(fileID uint) (*request.FileInfo, string, error) {
 }
 
 // ListFiles 获取文件列表（分页，支持按前缀筛选）
-func ListFiles(page, pageSize int, prefix string) ([]request.FileInfo, int64, error) {
+func ListFiles(page, pageSize int, prefix string) ([]dto.FileInfo, int64, error) {
 	var files []model.File
 	var total int64
 
@@ -75,7 +75,7 @@ func ListFiles(page, pageSize int, prefix string) ([]request.FileInfo, int64, er
 		return nil, 0, errors.New("查询文件列表失败")
 	}
 
-	list := make([]request.FileInfo, len(files))
+	list := make([]dto.FileInfo, len(files))
 	for i, f := range files {
 		list[i] = *toFileInfo(&f)
 	}
@@ -83,7 +83,7 @@ func ListFiles(page, pageSize int, prefix string) ([]request.FileInfo, int64, er
 }
 
 // UpdateFile 修改文件元信息（仅文件名）
-func UpdateFile(fileID uint, req request.UpdateFileReq) (*request.FileInfo, error) {
+func UpdateFile(fileID uint, req dto.UpdateFileReq) (*dto.FileInfo, error) {
 	var file model.File
 	if err := global.DB.First(&file, fileID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -122,8 +122,8 @@ func BrowseFiles(prefix string) ([]utils.FileInfo, error) {
 	return utils.ListFiles(fileBucket, prefix)
 }
 
-func toFileInfo(f *model.File) *request.FileInfo {
-	return &request.FileInfo{
+func toFileInfo(f *model.File) *dto.FileInfo {
+	return &dto.FileInfo{
 		ID:          f.ID,
 		Name:        f.Name,
 		Bucket:      f.Bucket,
@@ -134,4 +134,3 @@ func toFileInfo(f *model.File) *request.FileInfo {
 		CreatedAt:   f.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 }
-

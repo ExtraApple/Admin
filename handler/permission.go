@@ -6,11 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"admin/request"
+	"admin/dto"
 	"admin/service"
 )
 
-type PermissionHandler struct{
+type PermissionHandler struct {
 	Engine *gin.Engine
 }
 
@@ -23,13 +23,13 @@ func (h *PermissionHandler) ListPermissions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": request.PermissionListResp{
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dto.PermissionListResp{
 		List: list, Total: total, Page: page, Size: size,
 	}})
 }
 
 func (h *PermissionHandler) CreatePermission(c *gin.Context) {
-	var req request.CreatePermissionReq
+	var req dto.CreatePermissionReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -48,7 +48,7 @@ func (h *PermissionHandler) UpdatePermission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.UpdatePermissionReq
+	var req dto.UpdatePermissionReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -80,7 +80,7 @@ func (h *PermissionHandler) AssignPermissions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.AssignPermsToRoleReq
+	var req dto.AssignPermsToRoleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -146,13 +146,13 @@ func (h *PermissionHandler) ListPermGroups(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": request.PermGroupListResp{
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dto.PermGroupListResp{
 		List: list, Total: total, Page: page, Size: size,
 	}})
 }
 
 func (h *PermissionHandler) CreatePermGroup(c *gin.Context) {
-	var req request.CreatePermGroupReq
+	var req dto.CreatePermGroupReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -171,7 +171,7 @@ func (h *PermissionHandler) UpdatePermGroup(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.UpdatePermGroupReq
+	var req dto.UpdatePermGroupReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return

@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"admin/dto"
 	"admin/initialize"
-	"admin/request"
 	"admin/service"
 	"admin/utils"
 )
@@ -29,7 +29,7 @@ func toStringSlice(v any) []string {
 
 // Register 用户注册
 func (h *UserHandler) Register(c *gin.Context) {
-	var req request.RegisterReq
+	var req dto.RegisterReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -46,7 +46,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 // Login 用户登录
 func (h *UserHandler) Login(c *gin.Context) {
-	var req request.LoginReq
+	var req dto.LoginReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -63,7 +63,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 // UpdateSelf 修改自己的基础信息
 func (h *UserHandler) UpdateSelf(c *gin.Context) {
-	var req request.UpdateSelfReq
+	var req dto.UpdateSelfReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -80,7 +80,7 @@ func (h *UserHandler) UpdateSelf(c *gin.Context) {
 
 // ChangePassword 修改自己的密码
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	var req request.ChangePasswordReq
+	var req dto.ChangePasswordReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -161,7 +161,7 @@ func (h *UserHandler) InitialContext(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
-		"data": request.InitialContextResp{
+		"data": dto.InitialContextResp{
 			User:        *user,
 			Roles:       toStringSlice(roles),
 			Permissions: toStringSlice(permissions),

@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"admin/request"
+	"admin/dto"
 	"admin/service"
 )
 
@@ -22,7 +22,7 @@ func (h *MenuHandler) ListMenus(c *gin.Context) {
 }
 
 func (h *MenuHandler) CreateMenu(c *gin.Context) {
-	var req request.CreateMenuReq
+	var req dto.CreateMenuReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -42,7 +42,7 @@ func (h *MenuHandler) UpdateMenu(c *gin.Context) {
 		return
 	}
 
-	var req request.UpdateMenuReq
+	var req dto.UpdateMenuReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -75,7 +75,7 @@ func (h *MenuHandler) AssignRoleMenus(c *gin.Context) {
 		return
 	}
 
-	var req request.AssignMenusToRoleReq
+	var req dto.AssignMenusToRoleReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
@@ -102,7 +102,7 @@ func (h *MenuHandler) GetRoleMenus(c *gin.Context) {
 }
 
 func (h *MenuHandler) SyncMenus(c *gin.Context) {
-	var req request.SyncMenusReq
+	var req dto.SyncMenusReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return

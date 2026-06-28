@@ -1,11 +1,12 @@
 package initialize
 
-
 import (
-	"os"
 	"fmt"
+	"os"
+
 	"gopkg.in/yaml.v3"
 )
+
 type Config struct {
 	Server struct {
 		Port int
@@ -41,16 +42,32 @@ type Config struct {
 		ColdBucket string `yaml:"cold_bucket"`
 		BatchSize  int    `yaml:"batch_size"`
 	} `yaml:"file_rotation"`
+	Logger          LoggerConfig `yaml:"logger"`
+	AuditLogArchive struct {
+		Enabled       bool `yaml:"enabled"`
+		RetentionDays int  `yaml:"retention_days"`
+		BatchSize     int  `yaml:"batch_size"`
+	} `yaml:"audit_log_archive"`
+}
+
+type LoggerConfig struct {
+	Level      string `yaml:"level"`
+	Format     string `yaml:"format"`
+	Output     string `yaml:"output"`
+	MaxSize    int    `yaml:"max_size"`
+	MaxBackups int    `yaml:"max_backups"`
+	MaxAge     int    `yaml:"max_age"`
+	Compress   bool   `yaml:"compress"`
 }
 
 var conf Config
 
-func InitConfig() *Config{
+func InitConfig() *Config {
 	data, err := os.ReadFile("config.yaml")
 	if err != nil {
 		panic(fmt.Sprintf("read config file failed: %v", err))
 	}
-     if err := yaml.Unmarshal(data, &conf); err != nil {
+	if err := yaml.Unmarshal(data, &conf); err != nil {
 		panic(fmt.Sprintf("unmarshal config file failed: %v", err))
 	}
 	return &conf

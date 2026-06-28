@@ -3,15 +3,15 @@ package service
 import (
 	"errors"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 )
 
 // ========== 管理端 ==========
 
 // --- 获取用户列表 ---
-func GetAllUsers(page, pageSize int) ([]request.UserInfo, int64, error) {
+func GetAllUsers(page, pageSize int) ([]dto.UserInfo, int64, error) {
 	var users []model.User
 	var total int64
 
@@ -20,9 +20,9 @@ func GetAllUsers(page, pageSize int) ([]request.UserInfo, int64, error) {
 		return nil, 0, errors.New("查询用户列表失败")
 	}
 
-	list := make([]request.UserInfo, len(users))
+	list := make([]dto.UserInfo, len(users))
 	for i, u := range users {
-		list[i] = request.UserInfo{
+		list[i] = dto.UserInfo{
 			ID: u.ID, Username: u.Username, Nickname: u.Nickname,
 			Avatar: u.Avatar, Email: u.Email, Role: u.Role, Status: u.Status,
 		}
@@ -46,7 +46,7 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 }
 
 // --- 管理员修改用户 ---
-func UpdateUserByAdmin(operatorID, targetID uint, req request.AdminUpdateUserReq) (*request.UserInfo, error) {
+func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*dto.UserInfo, error) {
 	if operatorID == targetID {
 		return nil, errors.New("不能修改自己的信息（请使用普通用户修改接口）")
 	}
@@ -84,7 +84,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req request.AdminUpdateUserReq
 	}
 	// 刷新返回最新数据
 	global.DB.First(&target, targetID)
-	return &request.UserInfo{
+	return &dto.UserInfo{
 		ID: target.ID, Username: target.Username, Nickname: target.Nickname,
 		Avatar: target.Avatar, Email: target.Email, Role: target.Role, Status: target.Status,
 	}, nil

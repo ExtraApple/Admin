@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"admin/request"
+	"admin/dto"
 	"admin/service"
 )
 
@@ -14,7 +14,7 @@ type AdminUserHandler struct{}
 
 // ========== 管理端 ==========
 
-// --- 获取用户列表 ---		
+// --- 获取用户列表 ---
 func (h *AdminUserHandler) ListUsers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
@@ -24,7 +24,7 @@ func (h *AdminUserHandler) ListUsers(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": request.UserListResp{
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dto.UserListResp{
 		List: list, Total: total, Page: page, Size: size,
 	}})
 }
@@ -51,7 +51,7 @@ func (h *AdminUserHandler) UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.AdminUpdateUserReq
+	var req dto.AdminUpdateUserReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return

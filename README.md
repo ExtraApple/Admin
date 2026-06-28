@@ -17,3 +17,8 @@ Api地址：http://localhost:9000
 Web地址：http://localhost:9001/minio
 ```
 
+git status
+git add .
+git commit -m ""
+git pull --rebase origin main
+git push origin main

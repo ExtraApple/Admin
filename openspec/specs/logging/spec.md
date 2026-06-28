@@ -6,27 +6,81 @@
 
 ## Requirements
 
-### Requirement: 运行日志
-系统 SHALL 为服务启动、定时任务和运行错误提供运行日志。
+### Requirement: Zap 运行日志
+系统 SHALL 使用 Zap 作为运行日志核心，为服务启动、定时任务、HTTP 请求和运行错误提供运行日志。
+
+#### Scenario: 服务启动时初始化日志
+- **WHEN** 应用启动并读取配置成功
+- **THEN** 系统初始化全局 Zap logger
+- **AND** 后续初始化流程可以通过全局 logger 写入运行日志
+
+#### Scenario: 初始化失败
+- **WHEN** MySQL、Redis 或 MinIO 初始化失败
+- **THEN** 系统写入 error 或 fatal 级别运行日志
+- **AND** 失败日志 SHALL 包含错误对象
+
+#### Scenario: Gin 请求日志
+- **WHEN** HTTP 请求经过 Gin 路由
+- **THEN** 系统写入请求运行日志
+- **AND** 日志 SHALL 包含 method、path、status、latency、client_ip、user_agent
+- **AND** 日志 SHALL NOT 记录请求体、Authorization header、密码、验证码或 token
 
 #### Scenario: 文件轮转任务运行
 - **WHEN** 文件轮转任务启动、跳过、移动文件或遇到错误
-- **THEN** 系统写入描述执行结果的运行日志
+- **THEN** 系统通过 Zap 写入描述执行结果的运行日志
 
-### Requirement: Zap 日志模块文档边界
-项目 SHALL 在实现被确认前将 Zap 日志模块的设计说明保留在普通文档中，而不是把它当作已实现行为写入规格。
+### Requirement: API 审计日志
+系统 SHALL 自动记录 `/api/*` 请求到 `audit_logs` 表。
 
-#### Scenario: Zap 模块仅存在设计文档
-- **WHEN** Zap 日志仅作为实现说明或设计文档存在
-- **THEN** 相关细节保留在 `docs/`
-- **AND** OpenSpec 只记录已经确认的运行日志行为
+#### Scenario: 普通 API 请求被记录
+- **WHEN** 用户调用 `/api/*` 接口
+- **THEN** 系统记录 method、path、query、status、duration、client_ip、user_agent、created_at
+- **AND** 如果请求上下文中存在 userID，系统记录 user_id
 
-### Requirement: 审计日志待办边界
-系统 SHALL 将 API 调用日志、登录日志、操作日志、权限变更日志和数据访问日志视为待实现能力，直到通过 OpenSpec change 完成设计和实现。
+#### Scenario: 请求体脱敏
+- **WHEN** 请求体为 JSON 且包含密码、token 或验证码字段
+- **THEN** 系统将敏感字段值记录为 `***`
 
-#### Scenario: 开始实现审计日志
-- **WHEN** 开始处理审计日志需求
-- **THEN** 必须先在 `openspec/changes/` 下创建 change
-- **AND** change 中必须定义记录动作、字段、保留策略、查询接口、权限和敏感数据处理方式
+#### Scenario: multipart 请求
+- **WHEN** 请求 Content-Type 为 `multipart/form-data`
+- **THEN** 系统 SHALL NOT 读取或记录文件内容
+
+### Requirement: 审计日志查询
+系统 SHALL 为管理员提供审计日志查询接口。
+
+#### Scenario: 查询全部 API 日志
+- **WHEN** 管理员请求 `GET /api/admin/audit-logs`
+- **THEN** 系统分页返回审计日志
+
+#### Scenario: 查询登录日志
+- **WHEN** 管理员请求 `GET /api/admin/login-logs`
+- **THEN** 系统返回 category 为 `login` 的审计日志
+
+#### Scenario: 查询操作日志
+- **WHEN** 管理员请求 `GET /api/admin/operation-logs`
+- **THEN** 系统返回 category 为 `operation` 或 `permission` 的审计日志
+
+#### Scenario: 查询权限变更日志
+- **WHEN** 管理员请求 `GET /api/admin/permission-logs`
+- **THEN** 系统返回 category 为 `permission` 的审计日志
+- **AND** GET 查询类角色、权限、菜单接口 SHALL NOT 归类为 `permission`
+- **AND** 只有权限、菜单、角色绑定关系相关写操作 SHALL 归类为 `permission`
+
+#### Scenario: 查询数据访问日志
+- **WHEN** 管理员请求 `GET /api/admin/data-access-logs`
+- **THEN** 系统返回 category 为 `data_access` 的审计日志
+
+### Requirement: 审计日志冷热归档
+系统 SHALL 支持将超过保留天数的审计日志从热表归档到冷表。
+
+#### Scenario: 归档任务未启用
+- **WHEN** `audit_log_archive.enabled` 为 false
+- **THEN** 系统 SHALL NOT 启动审计日志归档任务
+
+#### Scenario: 归档过期日志
+- **WHEN** `audit_log_archive.enabled` 为 true
+- **AND** `audit_logs` 中存在早于 `retention_days` 的记录
+- **THEN** 系统按 `batch_size` 批量复制记录到 `audit_log_archives`
+- **AND** 只有复制成功后才删除 `audit_logs` 中对应记录
 
 

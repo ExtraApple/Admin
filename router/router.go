@@ -12,7 +12,8 @@ import (
 )
 
 func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery(), middleware.ZapLogger())
 
 	// ========== 全局中间件 ==========
 	r.Use(cors.New(cors.Config{
@@ -32,6 +33,8 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	permHandler := &handler.PermissionHandler{Engine: r}
 	fileHandler := &handler.FileHandler{}
 	menuHandler := &handler.MenuHandler{}
+	auditLogHandler := &handler.AuditLogHandler{}
+	dictHandler := &handler.DictHandler{}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
 	requireAdmin := middleware.HasRole("admin")
 
@@ -41,6 +44,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	})
 
 	api := r.Group("/api")
+	api.Use(middleware.AuditLog())
 	{
 		// --- 验证码 ---
 		api.GET("/captcha", captchaHandler.Generate)
@@ -48,6 +52,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 		// --- 公开路由 ---
 		api.POST("/register", userHandler.Register)
 		api.POST("/login", userHandler.Login)
+		api.GET("/dicts/:type_code/items", dictHandler.ListEnabledItemsByTypeCode)
 
 		// --- 需认证路由 ---
 		user := api.Group("/user").Use(auth)
@@ -107,6 +112,23 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.POST("/menus/sync", menuHandler.SyncMenus)
 			admin.POST("/roles/:id/menus", menuHandler.AssignRoleMenus)
 			admin.GET("/roles/:id/menus", menuHandler.GetRoleMenus)
+
+			// 审计日志
+			admin.GET("/audit-logs", auditLogHandler.ListAuditLogs)
+			admin.GET("/login-logs", auditLogHandler.ListLoginLogs)
+			admin.GET("/operation-logs", auditLogHandler.ListOperationLogs)
+			admin.GET("/permission-logs", auditLogHandler.ListPermissionLogs)
+			admin.GET("/data-access-logs", auditLogHandler.ListDataAccessLogs)
+
+			// 字典管理
+			admin.GET("/dict-types", dictHandler.ListDictTypes)
+			admin.POST("/dict-types", dictHandler.CreateDictType)
+			admin.PUT("/dict-types/:id", dictHandler.UpdateDictType)
+			admin.DELETE("/dict-types/:id", dictHandler.DeleteDictType)
+			admin.GET("/dict-items", dictHandler.ListDictItems)
+			admin.POST("/dict-items", dictHandler.CreateDictItem)
+			admin.PUT("/dict-items/:id", dictHandler.UpdateDictItem)
+			admin.DELETE("/dict-items/:id", dictHandler.DeleteDictItem)
 		}
 	}
 

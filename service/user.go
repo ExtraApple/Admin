@@ -9,9 +9,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 	"admin/utils"
 )
 
@@ -22,7 +22,7 @@ type JWTConfig struct {
 }
 
 // Register 用户注册
-func Register(req request.RegisterReq) (*request.UserInfo, error) {
+func Register(req dto.RegisterReq) (*dto.UserInfo, error) {
 	// 校验验证码
 	if !VerifyCaptcha(req.CaptchaID, req.CaptchaCode) {
 		return nil, errors.New("验证码错误或已过期")
@@ -58,7 +58,7 @@ func Register(req request.RegisterReq) (*request.UserInfo, error) {
 		return nil, errors.New("创建用户失败: " + err.Error())
 	}
 
-	return &request.UserInfo{
+	return &dto.UserInfo{
 		ID:       user.ID,
 		Username: user.Username,
 		Nickname: user.Nickname,
@@ -69,7 +69,7 @@ func Register(req request.RegisterReq) (*request.UserInfo, error) {
 }
 
 // Login 用户登录
-func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
+func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 	// 校验验证码
 	if !VerifyCaptcha(req.CaptchaID, req.CaptchaCode) {
 		return nil, errors.New("验证码错误或已过期")
@@ -128,10 +128,10 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 		return nil, errors.New("生成 Token 失败: " + err.Error())
 	}
 
-	return &request.LoginResp{
+	return &dto.LoginResp{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		User: request.UserInfo{
+		User: dto.UserInfo{
 			ID:       user.ID,
 			Username: user.Username,
 			Nickname: user.Nickname,
@@ -144,7 +144,7 @@ func Login(req request.LoginReq, cfg JWTConfig) (*request.LoginResp, error) {
 }
 
 // UpdateSelf 普通用户修改自己的基础信息（不可改密码、用户名、角色）
-func UpdateSelf(userID uint, req request.UpdateSelfReq) (*request.UserInfo, error) {
+func UpdateSelf(userID uint, req dto.UpdateSelfReq) (*dto.UserInfo, error) {
 	updates := map[string]any{}
 	if req.Nickname != "" {
 		updates["nickname"] = req.Nickname
@@ -170,7 +170,7 @@ func UpdateSelf(userID uint, req request.UpdateSelfReq) (*request.UserInfo, erro
 }
 
 // ChangePassword 修改自己的密码（需验证旧密码 + 两次新密码一致 + 复杂度）
-func ChangePassword(userID uint, req request.ChangePasswordReq) error {
+func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 	if req.NewPassword != req.ConfirmPassword {
 		return errors.New("两次输入的新密码不一致")
 	}
@@ -197,7 +197,7 @@ func ChangePassword(userID uint, req request.ChangePasswordReq) error {
 }
 
 // SetAvatar 设置/更新用户头像 URL
-func SetAvatar(userID uint, avatarURL string) (*request.UserInfo, error) {
+func SetAvatar(userID uint, avatarURL string) (*dto.UserInfo, error) {
 	if err := global.DB.Model(&model.User{}).Where("id = ?", userID).Update("avatar", avatarURL).Error; err != nil {
 		return nil, errors.New("头像更新失败")
 	}
@@ -205,7 +205,7 @@ func SetAvatar(userID uint, avatarURL string) (*request.UserInfo, error) {
 }
 
 // GetUserInfo 通过 ID 查询用户（脱敏）
-func GetUserInfo(userID uint) (*request.UserInfo, error) {
+func GetUserInfo(userID uint) (*dto.UserInfo, error) {
 	var user model.User
 	if err := global.DB.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -214,7 +214,7 @@ func GetUserInfo(userID uint) (*request.UserInfo, error) {
 		return nil, errors.New("查询用户失败: " + err.Error())
 	}
 
-	return &request.UserInfo{
+	return &dto.UserInfo{
 		ID:       user.ID,
 		Username: user.Username,
 		Nickname: user.Nickname,

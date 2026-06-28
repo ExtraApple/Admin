@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"admin/request"
+	"admin/dto"
 	"admin/service"
 )
 
@@ -65,7 +65,7 @@ func (h *FileHandler) ListFiles(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": request.FileListResp{
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dto.FileListResp{
 		List: list, Total: total, Page: page, Size: size,
 	}})
 }
@@ -77,7 +77,7 @@ func (h *FileHandler) UpdateFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	var req request.UpdateFileReq
+	var req dto.UpdateFileReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return

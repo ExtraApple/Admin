@@ -1,12 +1,12 @@
 package service
 
 import (
+	"admin/dto"
 	"admin/model"
-	"admin/request"
 )
 
-func buildMenuTree(menus []model.Menu, parentID uint) []request.MenuDetail {
-	tree := []request.MenuDetail{}
+func buildMenuTree(menus []model.Menu, parentID uint) []dto.MenuDetail {
+	tree := []dto.MenuDetail{}
 	for _, menu := range menus {
 		if menu.ParentID != parentID {
 			continue
@@ -19,8 +19,8 @@ func buildMenuTree(menus []model.Menu, parentID uint) []request.MenuDetail {
 	return tree
 }
 
-func toMenuDetail(menu model.Menu) *request.MenuDetail {
-	return &request.MenuDetail{
+func toMenuDetail(menu model.Menu) *dto.MenuDetail {
+	return &dto.MenuDetail{
 		ID:        menu.ID,
 		ParentID:  menu.ParentID,
 		Name:      menu.Name,

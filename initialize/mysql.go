@@ -2,13 +2,14 @@ package initialize
 
 import (
 	"fmt"
-	"log"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
 	"admin/global"
 	"admin/model"
+
+	"go.uber.org/zap"
 )
 
 func InitMysql(conf *Config) {
@@ -23,11 +24,11 @@ func InitMysql(conf *Config) {
 	var err error
 	global.DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Open mysql failed: %v", err)
+		global.Logger.Fatal("open mysql failed", zap.Error(err))
 	}
 
 	// 自动迁移 — 自动识别 model 包注册表中的所有模型
 	if err := global.DB.AutoMigrate(model.Models...); err != nil {
-		log.Fatalf("AutoMigrate failed: %v", err)
+		global.Logger.Fatal("auto migrate failed", zap.Error(err))
 	}
 }

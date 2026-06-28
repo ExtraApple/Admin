@@ -5,12 +5,12 @@ import (
 
 	"gorm.io/gorm"
 
+	"admin/dto"
 	"admin/global"
 	"admin/model"
-	"admin/request"
 )
 
-func GetAllPermissions(page, pageSize int) ([]request.PermissionInfo, int64, error) {
+func GetAllPermissions(page, pageSize int) ([]dto.PermissionInfo, int64, error) {
 	var perms []model.Permission
 	var total int64
 
@@ -19,16 +19,16 @@ func GetAllPermissions(page, pageSize int) ([]request.PermissionInfo, int64, err
 		return nil, 0, errors.New("查询权限列表失败")
 	}
 
-	list := make([]request.PermissionInfo, len(perms))
+	list := make([]dto.PermissionInfo, len(perms))
 	for i, p := range perms {
-		list[i] = request.PermissionInfo{
+		list[i] = dto.PermissionInfo{
 			ID: p.ID, Name: p.Name, Code: p.Code, Group: p.Group, Sort: p.Sort,
 		}
 	}
 	return list, total, nil
 }
 
-func CreatePermission(req request.CreatePermissionReq) (*request.PermissionInfo, error) {
+func CreatePermission(req dto.CreatePermissionReq) (*dto.PermissionInfo, error) {
 	var exist int64
 	global.DB.Model(&model.Permission{}).Where("code = ?", req.Code).Count(&exist)
 	if exist > 0 {
@@ -41,12 +41,12 @@ func CreatePermission(req request.CreatePermissionReq) (*request.PermissionInfo,
 	if err := global.DB.Create(&p).Error; err != nil {
 		return nil, errors.New("创建权限失败: " + err.Error())
 	}
-	return &request.PermissionInfo{
+	return &dto.PermissionInfo{
 		ID: p.ID, Name: p.Name, Code: p.Code, Group: p.Group, Sort: p.Sort,
 	}, nil
 }
 
-func UpdatePermission(permID uint, req request.UpdatePermissionReq) (*request.PermissionInfo, error) {
+func UpdatePermission(permID uint, req dto.UpdatePermissionReq) (*dto.PermissionInfo, error) {
 	var p model.Permission
 	if err := global.DB.First(&p, permID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -74,7 +74,7 @@ func UpdatePermission(permID uint, req request.UpdatePermissionReq) (*request.Pe
 	}
 
 	global.DB.First(&p, permID)
-	return &request.PermissionInfo{
+	return &dto.PermissionInfo{
 		ID: p.ID, Name: p.Name, Code: p.Code, Group: p.Group, Sort: p.Sort,
 	}, nil
 }
@@ -110,7 +110,7 @@ func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 	return nil
 }
 
-func GetRolePermissions(roleID uint) ([]request.PermissionInfo, error) {
+func GetRolePermissions(roleID uint) ([]dto.PermissionInfo, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		return nil, errors.New("角色不存在")
@@ -119,7 +119,7 @@ func GetRolePermissions(roleID uint) ([]request.PermissionInfo, error) {
 	var rps []model.RolePermission
 	global.DB.Where("role_id = ?", roleID).Find(&rps)
 	if len(rps) == 0 {
-		return []request.PermissionInfo{}, nil
+		return []dto.PermissionInfo{}, nil
 	}
 
 	permIDs := make([]uint, len(rps))
@@ -129,9 +129,9 @@ func GetRolePermissions(roleID uint) ([]request.PermissionInfo, error) {
 	var perms []model.Permission
 	global.DB.Where("id IN ?", permIDs).Order("sort asc").Find(&perms)
 
-	list := make([]request.PermissionInfo, len(perms))
+	list := make([]dto.PermissionInfo, len(perms))
 	for i, p := range perms {
-		list[i] = request.PermissionInfo{
+		list[i] = dto.PermissionInfo{
 			ID: p.ID, Name: p.Name, Code: p.Code, Group: p.Group, Sort: p.Sort,
 		}
 	}
@@ -226,7 +226,7 @@ func SyncPermissions(routes []map[string]string) ([]string, error) {
 
 // ========== 权限分组 CRUD ==========
 
-func GetAllPermGroups(page, pageSize int) ([]request.PermGroupInfo, int64, error) {
+func GetAllPermGroups(page, pageSize int) ([]dto.PermGroupInfo, int64, error) {
 	var groups []model.PermissionGroup
 	var total int64
 
@@ -235,14 +235,14 @@ func GetAllPermGroups(page, pageSize int) ([]request.PermGroupInfo, int64, error
 		return nil, 0, errors.New("查询权限分组列表失败")
 	}
 
-	list := make([]request.PermGroupInfo, len(groups))
+	list := make([]dto.PermGroupInfo, len(groups))
 	for i, g := range groups {
-		list[i] = request.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}
+		list[i] = dto.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}
 	}
 	return list, total, nil
 }
 
-func CreatePermGroup(req request.CreatePermGroupReq) (*request.PermGroupInfo, error) {
+func CreatePermGroup(req dto.CreatePermGroupReq) (*dto.PermGroupInfo, error) {
 	var exist int64
 	global.DB.Model(&model.PermissionGroup{}).Where("name = ?", req.Name).Count(&exist)
 	if exist > 0 {
@@ -253,10 +253,10 @@ func CreatePermGroup(req request.CreatePermGroupReq) (*request.PermGroupInfo, er
 	if err := global.DB.Create(&g).Error; err != nil {
 		return nil, errors.New("创建权限分组失败: " + err.Error())
 	}
-	return &request.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
+	return &dto.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
 }
 
-func UpdatePermGroup(groupID uint, req request.UpdatePermGroupReq) (*request.PermGroupInfo, error) {
+func UpdatePermGroup(groupID uint, req dto.UpdatePermGroupReq) (*dto.PermGroupInfo, error) {
 	var g model.PermissionGroup
 	if err := global.DB.First(&g, groupID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -281,7 +281,7 @@ func UpdatePermGroup(groupID uint, req request.UpdatePermGroupReq) (*request.Per
 	}
 
 	global.DB.First(&g, groupID)
-	return &request.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
+	return &dto.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
 }
 
 func DeletePermGroup(groupID uint) error {

@@ -1,5 +1,4 @@
-package request
-
+package dto
 
 type CreateMenuReq struct {
 	ParentID  uint   `json:"parent_id"`

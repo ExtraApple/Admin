@@ -1,19 +1,20 @@
 package service
 
 import (
-	"log"
 	"time"
 
 	"admin/global"
 	"admin/initialize"
 	"admin/model"
 	"admin/utils"
+
+	"go.uber.org/zap"
 )
 
 // RotateFiles 轮转过期文件：热存储 → 冷存储
 func RotateFiles(conf *initialize.Config) {
 	if !conf.FileRotation.Enabled {
-		log.Println("[FileRotation] 未启用，跳过")
+		global.Logger.Info("file rotation skipped")
 		return
 	}
 
@@ -33,28 +34,38 @@ func RotateFiles(conf *initialize.Config) {
 		Limit(batch).Find(&files)
 
 	if result.Error != nil {
-		log.Printf("[FileRotation] 查询失败: %v", result.Error)
+		global.Logger.Error("file rotation query failed", zap.Error(result.Error))
 		return
 	}
 
 	if len(files) == 0 {
-		log.Println("[FileRotation] 无需要轮转的文件")
+		global.Logger.Info("file rotation no files")
 		return
 	}
 
-	log.Printf("[FileRotation] 开始轮转 %d 个文件 (%s → %s)", len(files), hot, cold)
+	global.Logger.Info("file rotation started",
+		zap.Int("count", len(files)),
+		zap.String("hot_bucket", hot),
+		zap.String("cold_bucket", cold),
+	)
 
 	success := 0
 	for _, f := range files {
 		// 移动文件
 		if err := utils.MoveFile(hot, cold, f.ObjectName); err != nil {
-			log.Printf("[FileRotation] 移动失败 [%s]: %v", f.ObjectName, err)
+			global.Logger.Error("file rotation move failed",
+				zap.String("object_name", f.ObjectName),
+				zap.Error(err),
+			)
 			continue
 		}
 
 		// 更新数据库记录
 		if err := global.DB.Model(&f).Update("bucket", cold).Error; err != nil {
-			log.Printf("[FileRotation] 更新数据库失败 [%s]: %v", f.ObjectName, err)
+			global.Logger.Error("file rotation db update failed",
+				zap.String("object_name", f.ObjectName),
+				zap.Error(err),
+			)
 			// 尝试回滚：移回热存储
 			utils.MoveFile(cold, hot, f.ObjectName)
 			continue
@@ -63,5 +74,8 @@ func RotateFiles(conf *initialize.Config) {
 		success++
 	}
 
-	log.Printf("[FileRotation] 完成：成功 %d/%d", success, len(files))
+	global.Logger.Info("file rotation finished",
+		zap.Int("success", success),
+		zap.Int("total", len(files)),
+	)
 }

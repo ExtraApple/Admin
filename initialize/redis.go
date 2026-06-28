@@ -3,12 +3,13 @@ package initialize
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"admin/global"
+
+	"go.uber.org/zap"
 )
 
 func InitRedis(conf *Config) {
@@ -22,6 +23,6 @@ func InitRedis(conf *Config) {
 	defer cancel()
 
 	if err := global.Redis.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Redis connect failed: %v", err)
+		global.Logger.Fatal("redis connect failed", zap.Error(err))
 	}
 }
