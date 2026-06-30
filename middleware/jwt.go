@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"admin/global"
+	"admin/service"
 	"admin/utils"
 )
 
@@ -37,6 +38,10 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		exist, _ := global.Redis.Exists(context.Background(), "blacklist:"+tokenStr).Result()
 		if exist > 0 {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Token 已失效"})
+			return
+		}
+		if err := service.IsTokenVersionValid(claims.UserID, claims.TokenVersion); err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": err.Error()})
 			return
 		}
 

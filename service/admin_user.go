@@ -39,7 +39,7 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return errors.New("用户不存在")
 	}
-	if user.Role == "admin" {
+	if isAdminUser(user) {
 		return errors.New("不能删除其他管理员")
 	}
 	return global.DB.Delete(&user).Error
@@ -54,7 +54,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	if err := global.DB.First(&target, targetID).Error; err != nil {
 		return nil, errors.New("用户不存在")
 	}
-	if target.Role == "admin" {
+	if isAdminUser(target) {
 		return nil, errors.New("不能修改其他管理员")
 	}
 
@@ -82,6 +82,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	if err := global.DB.Model(&target).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改失败")
 	}
+	bumpUserTokenVersion(targetID)
 	// 刷新返回最新数据
 	global.DB.First(&target, targetID)
 	return &dto.UserInfo{
@@ -99,7 +100,7 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return 0, errors.New("用户不存在")
 	}
-	if user.Role == "admin" {
+	if isAdminUser(user) {
 		return 0, errors.New("不能操作其他管理员")
 	}
 	newStatus := 1
@@ -109,5 +110,24 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if err := global.DB.Model(&user).Update("status", newStatus).Error; err != nil {
 		return 0, errors.New("操作失败")
 	}
+	bumpUserTokenVersion(targetID)
 	return newStatus, nil
+}
+
+// --- 强制用户下线 ---
+func KickUserByAdmin(operatorID, targetID uint) error {
+	if operatorID == targetID {
+		return errors.New("不能强制下线自己")
+	}
+
+	var user model.User
+	if err := global.DB.First(&user, targetID).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+	if isAdminUser(user) {
+		return errors.New("不能强制下线其他管理员")
+	}
+
+	bumpUserTokenVersion(targetID)
+	return nil
 }

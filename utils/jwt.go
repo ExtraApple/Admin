@@ -8,21 +8,23 @@ import (
 )
 
 type Claims struct {
-	UserID      uint     `json:"user_id"`
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
+	UserID       uint     `json:"user_id"`
+	TokenVersion int      `json:"token_version"`
+	Roles        []string `json:"roles"`
+	Permissions  []string `json:"permissions"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken 生成 access token（短期）和 refresh token（长期）
-func GenerateToken(userID uint, roles, permissions []string, secret string, expireMins int, refreshExpireMins int) (string, string, error) {
+func GenerateToken(userID uint, tokenVersion int, roles, permissions []string, secret string, expireMins int, refreshExpireMins int) (string, string, error) {
 	now := time.Now()
 
 	// Access Token
 	accessClaims := Claims{
-		UserID:      userID,
-		Roles:       roles,
-		Permissions: permissions,
+		UserID:       userID,
+		TokenVersion: tokenVersion,
+		Roles:        roles,
+		Permissions:  permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(expireMins) * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -35,9 +37,10 @@ func GenerateToken(userID uint, roles, permissions []string, secret string, expi
 
 	// Refresh Token
 	refreshClaims := Claims{
-		UserID:      userID,
-		Roles:       roles,
-		Permissions: permissions,
+		UserID:       userID,
+		TokenVersion: tokenVersion,
+		Roles:        roles,
+		Permissions:  permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(refreshExpireMins) * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(now),

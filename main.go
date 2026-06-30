@@ -25,6 +25,10 @@ func main() {
 	initialize.InitMysql(conf)
 	global.Logger.Info("mysql initialized")
 
+	// 2.5 初始化超级管理员
+	initialize.InitSuperAdmin(conf)
+	global.Logger.Info("super admin checked")
+
 	// 3. 初始化 Redis
 	initialize.InitRedis(conf)
 	global.Logger.Info("redis initialized")

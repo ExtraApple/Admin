@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -23,27 +24,30 @@ func GetMenuTree() ([]dto.MenuDetail, error) {
 
 // CreateMenu 创建菜单节点，并校验路径唯一性和默认类型/状态。
 func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
-	if req.Path != "" {
+	path := normalizeMenuPath(req.Path)
+	if path != nil {
 		var exist int64
-		global.DB.Model(&model.Menu{}).Where("path = ?", req.Path).Count(&exist)
+		global.DB.Model(&model.Menu{}).Where("path = ?", *path).Count(&exist)
 		if exist > 0 {
 			return nil, errors.New("菜单路径已存在")
 		}
 	}
 
 	menu := model.Menu{
-		ParentID:  req.ParentID,
-		Name:      req.Name,
-		Path:      req.Path,
-		Component: req.Component,
-		Icon:      req.Icon,
-		Sort:      req.Sort,
-		Type:      defaultMenuType(req.Type),
-		Status:    defaultMenuStatus(req.Status),
+		ParentID:       req.ParentID,
+		Name:           req.Name,
+		Path:           path,
+		Component:      req.Component,
+		Icon:           req.Icon,
+		PermissionCode: strings.TrimSpace(req.PermissionCode),
+		Sort:           req.Sort,
+		Type:           defaultMenuType(req.Type),
+		Status:         defaultMenuStatus(req.Status),
 	}
 	if err := global.DB.Create(&menu).Error; err != nil {
 		return nil, errors.New("创建菜单失败: " + err.Error())
 	}
+	bumpAllUsersTokenVersion()
 	return toMenuDetail(menu), nil
 }
 
@@ -68,18 +72,22 @@ func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 		updates["name"] = req.Name
 	}
 	if req.Path != "" {
+		path := normalizeMenuPath(req.Path)
 		var exist int64
-		global.DB.Model(&model.Menu{}).Where("id != ? AND path = ?", menuID, req.Path).Count(&exist)
+		global.DB.Model(&model.Menu{}).Where("id != ? AND path = ?", menuID, *path).Count(&exist)
 		if exist > 0 {
 			return nil, errors.New("菜单路径已存在")
 		}
-		updates["path"] = req.Path
+		updates["path"] = path
 	}
 	if req.Component != "" {
 		updates["component"] = req.Component
 	}
 	if req.Icon != "" {
 		updates["icon"] = req.Icon
+	}
+	if req.PermissionCode != nil {
+		updates["permission_code"] = strings.TrimSpace(*req.PermissionCode)
 	}
 	if req.Sort != nil {
 		updates["sort"] = *req.Sort
@@ -97,6 +105,7 @@ func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 	if err := global.DB.Model(&menu).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改菜单失败")
 	}
+	bumpAllUsersTokenVersion()
 	global.DB.First(&menu, menuID)
 	return toMenuDetail(menu), nil
 }
@@ -118,7 +127,11 @@ func DeleteMenu(menuID uint) error {
 	}
 
 	global.DB.Where("menu_id = ?", menuID).Delete(&model.RoleMenu{})
-	return global.DB.Unscoped().Delete(&menu).Error
+	if err := global.DB.Unscoped().Delete(&menu).Error; err != nil {
+		return err
+	}
+	bumpAllUsersTokenVersion()
+	return nil
 }
 
 // AssignMenusToRole 为角色全量替换菜单授权列表。
@@ -135,11 +148,13 @@ func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 		records = append(records, model.RoleMenu{RoleID: roleID, MenuID: menuID})
 	}
 	if len(records) == 0 {
+		bumpUsersTokenVersionByRole(roleID)
 		return nil
 	}
 	if err := global.DB.Create(&records).Error; err != nil {
 		return errors.New("分配菜单失败: " + err.Error())
 	}
+	bumpUsersTokenVersionByRole(roleID)
 	return nil
 }
 
@@ -179,6 +194,14 @@ func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 		roleIDs[i] = ur.RoleID
 	}
 
+	var roles []model.Role
+	global.DB.Where("id IN ? AND status = 1", roleIDs).Find(&roles)
+	if hasRoleCode(roles, "admin") {
+		var menus []model.Menu
+		global.DB.Where("status = 1").Order("sort asc, id asc").Find(&menus)
+		return buildMenuTree(menus, 0), nil
+	}
+
 	var roleMenus []model.RoleMenu
 	global.DB.Where("role_id IN ?", roleIDs).Find(&roleMenus)
 	if len(roleMenus) == 0 {
@@ -197,7 +220,7 @@ func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 
 	var menus []model.Menu
 	global.DB.Where("id IN ? AND status = 1", menuIDs).Order("sort asc, id asc").Find(&menus)
-	return buildMenuTree(menus, 0), nil
+	return buildMenuTree(filterMenusByPermissions(menus, GetUserPermissions(userID)), 0), nil
 }
 
 // SyncMenus 根据前端路由元数据创建不存在的菜单记录。
@@ -205,7 +228,12 @@ func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 	created := 0
 	for _, route := range routes {
 		var exist int64
-		global.DB.Model(&model.Menu{}).Where("path = ?", route.Path).Count(&exist)
+		path := normalizeMenuPath(route.Path)
+		if path == nil {
+			continue
+		}
+
+		global.DB.Model(&model.Menu{}).Where("path = ?", *path).Count(&exist)
 		if exist > 0 {
 			continue
 		}
@@ -219,19 +247,23 @@ func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 		}
 
 		menu := model.Menu{
-			ParentID:  parentID,
-			Name:      route.Name,
-			Path:      route.Path,
-			Component: route.Component,
-			Icon:      route.Icon,
-			Sort:      route.Sort,
-			Type:      defaultMenuType(route.Type),
-			Status:    1,
+			ParentID:       parentID,
+			Name:           route.Name,
+			Path:           path,
+			Component:      route.Component,
+			Icon:           route.Icon,
+			PermissionCode: strings.TrimSpace(route.PermissionCode),
+			Sort:           route.Sort,
+			Type:           defaultMenuType(route.Type),
+			Status:         1,
 		}
 		if err := global.DB.Create(&menu).Error; err != nil {
 			return created, errors.New("同步菜单失败: " + err.Error())
 		}
 		created++
+	}
+	if created > 0 {
+		bumpAllUsersTokenVersion()
 	}
 	return created, nil
 }

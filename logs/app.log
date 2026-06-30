@@ -105,3 +105,27 @@
 2026-06-30T10:46:24.477+0800	[33mWARN[0m	middleware/zap_logger.go:42	http request	{"method": "DELETE", "path": "/api/admin/organizations/1", "query": "", "status": 400, "latency": "2.9115ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
 2026-06-30T10:46:28.437+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "DELETE", "path": "/api/admin/organizations/2", "query": "", "status": 200, "latency": "5.7767ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
 2026-06-30T10:46:31.092+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "DELETE", "path": "/api/admin/organizations/1", "query": "", "status": 200, "latency": "5.3833ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
+2026-06-30T15:59:28.901+0800	[34mINFO[0m	initialize/logger.go:34	logger initialized	{"level": "debug", "format": "console", "output": "logs/app.log"}
+2026-06-30T15:59:28.908+0800	[34mINFO[0m	admin/main.go:22	config loaded
+2026-06-30T15:59:29.041+0800	[34mINFO[0m	admin/main.go:26	mysql initialized
+2026-06-30T15:59:29.049+0800	[34mINFO[0m	admin/main.go:30	redis initialized
+2026-06-30T15:59:29.057+0800	[34mINFO[0m	admin/main.go:34	minio initialized
+2026-06-30T15:59:29.057+0800	[34mINFO[0m	admin/main.go:45	file rotation started
+2026-06-30T15:59:29.057+0800	[34mINFO[0m	admin/main.go:58	audit log archive started
+2026-06-30T15:59:29.057+0800	[34mINFO[0m	service/audit_log_archive.go:43	audit log archive no records
+2026-06-30T15:59:29.059+0800	[34mINFO[0m	admin/main.go:73	server started	{"addr": "http://localhost:8080"}
+2026-06-30T15:59:53.140+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "GET", "path": "/api/captcha", "query": "", "status": 200, "latency": "3.0028ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)"}
+2026-06-30T16:00:13.465+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "POST", "path": "/api/login", "query": "", "status": 200, "latency": "52.5883ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)"}
+2026-06-30T16:01:36.810+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "POST", "path": "/api/admin/apis/sync", "query": "", "status": 200, "latency": "136.7473ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
+2026-06-30T16:02:38.399+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "GET", "path": "/api/admin/apis", "query": "page=1&size=10&keyword=user&group=user&method=GET&status=1&need_auth=1&need_audit=1", "status": 200, "latency": "2.978ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
+2026-06-30T16:03:28.744+0800	[34mINFO[0m	middleware/zap_logger.go:46	http request	{"method": "POST", "path": "/api/admin/apis/sync-permissions", "query": "", "status": 200, "latency": "88.6407ms", "client_ip": "::1", "user_agent": "Apifox/1.0.0 (https://apifox.com)", "user_id": 3}
+2026-06-30T21:25:48.858+0800	[34mINFO[0m	initialize/logger.go:34	logger initialized	{"level": "debug", "format": "console", "output": "logs/app.log"}
+2026-06-30T21:25:48.864+0800	[34mINFO[0m	admin/main.go:22	config loaded
+2026-06-30T21:25:49.020+0800	[34mINFO[0m	admin/main.go:26	mysql initialized
+2026-06-30T21:25:49.021+0800	[34mINFO[0m	admin/main.go:30	super admin checked
+2026-06-30T21:25:49.034+0800	[34mINFO[0m	admin/main.go:34	redis initialized
+2026-06-30T21:25:49.041+0800	[34mINFO[0m	admin/main.go:38	minio initialized
+2026-06-30T21:25:49.041+0800	[34mINFO[0m	admin/main.go:49	file rotation started
+2026-06-30T21:25:49.041+0800	[34mINFO[0m	admin/main.go:62	audit log archive started
+2026-06-30T21:25:49.041+0800	[34mINFO[0m	service/audit_log_archive.go:43	audit log archive no records
+2026-06-30T21:25:49.043+0800	[34mINFO[0m	admin/main.go:77	server started	{"addr": "http://localhost:8080"}

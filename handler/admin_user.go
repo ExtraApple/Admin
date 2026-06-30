@@ -83,3 +83,18 @@ func (h *AdminUserHandler) ToggleStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": msg})
 }
+
+// --- 强制用户下线 ---
+func (h *AdminUserHandler) KickUser(c *gin.Context) {
+	operatorID := c.GetUint("userID")
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if err := service.KickUserByAdmin(uint(operatorID), uint(targetID)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "强制下线成功"})
+}

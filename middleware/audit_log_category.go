@@ -58,7 +58,8 @@ func isAuditPermissionMutation(method, path string) bool {
 
 	if strings.HasPrefix(path, "/api/admin/permissions") ||
 		strings.HasPrefix(path, "/api/admin/permission-groups") ||
-		strings.HasPrefix(path, "/api/admin/menus") {
+		strings.HasPrefix(path, "/api/admin/menus") ||
+		strings.HasPrefix(path, "/api/admin/apis") {
 		return true
 	}
 

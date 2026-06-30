@@ -17,4 +17,5 @@ var Models = []interface{}{
 	DictItem{},
 	Organization{},
 	UserOrganization{},
+	API{},
 }

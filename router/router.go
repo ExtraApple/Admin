@@ -37,8 +37,9 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	auditLogHandler := &handler.AuditLogHandler{}
 	dictHandler := &handler.DictHandler{}
 	organizationHandler := &handler.OrganizationHandler{}
+	apiHandler := &handler.APIHandler{Engine: r}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
-	requireAdmin := middleware.HasRole("admin")
+	apiPermission := middleware.APIPermission()
 
 	// ========== 路由 ==========
 	r.GET("/ping", func(c *gin.Context) {
@@ -68,12 +69,13 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 		}
 
 		// --- 管理员路由 ---
-		admin := api.Group("/admin").Use(auth, requireAdmin)
+		admin := api.Group("/admin").Use(auth, apiPermission)
 		{
 			admin.GET("/users", adminUserHandler.ListUsers)
 			admin.PUT("/users/:id", adminUserHandler.UpdateUser)
 			admin.DELETE("/users/:id", adminUserHandler.DeleteUser)
 			admin.PUT("/users/:id/status", adminUserHandler.ToggleStatus)
+			admin.PUT("/users/:id/kick", adminUserHandler.KickUser)
 
 			// 角色管理
 			admin.GET("/roles", roleHandler.ListRoles)
@@ -140,6 +142,14 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.DELETE("/organizations/:id", organizationHandler.DeleteOrganization)
 			admin.POST("/organizations/:id/users", organizationHandler.AssignUsers)
 			admin.GET("/organizations/:id/users", organizationHandler.GetUsers)
+
+			// API管理
+			admin.GET("/apis", apiHandler.ListAPIs)
+			admin.POST("/apis", apiHandler.CreateAPI)
+			admin.PUT("/apis/:id", apiHandler.UpdateAPI)
+			admin.DELETE("/apis/:id", apiHandler.DeleteAPI)
+			admin.POST("/apis/sync", apiHandler.SyncAPIs)
+			admin.POST("/apis/sync-permissions", apiHandler.SyncAPIPermissions)
 		}
 	}
 

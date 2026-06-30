@@ -42,6 +42,7 @@
 - **AND** 新密码与旧密码不同
 - **AND** 新密码满足密码复杂度规则
 - **THEN** 系统存储新的 bcrypt 密码哈希
+- **AND** 系统使该用户旧 token 失效
 
 #### Scenario: 修改密码失败
 - **WHEN** 任一密码条件不满足
@@ -84,6 +85,7 @@
 - **WHEN** 管理员修改另一个非管理员用户的昵称、邮箱、角色或状态
 - **THEN** 系统应用提交的字段
 - **AND** 响应返回更新后的脱敏用户信息
+- **AND** 系统使目标用户旧 token 失效
 
 #### Scenario: 管理员尝试修改自己或其他管理员
 - **WHEN** 目标用户是操作者本人，或目标用户角色为 `admin`
@@ -106,8 +108,22 @@
 #### Scenario: 管理员切换普通用户状态
 - **WHEN** 管理员对非管理员用户调用 `PUT /api/admin/users/:id/status`
 - **THEN** 系统将状态从 `1` 改为 `0`，或从 `0` 改为 `1`
+- **AND** 系统使目标用户旧 token 失效
 
 #### Scenario: 管理员尝试切换自己或其他管理员状态
+- **WHEN** 目标用户是操作者本人，或目标用户角色为 `admin`
+- **THEN** 系统拒绝操作
+
+### Requirement: 管理员强制用户下线
+系统 SHALL 允许管理员主动使非保护用户的旧 token 失效。
+
+#### Scenario: 管理员强制普通用户下线
+- **WHEN** 管理员对非管理员用户调用 `PUT /api/admin/users/:id/kick`
+- **THEN** 系统提升目标用户的 `token_version`
+- **AND** 系统不修改目标用户资料和账号状态
+- **AND** 目标用户旧 access token 和 refresh token 在后续请求中失效
+
+#### Scenario: 管理员尝试强制下线自己或其他管理员
 - **WHEN** 目标用户是操作者本人，或目标用户角色为 `admin`
 - **THEN** 系统拒绝操作
 

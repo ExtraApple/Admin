@@ -119,9 +119,14 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 
 	// 查询用户关联的权限码
 	permissions := GetUserPermissions(user.ID)
+	tokenVersion := user.TokenVersion
+	if tokenVersion <= 0 {
+		tokenVersion = 1
+		global.DB.Model(&user).Update("token_version", tokenVersion)
+	}
 
 	accessToken, refreshToken, err := utils.GenerateToken(
-		user.ID, roles, permissions,
+		user.ID, tokenVersion, roles, permissions,
 		cfg.Secret, cfg.ExpireMins, cfg.RefreshExpireMins,
 	)
 	if err != nil {
@@ -193,7 +198,11 @@ func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 	if err != nil {
 		return errors.New("密码加密失败")
 	}
-	return global.DB.Model(&user).Update("password", string(hashed)).Error
+	if err := global.DB.Model(&user).Update("password", string(hashed)).Error; err != nil {
+		return err
+	}
+	bumpUserTokenVersion(userID)
+	return nil
 }
 
 // SetAvatar 设置/更新用户头像 URL

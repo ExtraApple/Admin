@@ -114,6 +114,7 @@ func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 	if err := global.DB.Model(&role).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改角色失败")
 	}
+	bumpUsersTokenVersionByRole(roleID)
 
 	global.DB.First(&role, roleID)
 	return &dto.RoleInfo{
@@ -135,10 +136,16 @@ func DeleteRole(roleID uint) error {
 		return errors.New("不能删除超级管理员角色")
 	}
 
+	var oldUserIDs []uint
+	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &oldUserIDs)
 	// 删除关联
 	global.DB.Where("role_id = ?", roleID).Delete(&model.UserRole{})
 	// 硬删除角色
-	return global.DB.Unscoped().Delete(&role).Error
+	if err := global.DB.Unscoped().Delete(&role).Error; err != nil {
+		return err
+	}
+	bumpUserTokenVersion(oldUserIDs...)
+	return nil
 }
 
 // AssignUsersToRole 将用户分配到角色
@@ -147,6 +154,9 @@ func AssignUsersToRole(roleID uint, userIDs []uint) error {
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		return errors.New("角色不存在")
 	}
+
+	var oldUserIDs []uint
+	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &oldUserIDs)
 
 	// 先清除该角色所有旧关联
 	global.DB.Where("role_id = ?", roleID).Delete(&model.UserRole{})
@@ -161,6 +171,8 @@ func AssignUsersToRole(roleID uint, userIDs []uint) error {
 			return errors.New("分配用户失败: " + err.Error())
 		}
 	}
+	affectedUserIDs := append(oldUserIDs, userIDs...)
+	bumpUserTokenVersion(affectedUserIDs...)
 	return nil
 }
 

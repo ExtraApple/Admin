@@ -65,12 +65,40 @@
 - **AND** 系统签发 access token 和 refresh token
 
 ### Requirement: JWT 会话
-系统 SHALL 在登录成功后签发包含用户 ID、角色码、权限码的 JWT。
+系统 SHALL 在登录成功后签发包含用户 ID、token 版本、角色码、权限码的 JWT。
 
 #### Scenario: 登录成功后返回令牌
 - **WHEN** 用户登录成功
 - **THEN** 响应包含 access token、refresh token 和脱敏后的用户信息
 - **AND** access token 可用于认证受保护的 `/api/user` 和 `/api/admin` 请求
+
+### Requirement: Token 实时失效
+系统 SHALL 使用用户 token 版本使权限和账号状态变更后的旧 token 失效。
+
+#### Scenario: Token 版本一致
+- **WHEN** 已认证请求携带有效 JWT
+- **AND** JWT 中的 `token_version` 等于 `users.token_version`
+- **AND** 用户状态为启用
+- **THEN** JWT 中间件允许请求继续
+
+#### Scenario: Token 版本不一致
+- **WHEN** 已认证请求携带的 JWT 中 `token_version` 与 `users.token_version` 不一致
+- **THEN** JWT 中间件拒绝请求
+- **AND** 用户需要重新登录获取新 token
+
+#### Scenario: 账号被禁用或删除
+- **WHEN** 已认证请求对应用户不存在或状态不是启用
+- **THEN** JWT 中间件拒绝请求
+
+#### Scenario: 登录初始化历史用户版本
+- **WHEN** 用户登录成功但 `users.token_version` 未初始化或小于等于 0
+- **THEN** 系统将该用户 token 版本初始化为 `1`
+- **AND** 签发包含该版本的 JWT
+
+#### Scenario: 权限相关变更提升版本
+- **WHEN** 用户密码、用户状态、角色分配、角色权限、角色菜单、菜单记录或组织成员归属发生影响登录态的变更
+- **THEN** 系统提升受影响用户的 `users.token_version`
+- **AND** 这些用户已持有的旧 token 在下一次请求时失效
 
 ### Requirement: 登出黑名单
 系统 SHALL 通过 Redis 黑名单使已登出的 access token 失效。

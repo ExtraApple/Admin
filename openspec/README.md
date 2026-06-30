@@ -15,6 +15,7 @@
 - `user-management`：注册、个人资料、密码、头像、初始化上下文、管理员用户操作。
 - `rbac`：角色、权限、权限分组、关联分配、权限同步。
 - `menu-management`：菜单树、菜单 CRUD、角色/用户菜单可见性、路由同步。
+- `api-management`：API 元数据、路由同步、API 权限同步、动态 API 权限校验。
 - `file-management`：文件上传、列表、详情、更新、删除、浏览、轮转。
 - `logging`：已确认的运行日志行为，以及审计日志的待办边界。
 - `dict-management`：字典类型、字典条目和前端字典读取。

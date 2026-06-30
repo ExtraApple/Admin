@@ -147,7 +147,10 @@ func AssignUsersToOrganization(orgID uint, userIDs []uint) error {
 		return err
 	}
 
-	return global.DB.Transaction(func(tx *gorm.DB) error {
+	var oldUserIDs []uint
+	global.DB.Model(&model.UserOrganization{}).Where("organization_id = ?", orgID).Pluck("user_id", &oldUserIDs)
+
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("organization_id = ?", orgID).Delete(&model.UserOrganization{}).Error; err != nil {
 			return err
 		}
@@ -163,7 +166,13 @@ func AssignUsersToOrganization(orgID uint, userIDs []uint) error {
 			return nil
 		}
 		return tx.Create(&records).Error
-	})
+	}); err != nil {
+		return err
+	}
+
+	affectedUserIDs := append(oldUserIDs, userIDs...)
+	bumpUserTokenVersion(affectedUserIDs...)
+	return nil
 }
 
 // GetOrganizationUsers 查询指定组织下的成员列表。

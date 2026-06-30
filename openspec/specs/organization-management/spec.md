@@ -44,6 +44,7 @@
 - **WHEN** 管理员请求 `POST /api/admin/organizations/:id/users`
 - **THEN** 系统用请求中的 user_ids 覆盖该组织当前成员
 - **AND** 如果组织不存在，系统 SHALL 拒绝操作
+- **AND** 系统使新旧组织成员用户的旧 token 失效
 
 #### Scenario: 查询组织成员
 - **WHEN** 管理员请求 `GET /api/admin/organizations/:id/users`

@@ -2,29 +2,34 @@ server:
   port: 8080
 
 mysql:
-  mysql:
   host: 127.0.0.1
   port: 3306
   user: root
-  password: 000000
+  password_env: MYSQL_PASSWORD
   db: admin
 
 minio:
   host: 127.0.0.1
   port: 9000
-  username: minioadmin
-  password: minioadmin
+  username_env: MINIO_USERNAME
+  password_env: MINIO_PASSWORD
 
 jwt:
-  secret: "admin-jwt-secret-key-2024"
+  secret_env: JWT_SECRET
   expire: 15
   refresh_expire: 10080
 
 redis:
   host: 127.0.0.1
   port: 6379
-  password: ""
+  password_env: REDIS_PASSWORD
   db: 0
+
+admin:
+  username: admin
+  password_env: ADMIN_PASSWORD
+  email: admin@test.com
+  nickname: 超级管理员
 
 logger:
   level: "debug"

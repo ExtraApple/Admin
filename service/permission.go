@@ -91,8 +91,14 @@ func DeletePermission(permID uint) error {
 		}
 		return errors.New("查询权限失败")
 	}
+	var roleIDs []uint
+	global.DB.Model(&model.RolePermission{}).Where("permission_id = ?", permID).Pluck("role_id", &roleIDs)
 	global.DB.Where("permission_id = ?", permID).Delete(&model.RolePermission{})
-	return global.DB.Unscoped().Delete(&p).Error
+	if err := global.DB.Unscoped().Delete(&p).Error; err != nil {
+		return err
+	}
+	bumpUsersTokenVersionByRoles(roleIDs)
+	return nil
 }
 
 // AssignPermissionsToRole 为角色全量替换权限集合。
@@ -112,6 +118,7 @@ func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 			return errors.New("分配权限失败: " + err.Error())
 		}
 	}
+	bumpUsersTokenVersionByRole(roleID)
 	return nil
 }
 

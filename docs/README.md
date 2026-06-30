@@ -9,10 +9,12 @@
 | 文档 | 定位 | 对应 OpenSpec |
 |---|---|---|
 | `登录安全策略.md` | 已实现模块的实现说明 | `openspec/specs/auth/spec.md` |
+| `配置管理.md` | 环境变量、敏感配置和超级管理员初始化说明 | `openspec/specs/auth/spec.md` |
 | `用户管理.md` | 已实现模块的实现说明 | `openspec/specs/user-management/spec.md` |
 | `角色管理.md` | 已实现模块的实现说明 | `openspec/specs/rbac/spec.md` |
 | `权限管理.md` | 已实现模块的实现说明 | `openspec/specs/rbac/spec.md` |
 | `菜单管理.md` | 已实现模块的实现说明 | `openspec/specs/menu-management/spec.md` |
+| `API管理.md` | 已实现模块的实现说明 | 后续可沉淀到 `openspec/specs/api-management/spec.md` |
 | `文件管理.md` | 已实现模块的实现说明 | `openspec/specs/file-management/spec.md` |
 | `Zap日志模块.md` | 待实现设计草案 | `openspec/specs/logging/spec.md` |
 | `操作日志.md` | 待实现设计草案 | `openspec/specs/logging/spec.md`，后续应创建 `openspec/changes/add-operation-audit-logs/` |

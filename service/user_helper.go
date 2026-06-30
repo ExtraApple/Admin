@@ -12,7 +12,6 @@ import (
 const maxFailures = 5
 
 // validatePassword 校验密码复杂度：至少 6 位，并包含至少 3 种字符类型。
-// validatePassword 校验密码复杂度：至少 6 位，并包含至少 3 类字符。
 func validatePassword(pw string) error {
 	if len(pw) < 6 {
 		return errors.New("密码长度不能少于 6 位")
