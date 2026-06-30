@@ -5,6 +5,7 @@ import (
 	"admin/model"
 )
 
+// buildMenuTree 将扁平菜单列表按 parent_id 递归组装为树。
 func buildMenuTree(menus []model.Menu, parentID uint) []dto.MenuDetail {
 	tree := []dto.MenuDetail{}
 	for _, menu := range menus {
@@ -19,6 +20,7 @@ func buildMenuTree(menus []model.Menu, parentID uint) []dto.MenuDetail {
 	return tree
 }
 
+// toMenuDetail 将菜单模型转换为接口返回结构。
 func toMenuDetail(menu model.Menu) *dto.MenuDetail {
 	return &dto.MenuDetail{
 		ID:        menu.ID,
@@ -33,6 +35,7 @@ func toMenuDetail(menu model.Menu) *dto.MenuDetail {
 	}
 }
 
+// defaultMenuType 在未指定菜单类型时返回目录类型。
 func defaultMenuType(t int) int {
 	if t == 0 {
 		return 1
@@ -40,6 +43,7 @@ func defaultMenuType(t int) int {
 	return t
 }
 
+// defaultMenuStatus 在未指定状态时默认启用菜单。
 func defaultMenuStatus(status int) int {
 	if status == 0 {
 		return 1

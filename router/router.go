@@ -11,6 +11,7 @@ import (
 	"admin/service"
 )
 
+// InitRouter 注册全局中间件、公开接口、用户接口和管理员接口。
 func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.ZapLogger())
@@ -35,6 +36,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	menuHandler := &handler.MenuHandler{}
 	auditLogHandler := &handler.AuditLogHandler{}
 	dictHandler := &handler.DictHandler{}
+	organizationHandler := &handler.OrganizationHandler{}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
 	requireAdmin := middleware.HasRole("admin")
 
@@ -129,6 +131,15 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.POST("/dict-items", dictHandler.CreateDictItem)
 			admin.PUT("/dict-items/:id", dictHandler.UpdateDictItem)
 			admin.DELETE("/dict-items/:id", dictHandler.DeleteDictItem)
+
+			// 组织管理
+			admin.GET("/organizations", organizationHandler.ListOrganizations)
+			admin.GET("/organizations/tree", organizationHandler.GetOrganizationTree)
+			admin.POST("/organizations", organizationHandler.CreateOrganization)
+			admin.PUT("/organizations/:id", organizationHandler.UpdateOrganization)
+			admin.DELETE("/organizations/:id", organizationHandler.DeleteOrganization)
+			admin.POST("/organizations/:id/users", organizationHandler.AssignUsers)
+			admin.GET("/organizations/:id/users", organizationHandler.GetUsers)
 		}
 	}
 

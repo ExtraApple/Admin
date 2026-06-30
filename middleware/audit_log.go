@@ -16,6 +16,7 @@ import (
 
 const maxAuditBodySize = 2000
 
+// sensitiveAuditFields 定义写入审计日志前必须脱敏的 JSON 字段名。
 var sensitiveAuditFields = map[string]struct{}{
 	"password":         {},
 	"old_password":     {},
@@ -27,6 +28,7 @@ var sensitiveAuditFields = map[string]struct{}{
 	"token":            {},
 }
 
+// AuditLog 记录每个 /api 请求的审计信息，并在请求结束后异步写入数据库。
 func AuditLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -52,6 +54,7 @@ func AuditLog() gin.HandlerFunc {
 	}
 }
 
+// readAuditBody 安全读取请求体，并把 Body 放回请求，避免后续 handler 无法再次读取。
 func readAuditBody(c *gin.Context) []byte {
 	if c.Request.Body == nil {
 		return nil
@@ -73,6 +76,7 @@ func readAuditBody(c *gin.Context) []byte {
 	return bodyBytes
 }
 
+// sanitizeAuditBody 对请求体做脱敏和长度限制，避免审计日志泄露敏感信息或无限膨胀。
 func sanitizeAuditBody(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -94,6 +98,7 @@ func sanitizeAuditBody(body []byte) string {
 	return truncateAuditBody(string(sanitized))
 }
 
+// truncateAuditBody 将过长的请求体截断到审计日志允许的最大长度。
 func truncateAuditBody(body string) string {
 	if len(body) <= maxAuditBodySize {
 		return body
@@ -101,6 +106,7 @@ func truncateAuditBody(body string) string {
 	return body[:maxAuditBodySize] + "..."
 }
 
+// maskSensitiveFields 递归脱敏 JSON 对象中的敏感字段，支持嵌套对象和对象数组。
 func maskSensitiveFields(data map[string]any) {
 	for key, value := range data {
 		if _, ok := sensitiveAuditFields[strings.ToLower(key)]; ok {

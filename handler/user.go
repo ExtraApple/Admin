@@ -19,6 +19,7 @@ type UserHandler struct {
 	JwtCfg service.JWTConfig
 }
 
+// toStringSlice 从 Gin Context 中取出的任意值安全转换为字符串切片。
 func toStringSlice(v any) []string {
 	list, ok := v.([]string)
 	if !ok {

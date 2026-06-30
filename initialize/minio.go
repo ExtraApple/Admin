@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// InitMinio 初始化 MinIO 客户端并确保基础 bucket 存在。
 func InitMinio(conf *Config) {
 	endpoint := fmt.Sprintf("%s:%d", conf.Minio.Host, conf.Minio.Port)
 	var err error

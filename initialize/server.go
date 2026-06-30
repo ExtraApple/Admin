@@ -62,6 +62,7 @@ type LoggerConfig struct {
 
 var conf Config
 
+// InitConfig 读取 config.yaml 并解析为全局配置结构。
 func InitConfig() *Config {
 	data, err := os.ReadFile("config.yaml")
 	if err != nil {

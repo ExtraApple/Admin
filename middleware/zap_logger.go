@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// ZapLogger 将每个 HTTP 请求写入运行日志，按状态码区分 Info/Warn/Error。
 func ZapLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

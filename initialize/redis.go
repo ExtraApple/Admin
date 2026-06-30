@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// InitRedis 初始化 Redis 客户端并通过 Ping 验证连接。
 func InitRedis(conf *Config) {
 	global.Redis = redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", conf.Redis.Host, conf.Redis.Port),

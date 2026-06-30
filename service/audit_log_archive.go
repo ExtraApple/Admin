@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// ArchiveAuditLogs 将超过保留期的审计日志搬到归档表，并从主表删除。
 func ArchiveAuditLogs(conf *initialize.Config) {
 	if !conf.AuditLogArchive.Enabled {
 		global.Logger.Info("audit log archive skipped")
@@ -71,6 +72,7 @@ func ArchiveAuditLogs(conf *initialize.Config) {
 	)
 }
 
+// toAuditLogArchive 将主审计日志记录复制为归档记录，并写入归档时间。
 func toAuditLogArchive(log model.AuditLog, archivedAt time.Time) model.AuditLogArchive {
 	return model.AuditLogArchive{
 		UserID:     log.UserID,

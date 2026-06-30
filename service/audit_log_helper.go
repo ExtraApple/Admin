@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// 查询执行
+// queryAuditLogs 执行审计日志的通用分页查询，并转换为接口响应结构。
 func queryAuditLogs(query *gorm.DB, req dto.AuditLogListReq) ([]dto.AuditLogInfo, int64, error) {
 	req = normalizeAuditLogPage(req)
 	query = applyAuditLogFilters(query, req)
@@ -29,7 +29,7 @@ func queryAuditLogs(query *gorm.DB, req dto.AuditLogListReq) ([]dto.AuditLogInfo
 	return toAuditLogInfoList(logs), total, nil
 }
 
-// 分页默认值
+// normalizeAuditLogPage 为审计日志查询填充分页默认值。
 func normalizeAuditLogPage(req dto.AuditLogListReq) dto.AuditLogListReq {
 	if req.Page <= 0 {
 		req.Page = 1
@@ -40,14 +40,14 @@ func normalizeAuditLogPage(req dto.AuditLogListReq) dto.AuditLogListReq {
 	return req
 }
 
-// 筛选
+// applyAuditLogFilters 将基础筛选和时间筛选依次应用到 GORM 查询上。
 func applyAuditLogFilters(query *gorm.DB, req dto.AuditLogListReq) *gorm.DB {
 	query = applyAuditLogBasicFilters(query, req)
 	query = applyAuditLogTimeFilters(query, req)
 	return query
 }
 
-// 基础筛选
+// applyAuditLogBasicFilters 应用用户、方法、路径、状态和分类等普通筛选条件。
 func applyAuditLogBasicFilters(query *gorm.DB, req dto.AuditLogListReq) *gorm.DB {
 	if req.UserID > 0 {
 		query = query.Where("user_id = ?", req.UserID)
@@ -67,7 +67,7 @@ func applyAuditLogBasicFilters(query *gorm.DB, req dto.AuditLogListReq) *gorm.DB
 	return query
 }
 
-// 时间筛选
+// applyAuditLogTimeFilters 根据开始和结束时间限制审计日志范围。
 func applyAuditLogTimeFilters(query *gorm.DB, req dto.AuditLogListReq) *gorm.DB {
 	if req.StartTime != "" {
 		if start, err := time.Parse("2006-01-02 15:04:05", req.StartTime); err == nil {
@@ -82,8 +82,7 @@ func applyAuditLogTimeFilters(query *gorm.DB, req dto.AuditLogListReq) *gorm.DB 
 	return query
 }
 
-// 相应结构转换
-
+// toAuditLogInfoList 将审计日志模型列表转换为响应 DTO 列表。
 func toAuditLogInfoList(logs []model.AuditLog) []dto.AuditLogInfo {
 	list := make([]dto.AuditLogInfo, len(logs))
 	for i, item := range logs {
@@ -92,6 +91,7 @@ func toAuditLogInfoList(logs []model.AuditLog) []dto.AuditLogInfo {
 	return list
 }
 
+// toAuditLogInfo 将单条审计日志模型格式化为接口响应结构。
 func toAuditLogInfo(log model.AuditLog) dto.AuditLogInfo {
 	return dto.AuditLogInfo{
 		ID:        log.ID,

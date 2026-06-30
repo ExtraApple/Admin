@@ -16,7 +16,7 @@ const (
 	AuditCategoryDataAccess = "data_access"
 )
 
-// 创建审计日志
+// CreateAuditLog 补全审计日志中的用户名并写入数据库，写入失败只记录运行日志。
 func CreateAuditLog(log *model.AuditLog) {
 	if log.UserID > 0 && log.Username == "" {
 		var user model.User
@@ -30,13 +30,13 @@ func CreateAuditLog(log *model.AuditLog) {
 	}
 }
 
-// 列审计日志
+// ListAuditLogs 按筛选条件分页查询全部审计日志。
 func ListAuditLogs(req dto.AuditLogListReq) ([]dto.AuditLogInfo, int64, error) {
 	query := global.DB.Model(&model.AuditLog{})
 	return queryAuditLogs(query, req)
 }
 
-// 分类类出审计日志
+// ListAuditLogsByCategories 按一个或多个分类查询审计日志。
 func ListAuditLogsByCategories(req dto.AuditLogListReq, categories ...string) ([]dto.AuditLogInfo, int64, error) {
 	if len(categories) == 1 {
 		req.Category = categories[0]

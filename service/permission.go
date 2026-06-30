@@ -10,6 +10,7 @@ import (
 	"admin/model"
 )
 
+// GetAllPermissions 分页查询权限列表，并按排序和 ID 稳定排序。
 func GetAllPermissions(page, pageSize int) ([]dto.PermissionInfo, int64, error) {
 	var perms []model.Permission
 	var total int64
@@ -28,6 +29,7 @@ func GetAllPermissions(page, pageSize int) ([]dto.PermissionInfo, int64, error) 
 	return list, total, nil
 }
 
+// CreatePermission 创建权限记录，并保证权限码唯一。
 func CreatePermission(req dto.CreatePermissionReq) (*dto.PermissionInfo, error) {
 	var exist int64
 	global.DB.Model(&model.Permission{}).Where("code = ?", req.Code).Count(&exist)
@@ -46,6 +48,7 @@ func CreatePermission(req dto.CreatePermissionReq) (*dto.PermissionInfo, error) 
 	}, nil
 }
 
+// UpdatePermission 修改权限展示信息，权限码本身不允许在此处变更。
 func UpdatePermission(permID uint, req dto.UpdatePermissionReq) (*dto.PermissionInfo, error) {
 	var p model.Permission
 	if err := global.DB.First(&p, permID).Error; err != nil {
@@ -79,6 +82,7 @@ func UpdatePermission(permID uint, req dto.UpdatePermissionReq) (*dto.Permission
 	}, nil
 }
 
+// DeletePermission 删除权限记录，并清理角色权限关联。
 func DeletePermission(permID uint) error {
 	var p model.Permission
 	if err := global.DB.First(&p, permID).Error; err != nil {
@@ -91,6 +95,7 @@ func DeletePermission(permID uint) error {
 	return global.DB.Unscoped().Delete(&p).Error
 }
 
+// AssignPermissionsToRole 为角色全量替换权限集合。
 func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
@@ -110,6 +115,7 @@ func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 	return nil
 }
 
+// GetRolePermissions 查询角色已分配的权限列表。
 func GetRolePermissions(roleID uint) ([]dto.PermissionInfo, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
@@ -138,7 +144,7 @@ func GetRolePermissions(roleID uint) ([]dto.PermissionInfo, error) {
 	return list, nil
 }
 
-// GetUserPermissions 查询用户所有生效的权限码（用于注入 JWT）
+// GetUserPermissions 汇总用户通过角色获得的所有权限码，用于写入 JWT。
 func GetUserPermissions(userID uint) []string {
 	var permIDs []uint
 	global.DB.Model(&model.RolePermission{}).
@@ -156,7 +162,7 @@ func GetUserPermissions(userID uint) []string {
 	return codes
 }
 
-// GetPermissionCodes 获取所有权限码列表（供前端使用）
+// GetPermissionCodes 返回全部权限码，供前端做按钮级权限控制。
 func GetPermissionCodes() []string {
 	var codes []string
 	global.DB.Model(&model.Permission{}).
@@ -168,48 +174,38 @@ func GetPermissionCodes() []string {
 	return codes
 }
 
-// SyncPermissions 扫描路由并同步权限（根据 router.Routes() 自动创建）
+// SyncPermissions 根据 Gin 路由表生成缺失的权限码。
 func SyncPermissions(routes []map[string]string) ([]string, error) {
 	var created []string
 
 	for _, r := range routes {
 		method := r["method"]
 		path := r["path"]
-		// 跳过公开路由和验证码
 		if path == "/ping" || path == "/api/captcha" || path == "/api/register" || path == "/api/login" {
 			continue
 		}
-		// 只同步 /api/ 开头的路由
 		if len(path) < 5 || path[:5] != "/api/" {
 			continue
 		}
 
-		// 生成权限码：将路径和方法转换为 code
-		// 例：GET /api/admin/users → api.admin.users.get
-		code := path[5:] // 去掉 /api/
-		// 替换路径参数 :id 为 id
+		code := path[5:]
 		if idx := contains(code, ":"); idx >= 0 {
 			code = code[:idx] + code[idx+1:]
 		}
-		// 替换 / 为 .
 		code = replaceAll(code, "/", ".")
-		// 添加方法后缀
 		code = code + "." + toLower(method)
 
-		// 检查是否已存在
 		var exist int64
 		global.DB.Model(&model.Permission{}).Where("code = ?", code).Count(&exist)
 		if exist > 0 {
 			continue
 		}
 
-		// 自动分组：取第一层路径
 		group := ""
 		if idx := contains(code, "."); idx >= 0 {
 			group = code[:idx]
 		}
 
-		// 创建权限
 		p := model.Permission{
 			Name:  method + " " + path,
 			Code:  code,
@@ -224,8 +220,7 @@ func SyncPermissions(routes []map[string]string) ([]string, error) {
 	return created, nil
 }
 
-// ========== 权限分组 CRUD ==========
-
+// GetAllPermGroups 分页查询权限分组列表。
 func GetAllPermGroups(page, pageSize int) ([]dto.PermGroupInfo, int64, error) {
 	var groups []model.PermissionGroup
 	var total int64
@@ -242,6 +237,7 @@ func GetAllPermGroups(page, pageSize int) ([]dto.PermGroupInfo, int64, error) {
 	return list, total, nil
 }
 
+// CreatePermGroup 创建权限分组，并校验名称唯一。
 func CreatePermGroup(req dto.CreatePermGroupReq) (*dto.PermGroupInfo, error) {
 	var exist int64
 	global.DB.Model(&model.PermissionGroup{}).Where("name = ?", req.Name).Count(&exist)
@@ -256,6 +252,7 @@ func CreatePermGroup(req dto.CreatePermGroupReq) (*dto.PermGroupInfo, error) {
 	return &dto.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
 }
 
+// UpdatePermGroup 修改权限分组名称或排序。
 func UpdatePermGroup(groupID uint, req dto.UpdatePermGroupReq) (*dto.PermGroupInfo, error) {
 	var g model.PermissionGroup
 	if err := global.DB.First(&g, groupID).Error; err != nil {
@@ -284,6 +281,7 @@ func UpdatePermGroup(groupID uint, req dto.UpdatePermGroupReq) (*dto.PermGroupIn
 	return &dto.PermGroupInfo{ID: g.ID, Name: g.Name, Sort: g.Sort}, nil
 }
 
+// DeletePermGroup 硬删除权限分组记录。
 func DeletePermGroup(groupID uint) error {
 	var g model.PermissionGroup
 	if err := global.DB.First(&g, groupID).Error; err != nil {
@@ -295,8 +293,7 @@ func DeletePermGroup(groupID uint) error {
 	return global.DB.Unscoped().Delete(&g).Error
 }
 
-// ========== 辅助函数 ==========
-
+// contains 返回子串第一次出现的位置，找不到时返回 -1。
 func contains(s, substr string) int {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
@@ -306,6 +303,7 @@ func contains(s, substr string) int {
 	return -1
 }
 
+// replaceAll 使用简单字符串扫描替换所有匹配片段。
 func replaceAll(s, old, new string) string {
 	result := ""
 	for i := 0; i < len(s); {
@@ -320,6 +318,7 @@ func replaceAll(s, old, new string) string {
 	return result
 }
 
+// toLower 将 ASCII 大写字母转换为小写，用于生成权限码。
 func toLower(s string) string {
 	result := make([]byte, len(s))
 	for i := 0; i < len(s); i++ {

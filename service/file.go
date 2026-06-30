@@ -122,6 +122,7 @@ func BrowseFiles(prefix string) ([]utils.FileInfo, error) {
 	return utils.ListFiles(fileBucket, prefix)
 }
 
+// toFileInfo 将文件模型转换为接口返回结构，并格式化创建时间。
 func toFileInfo(f *model.File) *dto.FileInfo {
 	return &dto.FileInfo{
 		ID:          f.ID,

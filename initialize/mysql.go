@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// InitMysql 初始化 MySQL 连接，并执行模型自动迁移。
 func InitMysql(conf *Config) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		conf.Mysql.User,
@@ -27,7 +28,6 @@ func InitMysql(conf *Config) {
 		global.Logger.Fatal("open mysql failed", zap.Error(err))
 	}
 
-	// 自动迁移 — 自动识别 model 包注册表中的所有模型
 	if err := global.DB.AutoMigrate(model.Models...); err != nil {
 		global.Logger.Fatal("auto migrate failed", zap.Error(err))
 	}

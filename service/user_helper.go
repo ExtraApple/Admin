@@ -12,6 +12,7 @@ import (
 const maxFailures = 5
 
 // validatePassword 校验密码复杂度：至少 6 位，并包含至少 3 种字符类型。
+// validatePassword 校验密码复杂度：至少 6 位，并包含至少 3 类字符。
 func validatePassword(pw string) error {
 	if len(pw) < 6 {
 		return errors.New("密码长度不能少于 6 位")
@@ -43,6 +44,7 @@ func validatePassword(pw string) error {
 	return nil
 }
 
+// lockDuration 根据连续失败次数返回账号锁定分钟数。
 func lockDuration(failures int) int {
 	switch {
 	case failures < maxFailures:
@@ -58,6 +60,7 @@ func lockDuration(failures int) int {
 	}
 }
 
+// isLocked 检查指定用户名是否处于登录锁定状态，并返回剩余分钟数。
 func isLocked(username string) (int, bool) {
 	val, err := global.Redis.Get(context.Background(), "lock:"+username).Result()
 	if err != nil || val != "1" {
@@ -69,6 +72,7 @@ func isLocked(username string) (int, bool) {
 	return mins, true
 }
 
+// incrFailed 递增登录失败计数，并刷新失败计数的过期时间。
 func incrFailed(username string) int {
 	key := "fail:" + username
 	count, _ := global.Redis.Incr(context.Background(), key).Result()
@@ -76,6 +80,7 @@ func incrFailed(username string) int {
 	return int(count)
 }
 
+// lockAfterFail 在失败次数达到阈值时设置账号锁定标记。
 func lockAfterFail(username string, failures int) {
 	dur := lockDuration(failures)
 	if dur == 0 {
@@ -88,6 +93,7 @@ func lockAfterFail(username string, failures int) {
 	}
 }
 
+// clearFailed 清除登录失败计数和账号锁定标记。
 func clearFailed(username string) {
 	global.Redis.Del(context.Background(), "fail:"+username, "lock:"+username)
 }

@@ -18,6 +18,7 @@
 - `file-management`：文件上传、列表、详情、更新、删除、浏览、轮转。
 - `logging`：已确认的运行日志行为，以及审计日志的待办边界。
 - `dict-management`：字典类型、字典条目和前端字典读取。
+- `organization-management`：组织单位 CRUD 和组织树。
 
 ## 工作流
 

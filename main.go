@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// main 按配置、日志、数据库、缓存、对象存储、路由的顺序启动后台服务。
 func main() {
 	// 1. 加载配置
 	conf := initialize.InitConfig()

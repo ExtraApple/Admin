@@ -7,6 +7,7 @@ import (
 	"admin/service"
 )
 
+// auditCategory 根据请求方法和路径把审计日志归类，供管理端分类型查询。
 func auditCategory(method, path string) string {
 	normalizedPath := normalizeAuditPath(path)
 
@@ -25,6 +26,7 @@ func auditCategory(method, path string) string {
 	return service.AuditCategoryAPI
 }
 
+// normalizeAuditPath 统一路径大小写和尾部斜杠，降低分类规则的匹配误差。
 func normalizeAuditPath(path string) string {
 	path = strings.ToLower(strings.TrimSpace(path))
 	if path != "/" {
@@ -33,10 +35,12 @@ func normalizeAuditPath(path string) string {
 	return path
 }
 
+// isAuditReadMethod 判断请求方法是否属于读取类数据访问。
 func isAuditReadMethod(method string) bool {
 	return method == http.MethodGet
 }
 
+// isAuditWriteMethod 判断请求方法是否可能产生业务状态变更。
 func isAuditWriteMethod(method string) bool {
 	switch method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -46,6 +50,7 @@ func isAuditWriteMethod(method string) bool {
 	}
 }
 
+// isAuditPermissionMutation 判断请求是否属于角色、权限或菜单相关的变更操作。
 func isAuditPermissionMutation(method, path string) bool {
 	if !isAuditWriteMethod(method) {
 		return false

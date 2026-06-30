@@ -12,6 +12,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// InitLogger 初始化全局 Zap Logger，并同时输出到控制台和轮转日志文件。
 func InitLogger(conf *Config) {
 	loggerConf := normalizeLoggerConfig(conf.Logger)
 
@@ -37,6 +38,7 @@ func InitLogger(conf *Config) {
 	)
 }
 
+// normalizeLoggerConfig 为日志配置填充默认值，避免配置缺省导致初始化失败。
 func normalizeLoggerConfig(conf LoggerConfig) LoggerConfig {
 	if conf.Level == "" {
 		conf.Level = "debug"
@@ -59,6 +61,7 @@ func normalizeLoggerConfig(conf LoggerConfig) LoggerConfig {
 	return conf
 }
 
+// getLoggerLevel 将配置中的字符串日志级别转换为 zapcore.Level。
 func getLoggerLevel(level string) zapcore.Level {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -74,6 +77,7 @@ func getLoggerLevel(level string) zapcore.Level {
 	}
 }
 
+// getLoggerEncoder 根据配置选择 JSON 或控制台格式的日志编码器。
 func getLoggerEncoder(format string) zapcore.Encoder {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -88,6 +92,7 @@ func getLoggerEncoder(format string) zapcore.Encoder {
 	return zapcore.NewConsoleEncoder(encoderConfig)
 }
 
+// getLoggerWriter 创建带 lumberjack 轮转能力的日志文件输出。
 func getLoggerWriter(conf LoggerConfig) zapcore.WriteSyncer {
 	return zapcore.AddSync(&lumberjack.Logger{
 		Filename:   conf.Output,

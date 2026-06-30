@@ -15,4 +15,6 @@ var Models = []interface{}{
 	AuditLogArchive{},
 	DictType{},
 	DictItem{},
+	Organization{},
+	UserOrganization{},
 }
