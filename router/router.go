@@ -84,6 +84,8 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.DELETE("/roles/:id", roleHandler.DeleteRole)
 			admin.POST("/roles/:id/users", roleHandler.AssignUsers)
 			admin.GET("/roles/:id/users", roleHandler.GetRoleUsers)
+			admin.POST("/roles/:id/data-scope", roleHandler.AssignDataScope)
+			admin.GET("/roles/:id/data-scope", roleHandler.GetDataScope)
 
 			// 权限管理
 			admin.GET("/permissions", permHandler.ListPermissions)
@@ -114,6 +116,8 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.PUT("/menus/:id", menuHandler.UpdateMenu)
 			admin.DELETE("/menus/:id", menuHandler.DeleteMenu)
 			admin.POST("/menus/sync", menuHandler.SyncMenus)
+			admin.POST("/menus/:id/apis", menuHandler.AssignAPIs)
+			admin.GET("/menus/:id/apis", menuHandler.GetAPIs)
 			admin.POST("/roles/:id/menus", menuHandler.AssignRoleMenus)
 			admin.GET("/roles/:id/menus", menuHandler.GetRoleMenus)
 
@@ -148,6 +152,7 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.POST("/apis", apiHandler.CreateAPI)
 			admin.PUT("/apis/:id", apiHandler.UpdateAPI)
 			admin.DELETE("/apis/:id", apiHandler.DeleteAPI)
+			admin.POST("/apis/:id/menu-button", apiHandler.GenerateMenuButton)
 			admin.POST("/apis/sync", apiHandler.SyncAPIs)
 			admin.POST("/apis/sync-permissions", apiHandler.SyncAPIPermissions)
 		}

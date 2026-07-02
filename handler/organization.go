@@ -18,7 +18,7 @@ func (h *OrganizationHandler) ListOrganizations(c *gin.Context) {
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
 	status := parseOptionalInt(c.Query("status"))
 
-	list, total, err := service.GetOrganizations(page, size, c.Query("keyword"), status)
+	list, total, err := service.GetOrganizations(c.GetUint("userID"), page, size, c.Query("keyword"), status)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
@@ -30,7 +30,7 @@ func (h *OrganizationHandler) ListOrganizations(c *gin.Context) {
 
 // GetOrganizationTree 返回组织的树形结构。
 func (h *OrganizationHandler) GetOrganizationTree(c *gin.Context) {
-	tree, err := service.GetOrganizationTree()
+	tree, err := service.GetOrganizationTree(c.GetUint("userID"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
@@ -45,7 +45,7 @@ func (h *OrganizationHandler) CreateOrganization(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
 	}
-	organization, err := service.CreateOrganization(req)
+	organization, err := service.CreateOrganization(c.GetUint("userID"), req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
@@ -66,7 +66,7 @@ func (h *OrganizationHandler) UpdateOrganization(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
 	}
-	organization, err := service.UpdateOrganization(uint(orgID), req)
+	organization, err := service.UpdateOrganization(c.GetUint("userID"), uint(orgID), req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
@@ -81,7 +81,7 @@ func (h *OrganizationHandler) DeleteOrganization(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
 	}
-	if err := service.DeleteOrganization(uint(orgID)); err != nil {
+	if err := service.DeleteOrganization(c.GetUint("userID"), uint(orgID)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
@@ -102,7 +102,7 @@ func (h *OrganizationHandler) AssignUsers(c *gin.Context) {
 		return
 	}
 
-	if err := service.AssignUsersToOrganization(uint(orgID), req.UserIDs); err != nil {
+	if err := service.AssignUsersToOrganization(c.GetUint("userID"), uint(orgID), req.UserIDs); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
@@ -117,7 +117,7 @@ func (h *OrganizationHandler) GetUsers(c *gin.Context) {
 		return
 	}
 
-	users, err := service.GetOrganizationUsers(uint(orgID))
+	users, err := service.GetOrganizationUsers(c.GetUint("userID"), uint(orgID))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return

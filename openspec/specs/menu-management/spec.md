@@ -1,8 +1,8 @@
-﻿# menu-management Specification
+# menu-management Specification
 
 ## Purpose
 
-菜单管理负责存储前端导航元数据、返回菜单树、同步前端路由，并控制角色和用户可见菜单。它定义菜单记录维护、角色菜单分配、用户初始化上下文中菜单树的生成规则。
+菜单管理负责存储前端导航元数据、返回菜单树、同步前端路由，并控制角色和用户可见菜单。它定义菜单记录维护、角色菜单分配、用户初始化上下文中菜单树的生成规则，并通过菜单 API 关联保持前端按钮权限和后端 API 权限一致。
 
 ## Requirements
 
@@ -47,6 +47,7 @@
 #### Scenario: 删除叶子菜单
 - **WHEN** 管理员删除没有子菜单的菜单
 - **THEN** 系统删除该菜单对应的角色菜单关联
+- **AND** 系统删除该菜单对应的菜单 API 关联
 - **AND** 系统硬删除菜单记录
 
 ### Requirement: 角色菜单分配
@@ -103,4 +104,26 @@
 - **WHEN** 提交的路由路径已存在于菜单表
 - **THEN** 系统跳过该条数据
 
+### Requirement: 菜单 API 联动
+系统 SHALL 允许管理员把菜单按钮和 API 元数据绑定，并保证菜单权限码与 API 权限码一致。
 
+#### Scenario: 菜单绑定 API
+- **WHEN** 管理员向 `POST /api/admin/menus/:id/apis` 提交菜单 ID、API ID 列表和可选权限码
+- **THEN** 系统校验菜单存在
+- **AND** 系统校验 API 均存在、已启用且需要认证
+- **AND** 系统覆盖写入 `menu_apis`
+- **AND** 系统同步菜单和绑定 API 的 `permission_code`
+- **AND** 系统确保权限表存在对应权限码
+
+#### Scenario: 查询菜单绑定 API
+- **WHEN** 管理员调用 `GET /api/admin/menus/:id/apis`
+- **THEN** 系统返回该菜单绑定的 API 元数据列表
+- **AND** 如果没有绑定 API，系统返回空列表
+
+#### Scenario: 删除菜单清理 API 关联
+- **WHEN** 管理员删除叶子菜单
+- **THEN** 系统清理该菜单对应的 `menu_apis` 关联
+
+#### Scenario: 菜单权限变更实时生效
+- **WHEN** 菜单绑定 API 或菜单权限码发生联动变更
+- **THEN** 系统提升相关 token 版本，使旧 token 失效

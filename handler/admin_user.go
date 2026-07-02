@@ -19,7 +19,7 @@ func (h *AdminUserHandler) ListUsers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
 
-	list, total, err := service.GetAllUsers(page, size)
+	list, total, err := service.GetAllUsers(c.GetUint("userID"), page, size)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return

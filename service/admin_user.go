@@ -11,12 +11,25 @@ import (
 // ========== 管理端 ==========
 
 // --- 获取用户列表 ---
-func GetAllUsers(page, pageSize int) ([]dto.UserInfo, int64, error) {
+func GetAllUsers(operatorID uint, page, pageSize int) ([]dto.UserInfo, int64, error) {
 	var users []model.User
 	var total int64
 
-	global.DB.Model(&model.User{}).Count(&total)
-	if err := global.DB.Limit(pageSize).Offset((page - 1) * pageSize).Find(&users).Error; err != nil {
+	visibleUserIDs, hasAllData, err := GetVisibleUserIDs(operatorID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !hasAllData && len(visibleUserIDs) == 0 {
+		return []dto.UserInfo{}, 0, nil
+	}
+
+	query := global.DB.Model(&model.User{})
+	if !hasAllData {
+		query = query.Where("id IN ?", visibleUserIDs)
+	}
+
+	query.Count(&total)
+	if err := query.Limit(pageSize).Offset((page - 1) * pageSize).Find(&users).Error; err != nil {
 		return nil, 0, errors.New("查询用户列表失败")
 	}
 
@@ -39,6 +52,9 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return errors.New("用户不存在")
 	}
+	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+		return err
+	}
 	if isAdminUser(user) {
 		return errors.New("不能删除其他管理员")
 	}
@@ -53,6 +69,9 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	var target model.User
 	if err := global.DB.First(&target, targetID).Error; err != nil {
 		return nil, errors.New("用户不存在")
+	}
+	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+		return nil, err
 	}
 	if isAdminUser(target) {
 		return nil, errors.New("不能修改其他管理员")
@@ -100,6 +119,9 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return 0, errors.New("用户不存在")
 	}
+	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+		return 0, err
+	}
 	if isAdminUser(user) {
 		return 0, errors.New("不能操作其他管理员")
 	}
@@ -123,6 +145,9 @@ func KickUserByAdmin(operatorID, targetID uint) error {
 	var user model.User
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return errors.New("用户不存在")
+	}
+	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+		return err
 	}
 	if isAdminUser(user) {
 		return errors.New("不能强制下线其他管理员")

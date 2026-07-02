@@ -8,6 +8,7 @@ type CreateRoleReq struct {
 	Description string `json:"description" binding:"max=255"`
 	Sort        int    `json:"sort"`
 	Status      int    `json:"status"`
+	DataScope   string `json:"data_scope"`
 }
 
 type UpdateRoleReq struct {
@@ -16,10 +17,16 @@ type UpdateRoleReq struct {
 	Description string `json:"description" binding:"max=255"`
 	Sort        *int   `json:"sort"`
 	Status      *int   `json:"status"`
+	DataScope   string `json:"data_scope"`
 }
 
 type AssignUsersToRoleReq struct {
 	UserIDs []uint `json:"user_ids" binding:"required"`
+}
+
+type AssignRoleDataScopeReq struct {
+	DataScope       string `json:"data_scope" binding:"required"`
+	OrganizationIDs []uint `json:"organization_ids"`
 }
 
 // ========== 角色响应 ==========
@@ -31,6 +38,7 @@ type RoleInfo struct {
 	Description string `json:"description"`
 	Sort        int    `json:"sort"`
 	Status      int    `json:"status"`
+	DataScope   string `json:"data_scope"`
 }
 
 type RoleListResp struct {
@@ -38,4 +46,10 @@ type RoleListResp struct {
 	Total int64      `json:"total"`
 	Page  int        `json:"page"`
 	Size  int        `json:"size"`
+}
+
+type RoleDataScopeInfo struct {
+	RoleID          uint   `json:"role_id"`
+	DataScope       string `json:"data_scope"`
+	OrganizationIDs []uint `json:"organization_ids"`
 }

@@ -29,6 +29,7 @@ func GetAllRoles(page, pageSize int) ([]dto.RoleInfo, int64, error) {
 			Description: r.Description,
 			Sort:        r.Sort,
 			Status:      r.Status,
+			DataScope:   r.DataScope,
 		}
 	}
 	return list, total, nil
@@ -36,6 +37,14 @@ func GetAllRoles(page, pageSize int) ([]dto.RoleInfo, int64, error) {
 
 // CreateRole 创建角色
 func CreateRole(req dto.CreateRoleReq) (*dto.RoleInfo, error) {
+	dataScope, err := normalizeDataScope(req.DataScope)
+	if err != nil {
+		return nil, err
+	}
+	if dataScope == model.DataScopeCustom {
+		return nil, errors.New("自定义数据范围请创建角色后通过数据权限接口配置")
+	}
+
 	var exist int64
 	global.DB.Model(&model.Role{}).Where("name = ? OR code = ?", req.Name, req.Code).Count(&exist)
 	if exist > 0 {
@@ -48,6 +57,7 @@ func CreateRole(req dto.CreateRoleReq) (*dto.RoleInfo, error) {
 		Description: req.Description,
 		Sort:        req.Sort,
 		Status:      1,
+		DataScope:   dataScope,
 	}
 	if req.Status == 0 || req.Status == 1 {
 		role.Status = req.Status
@@ -58,7 +68,7 @@ func CreateRole(req dto.CreateRoleReq) (*dto.RoleInfo, error) {
 
 	return &dto.RoleInfo{
 		ID: role.ID, Name: role.Name, Code: role.Code,
-		Description: role.Description, Sort: role.Sort, Status: role.Status,
+		Description: role.Description, Sort: role.Sort, Status: role.Status, DataScope: role.DataScope,
 	}, nil
 }
 
@@ -91,6 +101,16 @@ func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 	if req.Status != nil {
 		updates["status"] = *req.Status
 	}
+	if req.DataScope != "" {
+		dataScope, err := normalizeDataScope(req.DataScope)
+		if err != nil {
+			return nil, err
+		}
+		if dataScope == model.DataScopeCustom {
+			return nil, errors.New("自定义数据范围请通过数据权限接口配置")
+		}
+		updates["data_scope"] = dataScope
+	}
 	if len(updates) == 0 {
 		return nil, errors.New("无修改内容")
 	}
@@ -119,7 +139,7 @@ func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 	global.DB.First(&role, roleID)
 	return &dto.RoleInfo{
 		ID: role.ID, Name: role.Name, Code: role.Code,
-		Description: role.Description, Sort: role.Sort, Status: role.Status,
+		Description: role.Description, Sort: role.Sort, Status: role.Status, DataScope: role.DataScope,
 	}, nil
 }
 
@@ -140,6 +160,7 @@ func DeleteRole(roleID uint) error {
 	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &oldUserIDs)
 	// 删除关联
 	global.DB.Where("role_id = ?", roleID).Delete(&model.UserRole{})
+	global.DB.Where("role_id = ?", roleID).Delete(&model.RoleDataScope{})
 	// 硬删除角色
 	if err := global.DB.Unscoped().Delete(&role).Error; err != nil {
 		return err
@@ -205,4 +226,82 @@ func GetRoleUsers(roleID uint) ([]dto.UserInfo, error) {
 		}
 	}
 	return list, nil
+}
+
+// AssignRoleDataScope 配置角色数据范围。
+func AssignRoleDataScope(roleID uint, req dto.AssignRoleDataScopeReq) error {
+	dataScope, err := normalizeDataScope(req.DataScope)
+	if err != nil {
+		return err
+	}
+
+	var role model.Role
+	if err := global.DB.First(&role, roleID).Error; err != nil {
+		return errors.New("角色不存在")
+	}
+	if role.Code == "admin" {
+		return errors.New("超级管理员角色固定拥有全部数据权限")
+	}
+
+	organizationIDs := uniqueUintIDs(req.OrganizationIDs)
+	if dataScope == model.DataScopeCustom {
+		if len(organizationIDs) == 0 {
+			return errors.New("自定义数据范围必须选择组织")
+		}
+		if err := ensureOrganizationsExist(organizationIDs); err != nil {
+			return err
+		}
+	}
+
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&role).Update("data_scope", dataScope).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("role_id = ?", roleID).Delete(&model.RoleDataScope{}).Error; err != nil {
+			return err
+		}
+		if dataScope != model.DataScopeCustom {
+			return nil
+		}
+
+		records := make([]model.RoleDataScope, 0, len(organizationIDs))
+		for _, orgID := range organizationIDs {
+			records = append(records, model.RoleDataScope{
+				RoleID:         roleID,
+				OrganizationID: orgID,
+			})
+		}
+		return tx.Create(&records).Error
+	}); err != nil {
+		return errors.New("配置角色数据权限失败: " + err.Error())
+	}
+
+	bumpUsersTokenVersionByRole(roleID)
+	return nil
+}
+
+// GetRoleDataScope 查询角色数据范围。
+func GetRoleDataScope(roleID uint) (*dto.RoleDataScopeInfo, error) {
+	var role model.Role
+	if err := global.DB.First(&role, roleID).Error; err != nil {
+		return nil, errors.New("角色不存在")
+	}
+
+	var organizationIDs []uint
+	if err := global.DB.Model(&model.RoleDataScope{}).
+		Where("role_id = ?", roleID).
+		Order("organization_id asc").
+		Pluck("organization_id", &organizationIDs).Error; err != nil {
+		return nil, errors.New("查询角色数据权限失败")
+	}
+
+	dataScope := role.DataScope
+	if dataScope == "" {
+		dataScope = model.DataScopeAll
+	}
+	return &dto.RoleDataScopeInfo{
+		RoleID:          role.ID,
+		DataScope:       dataScope,
+		OrganizationIDs: organizationIDs,
+	}, nil
 }

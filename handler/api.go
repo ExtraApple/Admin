@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gin-gonic/gin"
+
 	"admin/dto"
 	"admin/service"
-
-	"github.com/gin-gonic/gin"
 )
 
 type APIHandler struct {
@@ -89,6 +89,26 @@ func (h *APIHandler) DeleteAPI(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+}
+
+func (h *APIHandler) GenerateMenuButton(c *gin.Context) {
+	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	var req dto.GenerateMenuButtonFromAPIReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		return
+	}
+	menu, err := service.GenerateMenuButtonFromAPI(uint(apiID), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "生成成功", "data": menu})
 }
 
 func (h *APIHandler) SyncAPIs(c *gin.Context) {

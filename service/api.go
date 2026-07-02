@@ -163,6 +163,11 @@ func UpdateAPI(apiID uint, req dto.UpdateAPIReq) (*dto.APIInfo, error) {
 		return nil, errors.New("修改API失败")
 	}
 	global.DB.First(&api, apiID)
+	if req.PermissionCode != nil {
+		if err := syncLinkedMenusByAPI(api); err != nil {
+			return nil, err
+		}
+	}
 	return toAPIInfo(api), nil
 }
 
@@ -174,7 +179,19 @@ func DeleteAPI(apiID uint) error {
 		}
 		return errors.New("查询API失败")
 	}
-	return global.DB.Unscoped().Delete(&api).Error
+
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("api_id = ?", apiID).Delete(&model.MenuAPI{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&api).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {

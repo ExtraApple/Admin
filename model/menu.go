@@ -19,3 +19,12 @@ type RoleMenu struct {
 	RoleID uint `gorm:"primaryKey;comment:角色ID"`
 	MenuID uint `gorm:"primaryKey;comment:菜单ID"`
 }
+
+type MenuAPI struct {
+	MenuID uint `gorm:"primaryKey;index;comment:菜单ID"`
+	APIID  uint `gorm:"primaryKey;index;comment:API ID"`
+}
+
+func (MenuAPI) TableName() string {
+	return "menu_apis"
+}

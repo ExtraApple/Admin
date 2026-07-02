@@ -28,6 +28,17 @@ type AssignMenusToRoleReq struct {
 	MenuIDs []uint `json:"menu_ids" binding:"required"`
 }
 
+type AssignAPIsToMenuReq struct {
+	APIIDs         []uint `json:"api_ids" binding:"required"`
+	PermissionCode string `json:"permission_code" binding:"max=100"`
+}
+
+type GenerateMenuButtonFromAPIReq struct {
+	ParentID uint   `json:"parent_id" binding:"required"`
+	Name     string `json:"name" binding:"required,min=1,max=100"`
+	Sort     int    `json:"sort"`
+}
+
 type SyncMenuItem struct {
 	Name           string `json:"name" binding:"required,min=1,max=100"`
 	Path           string `json:"path" binding:"required,max=255"`

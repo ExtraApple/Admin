@@ -11,12 +11,22 @@ import (
 )
 
 // GetOrganizations 分页查询组织列表，支持关键字和状态筛选。
-func GetOrganizations(page, pageSize int, keyword string, status *int) ([]dto.OrganizationInfo, int64, error) {
+func GetOrganizations(operatorID uint, page, pageSize int, keyword string, status *int) ([]dto.OrganizationInfo, int64, error) {
 	page, pageSize = normalizePage(page, pageSize)
 
 	var organizations []model.Organization
 	var total int64
 	query := global.DB.Model(&model.Organization{})
+	visibleOrgIDs, hasAllData, err := GetVisibleOrganizationIDs(operatorID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !hasAllData {
+		if len(visibleOrgIDs) == 0 {
+			return []dto.OrganizationInfo{}, 0, nil
+		}
+		query = query.Where("id IN ?", visibleOrgIDs)
+	}
 	if keyword != "" {
 		query = query.Where("name LIKE ? OR code LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
@@ -33,17 +43,38 @@ func GetOrganizations(page, pageSize int, keyword string, status *int) ([]dto.Or
 	return toOrganizationInfoList(organizations), total, nil
 }
 
-// GetOrganizationTree 查询全部组织并组装为树形结构。
-func GetOrganizationTree() ([]dto.OrganizationTree, error) {
+// GetOrganizationTree 查询可见组织并组装为树形结构。
+func GetOrganizationTree(operatorID uint) ([]dto.OrganizationTree, error) {
 	var organizations []model.Organization
-	if err := global.DB.Order("sort asc, id asc").Find(&organizations).Error; err != nil {
+	query := global.DB.Order("sort asc, id asc")
+	visibleOrgIDs, hasAllData, err := GetVisibleOrganizationIDs(operatorID)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAllData {
+		if len(visibleOrgIDs) == 0 {
+			return []dto.OrganizationTree{}, nil
+		}
+		query = query.Where("id IN ?", expandOrganizationIDsWithAncestors(visibleOrgIDs))
+	}
+	if err := query.Find(&organizations).Error; err != nil {
 		return nil, errors.New("查询组织树失败")
 	}
 	return buildOrganizationTree(organizations, 0), nil
 }
 
 // CreateOrganization 创建组织节点，并校验父级存在和编码唯一性。
-func CreateOrganization(req dto.CreateOrganizationReq) (*dto.OrganizationInfo, error) {
+func CreateOrganization(operatorID uint, req dto.CreateOrganizationReq) (*dto.OrganizationInfo, error) {
+	if req.ParentID != 0 {
+		if err := ensureOrganizationVisibleToOperator(operatorID, req.ParentID); err != nil {
+			return nil, err
+		}
+	} else if _, hasAllData, err := GetVisibleOrganizationIDs(operatorID); err != nil {
+		return nil, err
+	} else if !hasAllData {
+		return nil, errors.New("无权创建根组织")
+	}
+
 	if err := ensureOrganizationParentExists(req.ParentID); err != nil {
 		return nil, err
 	}
@@ -66,7 +97,7 @@ func CreateOrganization(req dto.CreateOrganizationReq) (*dto.OrganizationInfo, e
 }
 
 // UpdateOrganization 修改组织节点，并防止形成循环父子关系。
-func UpdateOrganization(orgID uint, req dto.UpdateOrganizationReq) (*dto.OrganizationInfo, error) {
+func UpdateOrganization(operatorID, orgID uint, req dto.UpdateOrganizationReq) (*dto.OrganizationInfo, error) {
 	var organization model.Organization
 	if err := global.DB.First(&organization, orgID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -74,9 +105,17 @@ func UpdateOrganization(orgID uint, req dto.UpdateOrganizationReq) (*dto.Organiz
 		}
 		return nil, errors.New("查询组织失败")
 	}
+	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+		return nil, err
+	}
 
 	updates := map[string]any{}
 	if req.ParentID != nil {
+		if *req.ParentID != 0 {
+			if err := ensureOrganizationVisibleToOperator(operatorID, *req.ParentID); err != nil {
+				return nil, err
+			}
+		}
 		if err := validateOrganizationParent(orgID, *req.ParentID); err != nil {
 			return nil, err
 		}
@@ -113,13 +152,16 @@ func UpdateOrganization(orgID uint, req dto.UpdateOrganizationReq) (*dto.Organiz
 }
 
 // DeleteOrganization 删除没有子组织的组织节点。
-func DeleteOrganization(orgID uint) error {
+func DeleteOrganization(operatorID, orgID uint) error {
 	var organization model.Organization
 	if err := global.DB.First(&organization, orgID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("组织不存在")
 		}
 		return errors.New("查询组织失败")
+	}
+	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+		return err
 	}
 
 	var childCount int64
@@ -137,8 +179,11 @@ func DeleteOrganization(orgID uint) error {
 }
 
 // AssignUsersToOrganization 覆盖指定组织的成员绑定关系。
-func AssignUsersToOrganization(orgID uint, userIDs []uint) error {
+func AssignUsersToOrganization(operatorID, orgID uint, userIDs []uint) error {
 	if err := ensureOrganizationExists(orgID); err != nil {
+		return err
+	}
+	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
 		return err
 	}
 
@@ -176,8 +221,11 @@ func AssignUsersToOrganization(orgID uint, userIDs []uint) error {
 }
 
 // GetOrganizationUsers 查询指定组织下的成员列表。
-func GetOrganizationUsers(orgID uint) ([]dto.UserInfo, error) {
+func GetOrganizationUsers(operatorID, orgID uint) ([]dto.UserInfo, error) {
 	if err := ensureOrganizationExists(orgID); err != nil {
+		return nil, err
+	}
+	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
 		return nil, err
 	}
 

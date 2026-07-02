@@ -109,3 +109,37 @@ func (h *RoleHandler) GetRoleUsers(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": users})
 }
+
+// AssignDataScope 配置角色数据范围
+func (h *RoleHandler) AssignDataScope(c *gin.Context) {
+	roleID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	var req dto.AssignRoleDataScopeReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		return
+	}
+	if err := service.AssignRoleDataScope(uint(roleID), req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "配置成功"})
+}
+
+// GetDataScope 获取角色数据范围
+func (h *RoleHandler) GetDataScope(c *gin.Context) {
+	roleID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	dataScope, err := service.GetRoleDataScope(uint(roleID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": dataScope})
+}

@@ -22,6 +22,8 @@ JWT_SECRET=
 ADMIN_PASSWORD=
 ```
 
+Linux、Docker、Kubernetes 部署时不必依赖 `.env` 文件，可以直接注入同名环境变量，详细示例见 [docs/配置管理.md](docs/配置管理.md)。
+
 超级管理员会在启动时按新 RBAC 体系自动兜底创建，管理员身份只看：
 
 ```text

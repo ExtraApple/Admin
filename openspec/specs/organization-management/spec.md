@@ -30,6 +30,24 @@
 - **THEN** 系统返回按 parent_id 组织的树形结构
 - **AND** 同级节点按 sort asc, id asc 排序
 
+### Requirement: 组织数据范围过滤
+系统 SHALL 基于当前用户角色的数据范围过滤组织和用户查询结果。
+
+#### Scenario: 查询组织列表时应用数据范围
+- **WHEN** 管理员请求 `GET /api/admin/organizations`
+- **THEN** 系统只返回当前用户数据范围内的组织
+- **AND** 如果用户拥有全部数据范围，系统返回全部组织
+
+#### Scenario: 查询组织树时应用数据范围
+- **WHEN** 管理员请求 `GET /api/admin/organizations/tree`
+- **THEN** 系统只返回当前用户数据范围内的组织节点
+- **AND** 系统保留可见节点的祖先节点，保证树形结构可展示
+
+#### Scenario: 查询用户列表时应用数据范围
+- **WHEN** 管理员请求 `GET /api/admin/users`
+- **THEN** 系统只返回当前用户数据范围内的用户
+- **AND** `self` 数据范围至少允许用户看到自己
+
 ### Requirement: 防止组织循环
 系统 SHALL 防止组织父子关系形成循环。
 
