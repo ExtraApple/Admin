@@ -47,6 +47,16 @@ type APIListResp struct {
 	Size  int       `json:"size"`
 }
 
+type APIGroupOption struct {
+	Group string `json:"group"`
+	Count int64  `json:"count"`
+}
+
+type APIMethodOption struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
 type SyncAPIItem struct {
 	Method string `json:"method"`
 	Path   string `json:"path"`

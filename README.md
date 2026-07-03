@@ -36,6 +36,13 @@ users -> user_roles -> roles.code = "admin"
 go run .\main.go
 ```
 
+本地 API 文档：
+
+```text
+http://localhost:8080/docs
+http://localhost:8080/docs/openapi.json
+```
+
 MinIO 本地启动示例：
 
 ```bash

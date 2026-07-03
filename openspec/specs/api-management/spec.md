@@ -14,6 +14,11 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 - **THEN** 系统分页返回 API 元数据列表
 - **AND** 支持按关键词、分组、HTTP 方法、状态、认证标记和审计标记筛选
 
+#### Scenario: 查询 API 详情
+- **WHEN** 管理员调用 `GET /api/admin/apis/:id`
+- **THEN** 系统返回指定 API 元数据详情
+- **AND** API 不存在时系统拒绝请求
+
 #### Scenario: 创建 API 元数据
 - **WHEN** 管理员提交名称、HTTP 方法和路径
 - **THEN** 系统创建 API 元数据
@@ -35,6 +40,39 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 - **WHEN** 管理员删除 API 元数据
 - **THEN** 系统清理该 API 对应的 `menu_apis` 关联
 - **AND** 系统硬删除 API 记录
+
+### Requirement: API 辅助选项
+系统 SHALL 提供 API 管理页面所需的辅助选项。
+
+#### Scenario: 查询 API 分组列表
+- **WHEN** 管理员调用 `GET /api/admin/api-groups`
+- **THEN** 系统返回当前 API 元数据中的分组列表
+- **AND** 每个分组包含 API 数量
+
+#### Scenario: 查询 HTTP 方法列表
+- **WHEN** 管理员调用 `GET /api/admin/api-methods`
+- **THEN** 系统返回支持的 HTTP 方法选项
+
+### Requirement: 自动化 API 文档
+系统 SHALL 能够根据 Gin 路由和 API 元数据生成 OpenAPI 文档。
+
+#### Scenario: 访问 Swagger UI 页面
+- **WHEN** `api_docs.enabled = true`
+- **AND** 用户访问 `GET /docs`
+- **THEN** 系统返回 Swagger UI 页面
+
+#### Scenario: 获取 OpenAPI JSON
+- **WHEN** `api_docs.enabled = true`
+- **AND** 用户访问 `GET /docs/openapi.json`
+- **THEN** 系统返回 OpenAPI 3.0 JSON
+- **AND** 文档包含 `/api/` 前缀下的业务接口
+- **AND** 文档结合 `apis` 表元数据生成接口标题、分组、描述和认证要求
+- **AND** 对已配置 DTO 映射的 JSON 请求接口生成请求体 Schema
+- **AND** 上传接口生成 `multipart/form-data` 文件字段
+
+#### Scenario: 关闭自动化 API 文档
+- **WHEN** `api_docs.enabled = false`
+- **THEN** 系统不注册 `/docs` 和 `/docs/openapi.json` 路由
 
 ### Requirement: API 路由同步
 系统 SHALL 能够从 Gin 已注册路由同步 API 元数据。

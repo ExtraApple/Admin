@@ -53,3 +53,10 @@ audit_log_archive:
   enabled: true
   retention_days: 90
   batch_size: 1000
+
+# 自动化 API 文档配置
+api_docs:
+  enabled: true
+  title: "Admin API"
+  version: "1.0.0"
+  description: "Admin 后台管理系统 OpenAPI 文档，由 Gin 路由和 API 元数据自动生成。"

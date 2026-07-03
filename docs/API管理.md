@@ -9,12 +9,16 @@ API 管理维护后端接口元数据，用于接口分组、启停、权限码�
 ## 已完成功能
 
 - API 列表。
+- API 详情。
+- API 分组列表。
+- HTTP 方法列表。
 - 手动创建 API。
 - 修改 API。
 - 删除 API。
 - 自动扫描 Gin 已注册路由。
 - API 权限同步到权限表。
 - API 动态权限中间件。
+- 自动生成 OpenAPI 文档。
 - 从 API 生成按钮菜单。
 - 修改 API 权限码后同步关联菜单。
 - 删除 API 时清理 `menu_apis` 关联。
@@ -42,6 +46,15 @@ apis
 | `need_auth` | 是否需要认证 |
 | `need_audit` | 是否需要审计日志 |
 
+## 字段约定
+
+| 字段 | 可选值 |
+|---|---|
+| `method` | `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`OPTIONS`、`HEAD` |
+| `status` | `1` 启用，`0` 禁用 |
+| `need_auth` | `1` 需要认证，`0` 公开接口 |
+| `need_audit` | `1` 记录审计日志，`0` 不记录审计日志 |
+
 ## 接口
 
 所有接口都需要管理员 Token：
@@ -68,6 +81,124 @@ GET /api/admin/apis?page=1&size=10&keyword=user&group=user&method=GET&status=1&n
 | `status` | 状态 |
 | `need_auth` | 是否需要认证 |
 | `need_audit` | 是否记录审计 |
+
+成功返回：
+
+```json
+{
+  "code": 200,
+  "data": {
+    "list": [
+      {
+        "id": 1,
+        "name": "GET /api/admin/users",
+        "method": "GET",
+        "path": "/api/admin/users",
+        "group": "user",
+        "permission_code": "admin.users.get",
+        "remark": "",
+        "sort": 0,
+        "status": 1,
+        "need_auth": 1,
+        "need_audit": 1
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "size": 10
+  }
+}
+```
+
+### 获取 API 详情
+
+```http
+GET /api/admin/apis/:id
+```
+
+路径参数：
+
+| 参数 | 说明 |
+|---|---|
+| `id` | API ID |
+
+成功返回：
+
+```json
+{
+  "code": 200,
+  "data": {
+    "id": 1,
+    "name": "GET /api/admin/users",
+    "method": "GET",
+    "path": "/api/admin/users",
+    "group": "user",
+    "permission_code": "admin.users.get",
+    "remark": "",
+    "sort": 0,
+    "status": 1,
+    "need_auth": 1,
+    "need_audit": 1
+  }
+}
+```
+
+### 获取 API 分组列表
+
+```http
+GET /api/admin/api-groups
+```
+
+用途：
+
+- 给前端 API 管理页面的分组筛选下拉框使用。
+- `count` 表示该分组下已有多少条 API 元数据。
+
+成功返回：
+
+```json
+{
+  "code": 200,
+  "data": [
+    {
+      "group": "user",
+      "count": 5
+    },
+    {
+      "group": "role",
+      "count": 4
+    }
+  ]
+}
+```
+
+### 获取 HTTP 方法列表
+
+```http
+GET /api/admin/api-methods
+```
+
+用途：
+
+- 给前端创建、修改、筛选 API 时的 HTTP 方法下拉框使用。
+
+成功返回：
+
+```json
+{
+  "code": 200,
+  "data": [
+    {
+      "label": "GET",
+      "value": "GET"
+    },
+    {
+      "label": "POST",
+      "value": "POST"
+    }
+  ]
+}
+```
 
 ### 手动创建 API
 
@@ -242,3 +373,70 @@ GET /api/admin/users
 ```
 
 新增路由后也需要重新执行第 2 和第 3 步。
+
+## 自动化 API 文档
+
+当前项目会根据 Gin 路由和 `apis` 表元数据自动生成 OpenAPI 文档：
+
+```http
+GET /docs
+GET /docs/openapi.json
+```
+
+其中 `/docs` 是 Swagger UI 页面，`/docs/openapi.json` 可以直接导入 Apifox。
+
+JSON 请求体会根据路由对应的 DTO 生成字段 Schema；没有请求体的同步、退出登录、强制下线等接口不会显示空的通用 body。
+
+详细说明见 [自动化API文档.md](自动化API文档.md)。
+
+本次 API 管理收尾新增了这些路由，更新后也要同步一次：
+
+```text
+GET /api/admin/apis/:id
+GET /api/admin/api-groups
+GET /api/admin/api-methods
+```
+
+## Apifox 测试顺序
+
+### 1. 同步 API 路由
+
+```http
+POST http://localhost:8080/api/admin/apis/sync
+Authorization: Bearer <admin_token>
+```
+
+### 2. 同步 API 权限码
+
+```http
+POST http://localhost:8080/api/admin/apis/sync-permissions
+Authorization: Bearer <admin_token>
+```
+
+### 3. 查询 API 列表
+
+```http
+GET http://localhost:8080/api/admin/apis?page=1&size=10
+Authorization: Bearer <admin_token>
+```
+
+### 4. 查询 API 详情
+
+```http
+GET http://localhost:8080/api/admin/apis/<api_id>
+Authorization: Bearer <admin_token>
+```
+
+### 5. 查询 API 分组
+
+```http
+GET http://localhost:8080/api/admin/api-groups
+Authorization: Bearer <admin_token>
+```
+
+### 6. 查询 HTTP 方法
+
+```http
+GET http://localhost:8080/api/admin/api-methods
+Authorization: Bearer <admin_token>
+```

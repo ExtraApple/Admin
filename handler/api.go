@@ -41,6 +41,34 @@ func (h *APIHandler) ListAPIs(c *gin.Context) {
 	}})
 }
 
+func (h *APIHandler) GetAPI(c *gin.Context) {
+	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	api, err := service.GetAPI(uint(apiID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": api})
+}
+
+func (h *APIHandler) ListAPIGroups(c *gin.Context) {
+	groups, err := service.GetAPIGroupOptions()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": groups})
+}
+
+func (h *APIHandler) ListAPIMethods(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": service.GetAPIMethodOptions()})
+}
+
 func (h *APIHandler) CreateAPI(c *gin.Context) {
 	var req dto.CreateAPIReq
 	if err := c.ShouldBindJSON(&req); err != nil {

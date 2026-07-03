@@ -10,6 +10,16 @@ import (
 	"admin/model"
 )
 
+var supportedAPIMethodList = []string{
+	http.MethodGet,
+	http.MethodPost,
+	http.MethodPut,
+	http.MethodPatch,
+	http.MethodDelete,
+	http.MethodOptions,
+	http.MethodHead,
+}
+
 var supportedAPIMethods = map[string]struct{}{
 	http.MethodGet:     {},
 	http.MethodPost:    {},
@@ -134,7 +144,7 @@ func inferAPIGroup(path string) string {
 		return "dict"
 	case "organizations":
 		return "organization"
-	case "apis":
+	case "apis", "api-groups", "api-methods":
 		return "api"
 	default:
 		return segment

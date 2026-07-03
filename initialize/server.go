@@ -65,6 +65,12 @@ type Config struct {
 		RetentionDays int  `yaml:"retention_days"`
 		BatchSize     int  `yaml:"batch_size"`
 	} `yaml:"audit_log_archive"`
+	APIDocs struct {
+		Enabled     bool   `yaml:"enabled"`
+		Title       string `yaml:"title"`
+		Version     string `yaml:"version"`
+		Description string `yaml:"description"`
+	} `yaml:"api_docs"`
 }
 
 type LoggerConfig struct {

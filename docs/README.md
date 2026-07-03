@@ -17,6 +17,7 @@
 | `菜单管理.md` | 菜单树、菜单 CRUD、角色菜单、菜单 API 绑定说明 | `openspec/specs/menu-management/spec.md` |
 | `菜单与API联动.md` | 菜单按钮和 API 权限码联动说明 | `openspec/specs/menu-management/spec.md`、`openspec/specs/api-management/spec.md` |
 | `API管理.md` | API 元数据、路由同步、动态权限、生成按钮菜单说明 | `openspec/specs/api-management/spec.md` |
+| `自动化API文档.md` | OpenAPI JSON、Swagger UI、Apifox 导入说明 | `openspec/specs/api-management/spec.md` |
 | `文件管理.md` | 文件上传、下载、浏览、轮转说明 | `openspec/specs/file-management/spec.md` |
 | `Zap日志模块.md` | Zap 运行日志模块说明 | `openspec/specs/logging/spec.md` |
 | `操作日志.md` | 审计日志、冷热归档、分类查询说明 | `openspec/specs/logging/spec.md` |

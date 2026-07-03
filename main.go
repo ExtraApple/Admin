@@ -70,7 +70,14 @@ func main() {
 	}
 
 	// 5. 初始化 Gin 路由
-	r := router.InitRouter(jwtCfg)
+	r := router.InitRouter(jwtCfg, router.Options{
+		APIDocs: router.APIDocsOptions{
+			Enabled:     conf.APIDocs.Enabled,
+			Title:       conf.APIDocs.Title,
+			Version:     conf.APIDocs.Version,
+			Description: conf.APIDocs.Description,
+		},
+	})
 
 	// 6. 启动服务
 	addr := fmt.Sprintf(":%d", conf.Server.Port)

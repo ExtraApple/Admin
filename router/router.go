@@ -6,13 +6,30 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
+	"admin/dto"
 	"admin/handler"
 	"admin/middleware"
 	"admin/service"
 )
 
+type Options struct {
+	APIDocs APIDocsOptions
+}
+
+type APIDocsOptions struct {
+	Enabled     bool
+	Title       string
+	Version     string
+	Description string
+}
+
 // InitRouter 注册全局中间件、公开接口、用户接口和管理员接口。
-func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
+func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
+	opt := Options{}
+	if len(options) > 0 {
+		opt = options[0]
+	}
+
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.ZapLogger())
 
@@ -38,6 +55,14 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	dictHandler := &handler.DictHandler{}
 	organizationHandler := &handler.OrganizationHandler{}
 	apiHandler := &handler.APIHandler{Engine: r}
+	apiDocHandler := &handler.APIDocHandler{
+		Engine: r,
+		Config: dto.OpenAPIDocConfig{
+			Title:       opt.APIDocs.Title,
+			Version:     opt.APIDocs.Version,
+			Description: opt.APIDocs.Description,
+		},
+	}
 	auth := middleware.JWTAuth(jwtCfg.Secret)
 	apiPermission := middleware.APIPermission()
 
@@ -45,6 +70,11 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{"msg": "pong"})
 	})
+
+	if opt.APIDocs.Enabled {
+		r.GET("/docs", apiDocHandler.Index)
+		r.GET("/docs/openapi.json", apiDocHandler.OpenAPIJSON)
+	}
 
 	api := r.Group("/api")
 	api.Use(middleware.AuditLog())
@@ -148,7 +178,10 @@ func InitRouter(jwtCfg service.JWTConfig) *gin.Engine {
 			admin.GET("/organizations/:id/users", organizationHandler.GetUsers)
 
 			// API管理
+			admin.GET("/api-groups", apiHandler.ListAPIGroups)
+			admin.GET("/api-methods", apiHandler.ListAPIMethods)
 			admin.GET("/apis", apiHandler.ListAPIs)
+			admin.GET("/apis/:id", apiHandler.GetAPI)
 			admin.POST("/apis", apiHandler.CreateAPI)
 			admin.PUT("/apis/:id", apiHandler.UpdateAPI)
 			admin.DELETE("/apis/:id", apiHandler.DeleteAPI)

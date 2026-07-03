@@ -51,6 +51,57 @@ func GetAPIs(page, pageSize int, keyword, group, method string, status, needAuth
 	return toAPIInfoList(apis), total, nil
 }
 
+func GetAPI(apiID uint) (*dto.APIInfo, error) {
+	var api model.API
+	if err := global.DB.First(&api, apiID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("API不存在")
+		}
+		return nil, errors.New("查询API失败")
+	}
+	return toAPIInfo(api), nil
+}
+
+func GetAPIGroupOptions() ([]dto.APIGroupOption, error) {
+	type groupRow struct {
+		Group string `gorm:"column:api_group"`
+		Count int64  `gorm:"column:count"`
+	}
+
+	var rows []groupRow
+	if err := global.DB.Model(&model.API{}).
+		Select("api_group, COUNT(*) AS count").
+		Group("api_group").
+		Order("api_group asc").
+		Scan(&rows).Error; err != nil {
+		return nil, errors.New("查询API分组失败")
+	}
+
+	list := make([]dto.APIGroupOption, 0, len(rows))
+	for _, row := range rows {
+		group := strings.TrimSpace(row.Group)
+		if group == "" {
+			group = "api"
+		}
+		list = append(list, dto.APIGroupOption{
+			Group: group,
+			Count: row.Count,
+		})
+	}
+	return list, nil
+}
+
+func GetAPIMethodOptions() []dto.APIMethodOption {
+	list := make([]dto.APIMethodOption, 0, len(supportedAPIMethodList))
+	for _, method := range supportedAPIMethodList {
+		list = append(list, dto.APIMethodOption{
+			Label: method,
+			Value: method,
+		})
+	}
+	return list
+}
+
 func CreateAPI(req dto.CreateAPIReq) (*dto.APIInfo, error) {
 	method, err := normalizeAPIMethod(req.Method)
 	if err != nil {
