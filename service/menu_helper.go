@@ -37,6 +37,7 @@ func toMenuDetail(menu model.Menu) *dto.MenuDetail {
 	}
 }
 
+// normalizeMenuPath 清理菜单路径，空路径返回 nil。
 func normalizeMenuPath(path string) *string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -45,6 +46,7 @@ func normalizeMenuPath(path string) *string {
 	return &path
 }
 
+// menuPathValue 将可空菜单路径转换为字符串。
 func menuPathValue(path *string) string {
 	if path == nil {
 		return ""
@@ -52,6 +54,7 @@ func menuPathValue(path *string) string {
 	return *path
 }
 
+// filterMenusByPermissions 根据权限码过滤菜单并保留可见节点的父级链路。
 func filterMenusByPermissions(menus []model.Menu, permissions []string) []model.Menu {
 	if len(menus) == 0 {
 		return []model.Menu{}
@@ -99,6 +102,7 @@ func filterMenusByPermissions(menus []model.Menu, permissions []string) []model.
 	return filtered
 }
 
+// containsString 判断字符串切片中是否包含目标值。
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
@@ -108,6 +112,7 @@ func containsString(items []string, target string) bool {
 	return false
 }
 
+// hasRoleCode 判断角色列表中是否包含指定角色编码。
 func hasRoleCode(roles []model.Role, code string) bool {
 	for _, role := range roles {
 		if role.Code == code {

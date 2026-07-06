@@ -25,6 +25,7 @@ type MenuAPI struct {
 	APIID  uint `gorm:"primaryKey;index;comment:API ID"`
 }
 
+// TableName 指定菜单 API 关联模型对应的数据表名。
 func (MenuAPI) TableName() string {
 	return "menu_apis"
 }

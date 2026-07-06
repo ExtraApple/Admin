@@ -67,10 +67,12 @@ func APIPermission() gin.HandlerFunc {
 	}
 }
 
+// isAPIPermissionBootstrapRoute 判断请求是否属于 API 权限初始化引导接口。
 func isAPIPermissionBootstrapRoute(method, path string) bool {
 	return method == http.MethodPost && (path == "/api/admin/apis/sync" || path == "/api/admin/apis/sync-permissions")
 }
 
+// hasContextRole 判断 Gin Context 中的角色列表是否包含指定角色。
 func hasContextRole(c *gin.Context, allowed string) bool {
 	roles, _ := c.Get("roles")
 	roleList, ok := roles.([]string)
@@ -86,6 +88,7 @@ func hasContextRole(c *gin.Context, allowed string) bool {
 	return false
 }
 
+// hasContextPermission 判断 Gin Context 中的权限列表是否包含指定权限码。
 func hasContextPermission(c *gin.Context, allowed string) bool {
 	permissions, _ := c.Get("permissions")
 	permissionList, ok := permissions.([]string)

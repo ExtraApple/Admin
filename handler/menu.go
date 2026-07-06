@@ -12,6 +12,7 @@ import (
 
 type MenuHandler struct{}
 
+// ListMenus 处理菜单树查询请求。
 func (h *MenuHandler) ListMenus(c *gin.Context) {
 	menus, err := service.GetMenuTree()
 	if err != nil {
@@ -21,6 +22,7 @@ func (h *MenuHandler) ListMenus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": menus})
 }
 
+// CreateMenu 处理菜单创建请求。
 func (h *MenuHandler) CreateMenu(c *gin.Context) {
 	var req dto.CreateMenuReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -35,6 +37,7 @@ func (h *MenuHandler) CreateMenu(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": menu})
 }
 
+// UpdateMenu 处理菜单修改请求。
 func (h *MenuHandler) UpdateMenu(c *gin.Context) {
 	menuID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -55,6 +58,7 @@ func (h *MenuHandler) UpdateMenu(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": menu})
 }
 
+// DeleteMenu 处理菜单删除请求。
 func (h *MenuHandler) DeleteMenu(c *gin.Context) {
 	menuID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -68,6 +72,7 @@ func (h *MenuHandler) DeleteMenu(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
 }
 
+// AssignRoleMenus 处理角色菜单授权请求。
 func (h *MenuHandler) AssignRoleMenus(c *gin.Context) {
 	roleID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -87,6 +92,7 @@ func (h *MenuHandler) AssignRoleMenus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "分配成功"})
 }
 
+// GetRoleMenus 处理角色已授权菜单查询请求。
 func (h *MenuHandler) GetRoleMenus(c *gin.Context) {
 	roleID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -101,6 +107,7 @@ func (h *MenuHandler) GetRoleMenus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": menus})
 }
 
+// AssignAPIs 处理菜单绑定 API 请求。
 func (h *MenuHandler) AssignAPIs(c *gin.Context) {
 	menuID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -120,6 +127,7 @@ func (h *MenuHandler) AssignAPIs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "绑定成功"})
 }
 
+// GetAPIs 处理菜单已绑定 API 查询请求。
 func (h *MenuHandler) GetAPIs(c *gin.Context) {
 	menuID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -134,6 +142,7 @@ func (h *MenuHandler) GetAPIs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": apis})
 }
 
+// SyncMenus 处理菜单路由同步请求。
 func (h *MenuHandler) SyncMenus(c *gin.Context) {
 	var req dto.SyncMenusReq
 	if err := c.ShouldBindJSON(&req); err != nil {

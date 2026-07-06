@@ -11,6 +11,7 @@ import (
 	"admin/model"
 )
 
+// GetAPIs 分页查询 API 元数据，支持关键字、分组、方法和状态筛选。
 func GetAPIs(page, pageSize int, keyword, group, method string, status, needAuth, needAudit *int) ([]dto.APIInfo, int64, error) {
 	page, pageSize = normalizePage(page, pageSize)
 
@@ -51,6 +52,7 @@ func GetAPIs(page, pageSize int, keyword, group, method string, status, needAuth
 	return toAPIInfoList(apis), total, nil
 }
 
+// GetAPI 查询单个 API 元数据详情。
 func GetAPI(apiID uint) (*dto.APIInfo, error) {
 	var api model.API
 	if err := global.DB.First(&api, apiID).Error; err != nil {
@@ -62,6 +64,7 @@ func GetAPI(apiID uint) (*dto.APIInfo, error) {
 	return toAPIInfo(api), nil
 }
 
+// GetAPIGroupOptions 统计并返回 API 分组选项。
 func GetAPIGroupOptions() ([]dto.APIGroupOption, error) {
 	type groupRow struct {
 		Group string `gorm:"column:api_group"`
@@ -91,6 +94,7 @@ func GetAPIGroupOptions() ([]dto.APIGroupOption, error) {
 	return list, nil
 }
 
+// GetAPIMethodOptions 返回系统支持的 HTTP 方法选项。
 func GetAPIMethodOptions() []dto.APIMethodOption {
 	list := make([]dto.APIMethodOption, 0, len(supportedAPIMethodList))
 	for _, method := range supportedAPIMethodList {
@@ -102,6 +106,7 @@ func GetAPIMethodOptions() []dto.APIMethodOption {
 	return list
 }
 
+// CreateAPI 创建 API 元数据记录。
 func CreateAPI(req dto.CreateAPIReq) (*dto.APIInfo, error) {
 	method, err := normalizeAPIMethod(req.Method)
 	if err != nil {
@@ -140,6 +145,7 @@ func CreateAPI(req dto.CreateAPIReq) (*dto.APIInfo, error) {
 	return toAPIInfo(api), nil
 }
 
+// UpdateAPI 修改 API 元数据，并在权限码变化时同步关联菜单。
 func UpdateAPI(apiID uint, req dto.UpdateAPIReq) (*dto.APIInfo, error) {
 	var api model.API
 	if err := global.DB.First(&api, apiID).Error; err != nil {
@@ -222,6 +228,7 @@ func UpdateAPI(apiID uint, req dto.UpdateAPIReq) (*dto.APIInfo, error) {
 	return toAPIInfo(api), nil
 }
 
+// DeleteAPI 删除 API 元数据并清理菜单关联。
 func DeleteAPI(apiID uint) error {
 	var api model.API
 	if err := global.DB.First(&api, apiID).Error; err != nil {
@@ -245,6 +252,7 @@ func DeleteAPI(apiID uint) error {
 	return nil
 }
 
+// SyncAPIs 根据路由列表创建缺失的 API 元数据。
 func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 	created := []dto.APIInfo{}
 
@@ -289,6 +297,7 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 	return created, nil
 }
 
+// SyncAPIPermissions 为需要鉴权的 API 同步权限码和权限记录。
 func SyncAPIPermissions() ([]string, int, error) {
 	var apis []model.API
 	if err := global.DB.Find(&apis).Error; err != nil {
@@ -301,7 +310,7 @@ func SyncAPIPermissions() ([]string, int, error) {
 		if api.NeedAuth == 0 {
 			continue
 		}
-
+		// 移除字符串前后空白字符
 		code := strings.TrimSpace(api.PermissionCode)
 		if code == "" {
 			code = generateAPIPermissionCode(api.Method, api.Path)

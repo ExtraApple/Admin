@@ -11,6 +11,7 @@ import (
 	"admin/model"
 )
 
+// GetMenuTree 查询全部菜单并组装为树形结构。
 func GetMenuTree() ([]dto.MenuDetail, error) {
 	var menus []model.Menu
 	if err := global.DB.Order("sort asc, id asc").Find(&menus).Error; err != nil {
@@ -19,6 +20,7 @@ func GetMenuTree() ([]dto.MenuDetail, error) {
 	return buildMenuTree(menus, 0), nil
 }
 
+// CreateMenu 创建菜单节点，并校验路径唯一性。
 func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 	path := normalizeMenuPath(req.Path)
 	if path != nil {
@@ -47,6 +49,7 @@ func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 	return toMenuDetail(menu), nil
 }
 
+// UpdateMenu 修改菜单节点，并校验父级和路径约束。
 func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 	var menu model.Menu
 	if err := global.DB.First(&menu, menuID).Error; err != nil {
@@ -105,6 +108,7 @@ func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 	return toMenuDetail(menu), nil
 }
 
+// DeleteMenu 删除叶子菜单，并清理角色菜单和菜单 API 关联。
 func DeleteMenu(menuID uint) error {
 	var menu model.Menu
 	if err := global.DB.First(&menu, menuID).Error; err != nil {
@@ -139,6 +143,7 @@ func DeleteMenu(menuID uint) error {
 	return nil
 }
 
+// AssignMenusToRole 为角色全量替换菜单授权。
 func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
@@ -162,6 +167,7 @@ func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 	return nil
 }
 
+// GetRoleMenus 查询角色已授权且启用的菜单树。
 func GetRoleMenus(roleID uint) ([]dto.MenuDetail, error) {
 	var role model.Role
 	if err := global.DB.First(&role, roleID).Error; err != nil {
@@ -184,6 +190,7 @@ func GetRoleMenus(roleID uint) ([]dto.MenuDetail, error) {
 	return buildMenuTree(menus, 0), nil
 }
 
+// GetUserMenus 汇总用户角色菜单授权并按权限过滤。
 func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 	var userRoles []model.UserRole
 	global.DB.Where("user_id = ?", userID).Find(&userRoles)
@@ -225,6 +232,7 @@ func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 	return buildMenuTree(filterMenusByPermissions(menus, GetUserPermissions(userID)), 0), nil
 }
 
+// SyncMenus 根据前端路由元数据创建缺失的菜单记录。
 func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 	created := 0
 	for _, route := range routes {

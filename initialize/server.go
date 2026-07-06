@@ -102,6 +102,7 @@ func InitConfig() *Config {
 	return &conf
 }
 
+// loadDotEnv 在本地 .env 文件存在时加载环境变量。
 func loadDotEnv() {
 	if _, err := os.Stat(".env"); err == nil {
 		if err := godotenv.Load(".env"); err != nil {
@@ -110,6 +111,7 @@ func loadDotEnv() {
 	}
 }
 
+// applyEnvConfig 根据配置中的 *_env 字段读取并覆盖敏感配置。
 func applyEnvConfig(conf *Config) error {
 	var err error
 
@@ -144,6 +146,7 @@ func applyEnvConfig(conf *Config) error {
 	return nil
 }
 
+// envValue 从环境变量读取配置值，并按需校验空值。
 func envValue(envName, fallback string, allowEmpty bool) (string, error) {
 	if envName == "" {
 		return fallback, nil

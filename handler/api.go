@@ -14,6 +14,7 @@ type APIHandler struct {
 	Engine *gin.Engine
 }
 
+// ListAPIs 处理 API 元数据分页查询请求。
 func (h *APIHandler) ListAPIs(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
@@ -41,6 +42,7 @@ func (h *APIHandler) ListAPIs(c *gin.Context) {
 	}})
 }
 
+// GetAPI 处理 API 元数据详情查询请求。
 func (h *APIHandler) GetAPI(c *gin.Context) {
 	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -56,6 +58,7 @@ func (h *APIHandler) GetAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": api})
 }
 
+// ListAPIGroups 处理 API 分组选项查询请求。
 func (h *APIHandler) ListAPIGroups(c *gin.Context) {
 	groups, err := service.GetAPIGroupOptions()
 	if err != nil {
@@ -65,10 +68,12 @@ func (h *APIHandler) ListAPIGroups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": groups})
 }
 
+// ListAPIMethods 处理 API 方法选项查询请求。
 func (h *APIHandler) ListAPIMethods(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": service.GetAPIMethodOptions()})
 }
 
+// CreateAPI 处理 API 元数据创建请求。
 func (h *APIHandler) CreateAPI(c *gin.Context) {
 	var req dto.CreateAPIReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,6 +89,7 @@ func (h *APIHandler) CreateAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": api})
 }
 
+// UpdateAPI 处理 API 元数据修改请求。
 func (h *APIHandler) UpdateAPI(c *gin.Context) {
 	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -105,6 +111,7 @@ func (h *APIHandler) UpdateAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": api})
 }
 
+// DeleteAPI 处理 API 元数据删除请求。
 func (h *APIHandler) DeleteAPI(c *gin.Context) {
 	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -119,6 +126,7 @@ func (h *APIHandler) DeleteAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
 }
 
+// GenerateMenuButton 处理根据 API 生成按钮菜单的请求。
 func (h *APIHandler) GenerateMenuButton(c *gin.Context) {
 	apiID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -139,6 +147,7 @@ func (h *APIHandler) GenerateMenuButton(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "生成成功", "data": menu})
 }
 
+// SyncAPIs 处理从 Gin 路由同步 API 元数据的请求。
 func (h *APIHandler) SyncAPIs(c *gin.Context) {
 	routes := h.Engine.Routes()
 	routeList := make([]dto.SyncAPIItem, len(routes))
@@ -160,6 +169,7 @@ func (h *APIHandler) SyncAPIs(c *gin.Context) {
 	}})
 }
 
+// SyncAPIPermissions 处理同步 API 权限码和权限记录的请求。
 func (h *APIHandler) SyncAPIPermissions(c *gin.Context) {
 	created, updatedAPI, err := service.SyncAPIPermissions()
 	if err != nil {

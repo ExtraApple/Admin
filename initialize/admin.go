@@ -24,6 +24,7 @@ func InitSuperAdmin(conf *Config) {
 	global.Logger.Info("super admin initialized", zap.String("username", user.Username))
 }
 
+// ensureAdminRole 确保 admin 角色存在且处于启用状态。
 func ensureAdminRole() model.Role {
 	var role model.Role
 	err := global.DB.Unscoped().Where("code = ?", "admin").First(&role).Error
@@ -57,6 +58,7 @@ func ensureAdminRole() model.Role {
 	return role
 }
 
+// hasEnabledSuperAdmin 判断是否已存在启用的超级管理员用户。
 func hasEnabledSuperAdmin(roleID uint) bool {
 	var count int64
 	global.DB.Table("users").
@@ -66,6 +68,7 @@ func hasEnabledSuperAdmin(roleID uint) bool {
 	return count > 0
 }
 
+// ensureAdminUser 确保配置中的管理员账号存在且可用。
 func ensureAdminUser(conf *Config, roleID uint) model.User {
 	if conf.Admin.Username == "" {
 		global.Logger.Fatal("admin username is empty")
@@ -111,6 +114,7 @@ func ensureAdminUser(conf *Config, roleID uint) model.User {
 	return user
 }
 
+// restoreAdminUser 恢复被禁用或软删除的管理员账号并重置密码。
 func restoreAdminUser(user model.User, password string) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -128,12 +132,14 @@ func restoreAdminUser(user model.User, password string) {
 	}
 }
 
+// hasUserRole 判断用户是否已绑定指定角色。
 func hasUserRole(userID, roleID uint) bool {
 	var count int64
 	global.DB.Model(&model.UserRole{}).Where("user_id = ? AND role_id = ?", userID, roleID).Count(&count)
 	return count > 0
 }
 
+// ensureAdminUserRole 确保用户已绑定 admin 角色。
 func ensureAdminUserRole(userID, roleID uint) {
 	if hasUserRole(userID, roleID) {
 		return

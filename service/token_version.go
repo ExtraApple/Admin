@@ -9,6 +9,7 @@ import (
 	"admin/model"
 )
 
+// currentUserTokenVersion 查询用户当前 Token 版本，并在缺省时补齐初始版本。
 func currentUserTokenVersion(userID uint) (int, error) {
 	var user model.User
 	if err := global.DB.Select("id", "status", "token_version").First(&user, userID).Error; err != nil {
@@ -27,6 +28,7 @@ func currentUserTokenVersion(userID uint) (int, error) {
 	return user.TokenVersion, nil
 }
 
+// IsTokenVersionValid 校验请求 Token 中的版本号是否仍然有效。
 func IsTokenVersionValid(userID uint, tokenVersion int) error {
 	currentVersion, err := currentUserTokenVersion(userID)
 	if err != nil {
@@ -38,6 +40,7 @@ func IsTokenVersionValid(userID uint, tokenVersion int) error {
 	return nil
 }
 
+// bumpUserTokenVersion 提升指定用户的 Token 版本，使其既有 Token 失效。
 func bumpUserTokenVersion(userIDs ...uint) {
 	userIDs = uniqueUintIDs(userIDs)
 	if len(userIDs) == 0 {
@@ -46,12 +49,14 @@ func bumpUserTokenVersion(userIDs ...uint) {
 	global.DB.Model(&model.User{}).Where("id IN ?", userIDs).UpdateColumn("token_version", gorm.Expr("COALESCE(token_version, 0) + ?", 1))
 }
 
+// bumpUsersTokenVersionByRole 提升指定角色下所有用户的 Token 版本。
 func bumpUsersTokenVersionByRole(roleID uint) {
 	var userIDs []uint
 	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &userIDs)
 	bumpUserTokenVersion(userIDs...)
 }
 
+// bumpUsersTokenVersionByRoles 提升多个角色下所有用户的 Token 版本。
 func bumpUsersTokenVersionByRoles(roleIDs []uint) {
 	roleIDs = uniqueUintIDs(roleIDs)
 	if len(roleIDs) == 0 {
@@ -62,6 +67,7 @@ func bumpUsersTokenVersionByRoles(roleIDs []uint) {
 	bumpUserTokenVersion(userIDs...)
 }
 
+// bumpAllUsersTokenVersion 提升全部用户的 Token 版本。
 func bumpAllUsersTokenVersion() {
 	global.DB.Model(&model.User{}).UpdateColumn("token_version", gorm.Expr("COALESCE(token_version, 0) + ?", 1))
 }

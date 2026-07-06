@@ -15,10 +15,12 @@ type APIDocHandler struct {
 	Config dto.OpenAPIDocConfig
 }
 
+// Index 返回 Swagger UI 文档页面。
 func (h *APIDocHandler) Index(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(apiDocHTML))
 }
 
+// OpenAPIJSON 返回当前服务路由生成的 OpenAPI JSON 文档。
 func (h *APIDocHandler) OpenAPIJSON(c *gin.Context) {
 	routes := h.Engine.Routes()
 	routeList := make([]dto.OpenAPIRoute, 0, len(routes))
@@ -35,6 +37,7 @@ func (h *APIDocHandler) OpenAPIJSON(c *gin.Context) {
 	c.JSON(http.StatusOK, service.BuildOpenAPIDocument(routeList, cfg))
 }
 
+// resolveAPIDocServerURL 根据请求头和 Host 推断 OpenAPI server URL。
 func resolveAPIDocServerURL(c *gin.Context) string {
 	scheme := c.GetHeader("X-Forwarded-Proto")
 	if scheme == "" {

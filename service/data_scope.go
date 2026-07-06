@@ -7,6 +7,7 @@ import (
 	"admin/model"
 )
 
+// normalizeDataScope 规范化角色数据范围，空值按全部数据处理。
 func normalizeDataScope(scope string) (string, error) {
 	if scope == "" {
 		return model.DataScopeAll, nil
@@ -24,6 +25,7 @@ func normalizeDataScope(scope string) (string, error) {
 	}
 }
 
+// ensureOrganizationsExist 校验组织 ID 列表是否全部存在。
 func ensureOrganizationsExist(orgIDs []uint) error {
 	orgIDs = uniqueUintIDs(orgIDs)
 	if len(orgIDs) == 0 {
@@ -40,6 +42,7 @@ func ensureOrganizationsExist(orgIDs []uint) error {
 	return nil
 }
 
+// getOperatorDataScope 汇总操作人的角色数据范围。
 func getOperatorDataScope(operatorID uint) (bool, []uint, error) {
 	if operatorID == 0 {
 		return false, nil, errors.New("用户身份无效")
@@ -84,6 +87,7 @@ func getOperatorDataScope(operatorID uint) (bool, []uint, error) {
 	return false, uniqueUintIDs(orgIDs), nil
 }
 
+// ensureUserVisibleToOperator 校验目标用户是否在操作人的可见数据范围内。
 func ensureUserVisibleToOperator(operatorID, targetID uint) error {
 	visibleUserIDs, hasAllData, err := GetVisibleUserIDs(operatorID)
 	if err != nil {
@@ -95,6 +99,7 @@ func ensureUserVisibleToOperator(operatorID, targetID uint) error {
 	return errors.New("无权操作数据范围外的用户")
 }
 
+// ensureOrganizationVisibleToOperator 校验目标组织是否在操作人的可见数据范围内。
 func ensureOrganizationVisibleToOperator(operatorID, orgID uint) error {
 	visibleOrgIDs, hasAllData, err := GetVisibleOrganizationIDs(operatorID)
 	if err != nil {
@@ -106,6 +111,7 @@ func ensureOrganizationVisibleToOperator(operatorID, orgID uint) error {
 	return errors.New("无权操作数据范围外的组织")
 }
 
+// GetVisibleUserIDs 返回操作人可见的用户 ID；第二个返回值表示是否拥有全部数据权限。
 func GetVisibleUserIDs(operatorID uint) ([]uint, bool, error) {
 	hasAllData, orgIDs, err := getOperatorDataScope(operatorID)
 	if err != nil {
@@ -129,6 +135,7 @@ func GetVisibleUserIDs(operatorID uint) ([]uint, bool, error) {
 	return uniqueUintIDs(userIDs), false, nil
 }
 
+// GetVisibleOrganizationIDs 返回操作人可见的组织 ID；第二个返回值表示是否拥有全部数据权限。
 func GetVisibleOrganizationIDs(operatorID uint) ([]uint, bool, error) {
 	hasAllData, orgIDs, err := getOperatorDataScope(operatorID)
 	if err != nil {
@@ -140,6 +147,7 @@ func GetVisibleOrganizationIDs(operatorID uint) ([]uint, bool, error) {
 	return uniqueUintIDs(orgIDs), false, nil
 }
 
+// getUserOrganizationIDs 查询用户绑定的组织 ID 列表。
 func getUserOrganizationIDs(userID uint) []uint {
 	var orgIDs []uint
 	global.DB.Model(&model.UserOrganization{}).
@@ -148,6 +156,7 @@ func getUserOrganizationIDs(userID uint) []uint {
 	return uniqueUintIDs(orgIDs)
 }
 
+// getRoleCustomOrganizationIDs 查询角色自定义数据范围绑定的组织 ID 列表。
 func getRoleCustomOrganizationIDs(roleID uint) []uint {
 	var orgIDs []uint
 	global.DB.Model(&model.RoleDataScope{}).
@@ -156,6 +165,7 @@ func getRoleCustomOrganizationIDs(roleID uint) []uint {
 	return uniqueUintIDs(orgIDs)
 }
 
+// expandOrganizationIDsWithChildren 展开组织 ID 列表，包含所有子孙组织。
 func expandOrganizationIDsWithChildren(rootIDs []uint) []uint {
 	rootIDs = uniqueUintIDs(rootIDs)
 	if len(rootIDs) == 0 {
@@ -188,6 +198,7 @@ func expandOrganizationIDsWithChildren(rootIDs []uint) []uint {
 	return result
 }
 
+// expandOrganizationIDsWithAncestors 展开组织 ID 列表，包含所有祖先组织。
 func expandOrganizationIDsWithAncestors(orgIDs []uint) []uint {
 	orgIDs = uniqueUintIDs(orgIDs)
 	if len(orgIDs) == 0 {
@@ -215,6 +226,7 @@ func expandOrganizationIDsWithAncestors(orgIDs []uint) []uint {
 	return uniqueUintIDs(result)
 }
 
+// containsUint 判断 uint 切片中是否包含目标值。
 func containsUint(ids []uint, target uint) bool {
 	for _, id := range ids {
 		if id == target {

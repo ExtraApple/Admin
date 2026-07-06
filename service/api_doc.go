@@ -12,6 +12,7 @@ import (
 	"admin/model"
 )
 
+// BuildOpenAPIDocument 根据 Gin 路由和 API 元数据生成 OpenAPI 文档。
 func BuildOpenAPIDocument(routes []dto.OpenAPIRoute, cfg dto.OpenAPIDocConfig) map[string]any {
 	applyOpenAPIDefaults(&cfg)
 
@@ -56,6 +57,7 @@ func BuildOpenAPIDocument(routes []dto.OpenAPIRoute, cfg dto.OpenAPIDocConfig) m
 	}
 }
 
+// applyOpenAPIDefaults 为 OpenAPI 文档配置填充默认值。
 func applyOpenAPIDefaults(cfg *dto.OpenAPIDocConfig) {
 	if strings.TrimSpace(cfg.Title) == "" {
 		cfg.Title = "Admin API"
@@ -71,6 +73,7 @@ func applyOpenAPIDefaults(cfg *dto.OpenAPIDocConfig) {
 	}
 }
 
+// loadAPIDocMetadata 加载 API 元数据并按方法和路径建立索引。
 func loadAPIDocMetadata() map[string]model.API {
 	result := map[string]model.API{}
 	if global.DB == nil {
@@ -92,6 +95,7 @@ func loadAPIDocMetadata() map[string]model.API {
 	return result
 }
 
+// shouldExposeOpenAPIRoute 判断路由是否应出现在 OpenAPI 文档中。
 func shouldExposeOpenAPIRoute(path string) bool {
 	if path == "/ping" {
 		return true
@@ -102,6 +106,7 @@ func shouldExposeOpenAPIRoute(path string) bool {
 	return strings.HasPrefix(path, "/api/")
 }
 
+// ginPathToOpenAPIPath 将 Gin 路由参数格式转换为 OpenAPI 路径格式。
 func ginPathToOpenAPIPath(path string) (string, []string) {
 	parts := strings.Split(path, "/")
 	params := []string{}
@@ -118,6 +123,7 @@ func ginPathToOpenAPIPath(path string) (string, []string) {
 	return strings.Join(parts, "/"), params
 }
 
+// resolveOpenAPITag 根据 API 元数据或路径推断 OpenAPI 标签。
 func resolveOpenAPITag(path string, api model.API) string {
 	if strings.TrimSpace(api.Group) != "" {
 		return api.Group
@@ -128,6 +134,7 @@ func resolveOpenAPITag(path string, api model.API) string {
 	return inferAPIGroup(path)
 }
 
+// buildOpenAPIOperation 构建单个 OpenAPI operation 描述。
 func buildOpenAPIOperation(method, path, tag string, params []string, api model.API) map[string]any {
 	operation := map[string]any{
 		"tags":        []string{tag},
@@ -158,6 +165,7 @@ func buildOpenAPIOperation(method, path, tag string, params []string, api model.
 	return operation
 }
 
+// resolveOpenAPISummary 解析 OpenAPI operation 的摘要文案。
 func resolveOpenAPISummary(method, path string, api model.API) string {
 	if strings.TrimSpace(api.Name) != "" {
 		return api.Name
@@ -165,6 +173,7 @@ func resolveOpenAPISummary(method, path string, api model.API) string {
 	return method + " " + path
 }
 
+// buildOpenAPIOperationID 根据方法和路径生成稳定的 operationId。
 func buildOpenAPIOperationID(method, path string) string {
 	value := strings.ToLower(method + "_" + strings.Trim(path, "/"))
 	var b strings.Builder
@@ -183,6 +192,7 @@ func buildOpenAPIOperationID(method, path string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+// buildOpenAPIPathParams 构建 OpenAPI 路径参数定义。
 func buildOpenAPIPathParams(params []string) []map[string]any {
 	result := make([]map[string]any, 0, len(params))
 	for _, param := range params {
@@ -199,6 +209,7 @@ func buildOpenAPIPathParams(params []string) []map[string]any {
 	return result
 }
 
+// buildOpenAPIRequestBody 根据路由元数据构建请求体 schema。
 func buildOpenAPIRequestBody(method, path string) map[string]any {
 	method = strings.ToUpper(method)
 	if _, ok := openAPIFileUploadRoutes[method+" "+path]; ok {
@@ -274,6 +285,7 @@ var openAPIRequestSchemas = map[string]reflect.Type{
 	"POST /api/admin/apis/:id/menu-button":    reflect.TypeOf(dto.GenerateMenuButtonFromAPIReq{}),
 }
 
+// buildSchemaFromType 将 Go 类型转换为 OpenAPI schema。
 func buildSchemaFromType(t reflect.Type) map[string]any {
 	nullable := false
 	if t.Kind() == reflect.Pointer {
@@ -299,6 +311,7 @@ func buildSchemaFromType(t reflect.Type) map[string]any {
 	return schema
 }
 
+// buildObjectSchema 将结构体类型转换为 OpenAPI object schema。
 func buildObjectSchema(t reflect.Type) map[string]any {
 	schema := map[string]any{
 		"type":       "object",
@@ -333,6 +346,7 @@ func buildObjectSchema(t reflect.Type) map[string]any {
 	return schema
 }
 
+// jsonFieldName 从结构体字段标签中解析 JSON 字段名。
 func jsonFieldName(field reflect.StructField) (string, bool) {
 	tag := field.Tag.Get("json")
 	if tag == "-" {
@@ -345,6 +359,7 @@ func jsonFieldName(field reflect.StructField) (string, bool) {
 	return name, true
 }
 
+// lowerFirst 将字符串首字母转换为小写。
 func lowerFirst(value string) string {
 	if value == "" {
 		return value
@@ -354,6 +369,7 @@ func lowerFirst(value string) string {
 	return string(runes)
 }
 
+// buildPrimitiveSchema 将基础 Go 类型转换为 OpenAPI schema。
 func buildPrimitiveSchema(t reflect.Type) map[string]any {
 	nullable := false
 	if t.Kind() == reflect.Pointer {
@@ -403,6 +419,7 @@ func buildPrimitiveSchema(t reflect.Type) map[string]any {
 	return schema
 }
 
+// applyBindingToSchema 将 Gin binding 规则映射到 OpenAPI schema 约束。
 func applyBindingToSchema(schema map[string]any, binding string) {
 	if binding == "" {
 		return
@@ -443,6 +460,7 @@ func applyBindingToSchema(schema map[string]any, binding string) {
 	}
 }
 
+// applyMinToSchema 根据 schema 类型写入最小值或最小长度约束。
 func applyMinToSchema(schema map[string]any, value int) {
 	switch schema["type"] {
 	case "string":
@@ -454,6 +472,7 @@ func applyMinToSchema(schema map[string]any, value int) {
 	}
 }
 
+// applyMaxToSchema 根据 schema 类型写入最大值或最大长度约束。
 func applyMaxToSchema(schema map[string]any, value int) {
 	switch schema["type"] {
 	case "string":
@@ -465,6 +484,7 @@ func applyMaxToSchema(schema map[string]any, value int) {
 	}
 }
 
+// normalizeEnumValues 根据 schema 类型转换枚举值。
 func normalizeEnumValues(values []string, schemaType any) []any {
 	result := make([]any, 0, len(values))
 	for _, value := range values {
@@ -479,6 +499,7 @@ func normalizeEnumValues(values []string, schemaType any) []any {
 	return result
 }
 
+// isRequiredBinding 判断 binding 标签是否包含 required 约束。
 func isRequiredBinding(binding string) bool {
 	for _, rule := range strings.Split(binding, ",") {
 		if strings.TrimSpace(rule) == "required" {
@@ -488,6 +509,7 @@ func isRequiredBinding(binding string) bool {
 	return false
 }
 
+// shouldAttachOpenAPISecurity 判断 OpenAPI operation 是否需要挂载 BearerAuth。
 func shouldAttachOpenAPISecurity(path string, api model.API) bool {
 	if path == "/ping" {
 		return false
@@ -498,6 +520,7 @@ func shouldAttachOpenAPISecurity(path string, api model.API) bool {
 	return inferAPINeedAuth(path) == 1
 }
 
+// buildOpenAPIResponses 构建通用响应定义。
 func buildOpenAPIResponses() map[string]any {
 	return map[string]any{
 		"200": map[string]any{
@@ -543,6 +566,7 @@ func buildOpenAPIResponses() map[string]any {
 	}
 }
 
+// buildOpenAPITags 将标签集合转换为稳定排序的 OpenAPI 标签列表。
 func buildOpenAPITags(tagSet map[string]struct{}) []map[string]string {
 	tags := make([]string, 0, len(tagSet))
 	for tag := range tagSet {
@@ -557,6 +581,7 @@ func buildOpenAPITags(tagSet map[string]struct{}) []map[string]string {
 	return result
 }
 
+// buildOpenAPIComponents 构建 OpenAPI components 定义。
 func buildOpenAPIComponents() map[string]any {
 	return map[string]any{
 		"securitySchemes": map[string]any{

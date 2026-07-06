@@ -11,6 +11,7 @@ import (
 	"admin/service"
 )
 
+// TestInitRouterRegistersAPIRoutes 验证路由初始化会注册 API 管理和文档路由。
 func TestInitRouterRegistersAPIRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -42,6 +43,7 @@ func TestInitRouterRegistersAPIRoutes(t *testing.T) {
 	}
 }
 
+// TestOpenAPIDocumentEndpoint 验证 OpenAPI JSON 文档接口可正常返回核心结构。
 func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -90,6 +92,7 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	}
 }
 
+// TestAPIDocsCanBeDisabled 验证 API 文档路由默认关闭。
 func TestAPIDocsCanBeDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -103,6 +106,7 @@ func TestAPIDocsCanBeDisabled(t *testing.T) {
 	}
 }
 
+// getOpenAPIOperation 从 OpenAPI path item 中取出指定方法的 operation。
 func getOpenAPIOperation(t *testing.T, pathItem any, method string) map[string]any {
 	t.Helper()
 
@@ -117,6 +121,7 @@ func getOpenAPIOperation(t *testing.T, pathItem any, method string) map[string]a
 	return operation
 }
 
+// getRequestBodyProperties 从 OpenAPI operation 中取出请求体属性定义。
 func getRequestBodyProperties(t *testing.T, operation map[string]any) map[string]any {
 	t.Helper()
 

@@ -17,6 +17,7 @@ type API struct {
 	NeedAudit      int    `gorm:"type:tinyint;default:1;comment:是否记录审计日志 1是 0否"`
 }
 
+// TableName 指定 API 模型对应的数据表名。
 func (API) TableName() string {
 	return "apis"
 }

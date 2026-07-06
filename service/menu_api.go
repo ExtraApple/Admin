@@ -11,6 +11,7 @@ import (
 	"admin/model"
 )
 
+// AssignAPIsToMenu 为菜单绑定 API，并同步菜单、API 和权限码。
 func AssignAPIsToMenu(menuID uint, req dto.AssignAPIsToMenuReq) error {
 	apiIDs := uniqueUintIDs(req.APIIDs)
 	if len(apiIDs) == 0 {
@@ -65,6 +66,7 @@ func AssignAPIsToMenu(menuID uint, req dto.AssignAPIsToMenuReq) error {
 	return nil
 }
 
+// GetMenuAPIs 查询菜单已绑定的 API 列表。
 func GetMenuAPIs(menuID uint) ([]dto.APIInfo, error) {
 	var menu model.Menu
 	if err := global.DB.First(&menu, menuID).Error; err != nil {
@@ -89,6 +91,7 @@ func GetMenuAPIs(menuID uint) ([]dto.APIInfo, error) {
 	return toAPIInfoList(apis), nil
 }
 
+// GenerateMenuButtonFromAPI 根据 API 生成按钮菜单并建立绑定关系。
 func GenerateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq) (*dto.MenuDetail, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -154,6 +157,7 @@ func GenerateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq)
 	return toMenuDetail(menu), nil
 }
 
+// syncLinkedMenusByAPI 在 API 权限码变化后同步所有关联菜单。
 func syncLinkedMenusByAPI(api model.API) error {
 	var menuIDs []uint
 	if err := global.DB.Model(&model.MenuAPI{}).Where("api_id = ?", api.ID).Pluck("menu_id", &menuIDs).Error; err != nil {
@@ -199,6 +203,7 @@ func syncLinkedMenusByAPI(api model.API) error {
 	return nil
 }
 
+// getEnabledAuthAPIs 查询可绑定菜单权限的启用鉴权 API。
 func getEnabledAuthAPIs(apiIDs []uint) ([]model.API, error) {
 	var apis []model.API
 	if err := global.DB.Where("id IN ?", apiIDs).Find(&apis).Error; err != nil {
@@ -215,6 +220,7 @@ func getEnabledAuthAPIs(apiIDs []uint) ([]model.API, error) {
 	return apis, nil
 }
 
+// validateLinkableAPI 校验 API 是否允许绑定到菜单权限。
 func validateLinkableAPI(api model.API) error {
 	if api.Status != 1 {
 		return errors.New("只能绑定启用状态的API")
@@ -225,6 +231,7 @@ func validateLinkableAPI(api model.API) error {
 	return nil
 }
 
+// resolveMenuAPIPermissionCode 解析菜单绑定 API 时应使用的权限码。
 func resolveMenuAPIPermissionCode(manual string, apis []model.API) (string, error) {
 	manual = strings.TrimSpace(manual)
 	if manual != "" {
@@ -250,6 +257,7 @@ func resolveMenuAPIPermissionCode(manual string, apis []model.API) (string, erro
 	return permissionCode, nil
 }
 
+// setAPIsPermissionCode 在事务内同步 API 的权限码。
 func setAPIsPermissionCode(tx *gorm.DB, apis []model.API, permissionCode string) error {
 	apiIDs := make([]uint, 0, len(apis))
 	for _, api := range apis {
@@ -268,6 +276,7 @@ func setAPIsPermissionCode(tx *gorm.DB, apis []model.API, permissionCode string)
 	return nil
 }
 
+// ensurePermissionByCode 在事务内确保指定权限码已存在。
 func ensurePermissionByCode(tx *gorm.DB, code, name, group string, sort int) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -300,6 +309,7 @@ func ensurePermissionByCode(tx *gorm.DB, code, name, group string, sort int) err
 	return nil
 }
 
+// inferAPIGroupFromList 从 API 列表中推断权限分组。
 func inferAPIGroupFromList(apis []model.API) string {
 	for _, api := range apis {
 		group := strings.TrimSpace(api.Group)

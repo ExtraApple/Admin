@@ -5,6 +5,7 @@ import (
 	"admin/model"
 )
 
+// isAdminUser 判断用户是否绑定了启用状态的 admin 角色。
 func isAdminUser(user model.User) bool {
 	var count int64
 	global.DB.Table("user_roles").

@@ -60,6 +60,7 @@ func ensureUsersExist(userIDs []uint) error {
 	return nil
 }
 
+// uniqueUintIDs 去除 uint ID 列表中的零值和重复值。
 func uniqueUintIDs(ids []uint) []uint {
 	seen := map[uint]struct{}{}
 	result := make([]uint, 0, len(ids))
@@ -160,6 +161,7 @@ func toOrganizationTree(item model.Organization) *dto.OrganizationTree {
 	}
 }
 
+// toUserInfoList 将用户模型列表转换为脱敏响应 DTO 列表。
 func toUserInfoList(users []model.User) []dto.UserInfo {
 	list := make([]dto.UserInfo, len(users))
 	for i, user := range users {
