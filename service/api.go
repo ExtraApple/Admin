@@ -266,10 +266,21 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 			continue
 		}
 
-		var count int64
-		global.DB.Model(&model.API{}).Where("method = ? AND path = ?", method, path).Count(&count)
-		if count > 0 {
+		var existing model.API
+		err = global.DB.Unscoped().Where("method = ? AND path = ?", method, path).First(&existing).Error
+		if err == nil {
+			if existing.DeletedAt.Valid {
+				if err := global.DB.Unscoped().Model(&existing).Updates(map[string]any{
+					"deleted_at": nil,
+					"status":     1,
+				}).Error; err != nil {
+					return created, errors.New("恢复API失败: " + err.Error())
+				}
+			}
 			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return created, errors.New("查询API失败: " + err.Error())
 		}
 
 		needAuth := inferAPINeedAuth(path)
@@ -320,13 +331,23 @@ func SyncAPIPermissions() ([]string, int, error) {
 			updatedAPI++
 		}
 
-		var count int64
-		global.DB.Model(&model.Permission{}).Where("code = ?", code).Count(&count)
-		if count > 0 {
+		var permission model.Permission
+		err := global.DB.Unscoped().Where("code = ?", code).First(&permission).Error
+		if err == nil {
+			if permission.DeletedAt.Valid {
+				if err := global.DB.Unscoped().Model(&permission).Updates(map[string]any{
+					"deleted_at": nil,
+				}).Error; err != nil {
+					return created, updatedAPI, errors.New("恢复API权限失败")
+				}
+			}
 			continue
 		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return created, updatedAPI, errors.New("查询API权限失败")
+		}
 
-		permission := model.Permission{
+		permission = model.Permission{
 			Name:  api.Name,
 			Code:  code,
 			Group: api.Group,

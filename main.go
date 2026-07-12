@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	"admin/dto"
 	"admin/global"
 	"admin/initialize"
 	"admin/router"
+	"admin/seed"
 	"admin/service"
 
 	"go.uber.org/zap"
@@ -24,10 +26,6 @@ func main() {
 	// 2. 初始化 MySQL + 自动迁移
 	initialize.InitMysql(conf)
 	global.Logger.Info("mysql initialized")
-
-	// 2.5 初始化超级管理员
-	initialize.InitSuperAdmin(conf)
-	global.Logger.Info("super admin checked")
 
 	// 3. 初始化 Redis
 	initialize.InitRedis(conf)
@@ -78,6 +76,19 @@ func main() {
 			Description: conf.APIDocs.Description,
 		},
 	})
+
+	routeInfos := r.Routes()
+	routeList := make([]dto.SyncAPIItem, 0, len(routeInfos))
+	for _, route := range routeInfos {
+		routeList = append(routeList, dto.SyncAPIItem{
+			Method: route.Method,
+			Path:   route.Path,
+		})
+	}
+	if err := seed.Run(conf, routeList); err != nil {
+		global.Logger.Fatal("run seeds failed", zap.Error(err))
+	}
+	global.Logger.Info("seeds checked")
 
 	// 6. 启动服务
 	addr := fmt.Sprintf(":%d", conf.Server.Port)

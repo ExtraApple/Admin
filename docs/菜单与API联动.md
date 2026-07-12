@@ -1,4 +1,4 @@
-# 菜单与 API 联动
+﻿# 菜单与 API 联动
 
 ## 当前状态
 
@@ -241,17 +241,16 @@ Authorization: Bearer <access_token>
 ## Apifox 测试流程
 
 1. 管理员登录，拿到 `access_token`。
-2. 调用 `POST /api/admin/apis/sync` 同步当前 Gin 路由。
-3. 调用 `POST /api/admin/apis/sync-permissions` 同步 API 权限码到权限表。
-4. 调用 `GET /api/admin/apis`，找到要绑定的 API ID。
-5. 调用 `GET /api/admin/menus`，找到父级菜单 ID。
-6. 调用 `POST /api/admin/apis/:id/menu-button` 从 API 生成按钮菜单。
-7. 调用 `POST /api/admin/menus/:id/apis` 给按钮菜单绑定更多 API。
-8. 调用 `POST /api/admin/roles/:id/menus` 给角色绑定菜单。
-9. 调用 `POST /api/admin/roles/:id/permissions` 给角色绑定权限。
-10. 测试用户重新登录。
-11. 调用 `GET /api/user/context`，确认 `menus` 和 `permissions` 都返回。
-12. 调用按钮对应 API，确认后端权限通过。
+2. 确认服务已重启，`seed.Run` 已自动同步 API 元数据和权限码。
+3. 调用 `GET /api/admin/apis`，找到要绑定的 API ID。
+4. 调用 `GET /api/admin/menus`，找到父级菜单 ID。
+5. 调用 `POST /api/admin/apis/:id/menu-button` 从 API 生成按钮菜单。
+6. 调用 `POST /api/admin/menus/:id/apis` 给按钮菜单绑定更多 API。
+7. 调用 `POST /api/admin/roles/:id/menus` 给角色绑定菜单。
+8. 调用 `POST /api/admin/roles/:id/permissions` 给角色绑定权限。
+9. 测试用户重新登录。
+10. 调用 `GET /api/user/context`，确认 `menus` 和 `permissions` 都返回。
+11. 调用按钮对应 API，确认后端权限通过。
 
 ## 注意事项
 

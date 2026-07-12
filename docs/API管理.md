@@ -1,4 +1,4 @@
-# API 管理
+﻿# API 管理
 
 ## 模块定位
 
@@ -362,17 +362,40 @@ GET /api/admin/users
   -> 当前用户 permissions 包含 admin.users.get 才能访问
 ```
 
-## 初次初始化顺序
+## 初始化和同步
+
+当前项目已经接入 Go 代码版 Seed 初始化。
+
+服务启动时会自动执行：
 
 ```text
-1. 使用 admin 登录
-2. POST /api/admin/apis/sync
-3. POST /api/admin/apis/sync-permissions
-4. 给角色分配权限
-5. 普通管理员重新登录
+seed.Run
+  -> 同步 Gin 路由到 apis 表
+  -> 同步 apis.permission_code 到 permissions 表
+  -> 给 admin 角色补齐全部权限
 ```
 
-新增路由后也需要重新执行第 2 和第 3 步。
+所以新环境首次启动后，通常不需要再手动调用：
+
+```http
+POST /api/admin/apis/sync
+POST /api/admin/apis/sync-permissions
+```
+
+这两个接口仍然保留，适合下面场景手动使用：
+
+- 开发时服务未重启，但需要主动补齐当前路由元数据。
+- 数据库中误删了 API 元数据或权限码，需要手动恢复。
+- 调试 API 管理模块时需要观察同步结果。
+
+新增后端路由后，推荐流程是：
+
+```text
+1. 在 router 中注册真实路由
+2. 重启服务
+3. seed.Run 自动同步 API 和权限码
+4. 普通管理员重新登录以刷新 token 权限
+```
 
 ## 自动化 API 文档
 
@@ -389,7 +412,7 @@ JSON 请求体会根据路由对应的 DTO 生成字段 Schema；没有请求体
 
 详细说明见 [自动化API文档.md](自动化API文档.md)。
 
-本次 API 管理收尾新增了这些路由，更新后也要同步一次：
+API 管理收尾新增了这些路由，重启服务后 Seed 会自动同步：
 
 ```text
 GET /api/admin/apis/:id
@@ -399,44 +422,50 @@ GET /api/admin/api-methods
 
 ## Apifox 测试顺序
 
-### 1. 同步 API 路由
+### 1. 查询 API 列表
 
-```http
-POST http://localhost:8080/api/admin/apis/sync
-Authorization: Bearer <admin_token>
-```
-
-### 2. 同步 API 权限码
-
-```http
-POST http://localhost:8080/api/admin/apis/sync-permissions
-Authorization: Bearer <admin_token>
-```
-
-### 3. 查询 API 列表
+服务启动后，Seed 已经自动同步 API 元数据。可以直接查询：
 
 ```http
 GET http://localhost:8080/api/admin/apis?page=1&size=10
 Authorization: Bearer <admin_token>
 ```
 
-### 4. 查询 API 详情
+### 2. 查询 API 详情
 
 ```http
 GET http://localhost:8080/api/admin/apis/<api_id>
 Authorization: Bearer <admin_token>
 ```
 
-### 5. 查询 API 分组
+### 3. 查询 API 分组
 
 ```http
 GET http://localhost:8080/api/admin/api-groups
 Authorization: Bearer <admin_token>
 ```
 
-### 6. 查询 HTTP 方法
+### 4. 查询 HTTP 方法
 
 ```http
 GET http://localhost:8080/api/admin/api-methods
 Authorization: Bearer <admin_token>
 ```
+
+### 5. 手动同步 API 路由
+
+```http
+POST http://localhost:8080/api/admin/apis/sync
+Authorization: Bearer <admin_token>
+```
+
+说明：正常启动后一般不需要手动调用，仅用于调试或修复数据。
+
+### 6. 手动同步 API 权限码
+
+```http
+POST http://localhost:8080/api/admin/apis/sync-permissions
+Authorization: Bearer <admin_token>
+```
+
+说明：正常启动后一般不需要手动调用，仅用于调试或修复数据。

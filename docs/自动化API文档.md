@@ -1,4 +1,4 @@
-# 自动化 API 文档
+﻿# 自动化 API 文档
 
 ## 模块定位
 
@@ -112,13 +112,21 @@ admin_token=登录返回的 access_token
 ```text
 1. 在 router 中注册真实路由
 2. 启动后端服务
-3. 调用 POST /api/admin/apis/sync
-4. 调用 POST /api/admin/apis/sync-permissions
-5. 打开 /docs 查看接口
-6. 在 Apifox 重新导入 /docs/openapi.json
+3. seed.Run 自动同步 API 元数据和权限码
+4. 打开 /docs 查看接口
+5. 在 Apifox 重新导入 /docs/openapi.json
 ```
 
-如果只新增了路由，OpenAPI 文档也能显示接口；但执行同步后，文档中的分组、名称、认证状态会更准确。
+如果只新增了路由，OpenAPI 文档也能显示接口；服务重启并执行 Seed 后，文档中的分组、名称、认证状态会更准确。
+
+手动同步接口仍然保留：
+
+```http
+POST /api/admin/apis/sync
+POST /api/admin/apis/sync-permissions
+```
+
+它们主要用于调试、数据修复或不重启服务时主动补齐 API 元数据。
 
 ## 当前边界
 
