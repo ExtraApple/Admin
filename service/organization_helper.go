@@ -165,15 +165,7 @@ func toOrganizationTree(item model.Organization) *dto.OrganizationTree {
 func toUserInfoList(users []model.User) []dto.UserInfo {
 	list := make([]dto.UserInfo, len(users))
 	for i, user := range users {
-		list[i] = dto.UserInfo{
-			ID:       user.ID,
-			Username: user.Username,
-			Nickname: user.Nickname,
-			Avatar:   user.Avatar,
-			Email:    user.Email,
-			Role:     user.Role,
-			Status:   user.Status,
-		}
+		list[i] = UserInfoFromModel(user)
 	}
 	return list
 }

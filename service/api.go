@@ -302,6 +302,13 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 		if err := global.DB.Create(&api).Error; err != nil {
 			return created, errors.New("同步API失败: " + err.Error())
 		}
+		if needAuth == 0 {
+			if err := global.DB.Model(&api).
+				UpdateColumn("need_auth", 0).Error; err != nil {
+				return created, errors.New("同步API认证配置失败: " + err.Error())
+			}
+			api.NeedAuth = 0
+		}
 		created = append(created, *toAPIInfo(api))
 	}
 

@@ -140,10 +140,10 @@ func buildOpenAPIOperation(method, path, tag string, params []string, api model.
 		"tags":        []string{tag},
 		"summary":     resolveOpenAPISummary(method, path, api),
 		"operationId": buildOpenAPIOperationID(method, path),
-		"responses":   buildOpenAPIResponses(),
+		"responses":   buildOpenAPIResponses(method, path),
 	}
 
-	description := strings.TrimSpace(api.Remark)
+	description := resolveOpenAPIDescription(method, path, api)
 	if description != "" {
 		operation["description"] = description
 	}
@@ -171,6 +171,31 @@ func resolveOpenAPISummary(method, path string, api model.API) string {
 		return api.Name
 	}
 	return method + " " + path
+}
+
+// resolveOpenAPIDescription 合并路由级安全约束和 API 元数据备注。
+func resolveOpenAPIDescription(method, path string, api model.API) string {
+	parts := make([]string, 0, 2)
+	if description := openAPIRouteDescriptions[method+" "+path]; description != "" {
+		parts = append(parts, description)
+	}
+	if remark := strings.TrimSpace(api.Remark); remark != "" {
+		parts = append(parts, remark)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+var openAPIRouteDescriptions = map[string]string{
+	"POST /api/admin/files":                "管理员业务文件上传只能包含一个名为 file 的文件 part。V1 允许 JPEG、PNG、WebP、PDF、DOCX、XLSX、PPTX、UTF-8 TXT、UTF-8 CSV；扩展名、声明 MIME、检测 MIME 和专用验证结果必须一致，文件通过验证后才会写入对象存储。",
+	"GET /api/admin/files/:id":             "返回文件验证状态 validated、legacy_unverified、validation_error、blocked 及可信元数据。download_url 仅在状态允许下载时返回；preview_url 仅为 validated JPEG、PNG、WebP 返回；不会暴露 MinIO 直连地址。",
+	"GET /api/admin/files/:id/download":    "使用 JWT、动态 API 权限、有效期和 HMAC 签名下载文件。validated 文件使用规范 MIME；legacy_unverified 和 validation_error 强制作为 application/octet-stream 附件；blocked 拒绝访问。",
+	"GET /api/admin/files/:id/preview":     "使用 JWT、动态 API 权限、有效期和 HMAC 签名内联预览，仅允许 validated JPEG、PNG、WebP，其他格式或状态返回稳定冲突错误。",
+	"POST /api/admin/files/:id/revalidate": "仅允许重新验证 legacy_unverified 或 validation_error 文件；通过后更新为 validated，明确策略拒绝更新为 blocked，临时基础设施错误更新为 validation_error。",
+	"POST /api/user/avatar":                "头像上传只能包含一个名为 file 的文件 part，仅接受可完整解码的静态 JPEG、PNG、WebP。系统移除非像素元数据，按比例缩放至最大 1,024×1,024，并根据透明通道重新编码为 JPEG 或 PNG。",
+	"DELETE /api/user/avatar":              "清除当前可信头像标识并恢复 /api/avatars/default；旧系统头像对象在数据库更新成功后清理，清理失败不会回滚恢复结果。",
+	"GET /api/avatars/:user_id":            "匿名返回服务端标准化的 JPEG/PNG 可信头像；用户、状态或存储对象不可用时统一返回内置默认 PNG，不暴露 object key 或历史头像 URL。",
+	"GET /api/avatars/default":             "匿名返回应用内置默认 PNG。",
+	"PUT /api/user/info":                   "只允许修改昵称和邮箱；请求中出现 avatar 字段会被拒绝，头像必须通过专用上传或恢复默认接口修改。",
 }
 
 // buildOpenAPIOperationID 根据方法和路径生成稳定的 operationId。
@@ -520,19 +545,10 @@ func shouldAttachOpenAPISecurity(path string, api model.API) bool {
 	return inferAPINeedAuth(path) == 1
 }
 
-// buildOpenAPIResponses 构建通用响应定义。
-func buildOpenAPIResponses() map[string]any {
-	return map[string]any{
-		"200": map[string]any{
-			"description": "success",
-			"content": map[string]any{
-				"application/json": map[string]any{
-					"schema": map[string]any{
-						"$ref": "#/components/schemas/CommonResponse",
-					},
-				},
-			},
-		},
+// buildOpenAPIResponses 构建通用响应并补充文件安全相关状态。
+func buildOpenAPIResponses(method, path string) map[string]any {
+	responses := map[string]any{
+		"200": buildOpenAPISuccessResponse(method, path),
 		"400": map[string]any{
 			"description": "bad request",
 			"content": map[string]any{
@@ -560,6 +576,152 @@ func buildOpenAPIResponses() map[string]any {
 					"schema": map[string]any{
 						"$ref": "#/components/schemas/ErrorResponse",
 					},
+				},
+			},
+		},
+	}
+
+	for _, code := range openAPIAdditionalResponseCodes[method+" "+path] {
+		responses[code] = openAPIErrorResponse(code)
+	}
+	return responses
+}
+
+func buildOpenAPISuccessResponse(method, path string) map[string]any {
+	route := method + " " + path
+	if contentTypes, ok := openAPIBinaryResponseTypes[route]; ok {
+		content := make(map[string]any, len(contentTypes))
+		for _, contentType := range contentTypes {
+			content[contentType] = map[string]any{
+				"schema": map[string]any{
+					"type":   "string",
+					"format": "binary",
+				},
+			}
+		}
+		return map[string]any{
+			"description": "binary content",
+			"headers": map[string]any{
+				"Content-Type": map[string]any{
+					"schema": map[string]any{"type": "string"},
+				},
+				"Content-Disposition": map[string]any{
+					"schema": map[string]any{"type": "string"},
+				},
+				"X-Content-Type-Options": map[string]any{
+					"schema":  map[string]any{"type": "string"},
+					"example": "nosniff",
+				},
+				"Cache-Control": map[string]any{
+					"schema": map[string]any{"type": "string"},
+				},
+			},
+			"content": content,
+		}
+	}
+
+	if responseType, ok := openAPIJSONResponseSchemas[route]; ok {
+		return map[string]any{
+			"description": "success",
+			"content": map[string]any{
+				"application/json": map[string]any{
+					"schema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"code": map[string]any{
+								"type":    "integer",
+								"example": 200,
+							},
+							"msg": map[string]any{
+								"type":    "string",
+								"example": "success",
+							},
+							"data": buildSchemaFromType(responseType),
+						},
+					},
+				},
+			},
+		}
+	}
+
+	return map[string]any{
+		"description": "success",
+		"content": map[string]any{
+			"application/json": map[string]any{
+				"schema": map[string]any{
+					"$ref": "#/components/schemas/CommonResponse",
+				},
+			},
+		},
+	}
+}
+
+var openAPIJSONResponseSchemas = map[string]reflect.Type{
+	"POST /api/admin/files":                reflect.TypeOf(dto.FileInfo{}),
+	"GET /api/admin/files/:id":             reflect.TypeOf(dto.FileDetailResp{}),
+	"POST /api/admin/files/:id/revalidate": reflect.TypeOf(dto.FileInfo{}),
+	"POST /api/user/avatar":                reflect.TypeOf(dto.UserInfo{}),
+	"DELETE /api/user/avatar":              reflect.TypeOf(dto.UserInfo{}),
+}
+
+var openAPIBinaryResponseTypes = map[string][]string{
+	"GET /api/admin/files/:id/download": {
+		"application/octet-stream",
+		"image/jpeg",
+		"image/png",
+		"image/webp",
+		"application/pdf",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"text/plain",
+		"text/csv",
+	},
+	"GET /api/admin/files/:id/preview": {
+		"image/jpeg",
+		"image/png",
+		"image/webp",
+	},
+	"GET /api/avatars/:user_id": {
+		"image/jpeg",
+		"image/png",
+	},
+	"GET /api/avatars/default": {
+		"image/png",
+	},
+}
+
+var openAPIAdditionalResponseCodes = map[string][]string{
+	"POST /api/admin/files":                {"413", "415", "422", "500", "503"},
+	"GET /api/admin/files/:id":             {"404", "409", "500", "503"},
+	"GET /api/admin/files/:id/download":    {"404", "409", "500", "503"},
+	"GET /api/admin/files/:id/preview":     {"404", "409", "500", "503"},
+	"POST /api/admin/files/:id/revalidate": {"404", "409", "415", "422", "500", "503"},
+	"POST /api/user/avatar":                {"413", "415", "422", "500", "503"},
+	"DELETE /api/user/avatar":              {"500", "503"},
+	"PUT /api/user/info":                   {"409", "500"},
+}
+
+func openAPIErrorResponse(code string) map[string]any {
+	descriptions := map[string]string{
+		"404": "not found",
+		"409": "state conflict",
+		"413": "payload too large",
+		"415": "unsupported media type",
+		"422": "invalid file content",
+		"500": "internal error",
+		"503": "service unavailable",
+	}
+	description := descriptions[code]
+	if description == "" {
+		description = "error"
+	}
+	return map[string]any{
+		"description": description,
+		"content": map[string]any{
+			"application/json": map[string]any{
+				"schema": map[string]any{
+					"$ref": "#/components/schemas/ErrorResponse",
 				},
 			},
 		},
@@ -603,8 +765,9 @@ func buildOpenAPIComponents() map[string]any {
 			"ErrorResponse": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"code": map[string]any{"type": "integer", "example": 400},
-					"msg":  map[string]any{"type": "string", "example": "参数错误"},
+					"code":       map[string]any{"type": "integer", "example": 400},
+					"error_code": map[string]any{"type": "string", "example": "REQUEST_INVALID"},
+					"msg":        map[string]any{"type": "string", "example": "请求参数不合法"},
 				},
 			},
 		},

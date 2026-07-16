@@ -1,0 +1,114 @@
+package uploadsecurity
+
+import (
+	"context"
+	"io"
+	"path"
+	"strings"
+
+	"github.com/gabriel-vasile/mimetype"
+)
+
+type managedFileValidator struct{}
+
+// NewManagedFileValidator returns the V1 validator for administrator-managed
+// files. Successful results own a staged Reader that callers should close when
+// it also implements io.Closer.
+func NewManagedFileValidator() Validator {
+	return managedFileValidator{}
+}
+
+func (managedFileValidator) Validate(
+	ctx context.Context,
+	input Input,
+) (Result, error) {
+	if input.Purpose != PurposeManagedFile {
+		return Result{}, NewError(CodeUploadBodyInvalid, nil)
+	}
+	if input.Size > input.MaxBytes {
+		return Result{}, NewError(CodeFileTooLarge, nil)
+	}
+	if err := ValidateNoDangerousDoubleExtension(input.FileName); err != nil {
+		return Result{}, err
+	}
+
+	fileName := path.Base(strings.ReplaceAll(input.FileName, `\`, "/"))
+	expectedType, ok := LookupTypeByExtension(path.Ext(fileName))
+	if !ok {
+		return Result{}, NewError(CodeFileTypeNotAllowed, nil)
+	}
+	declaredType, ok := LookupTypeByMIME(input.DeclaredMIME)
+	if !ok {
+		return Result{}, NewError(CodeFileTypeNotAllowed, nil)
+	}
+	if declaredType != expectedType {
+		return Result{}, NewError(CodeFileTypeMismatch, nil)
+	}
+
+	staged, err := Stage(ctx, input.Reader, input.MaxBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	keepStaged := false
+	defer func() {
+		if !keepStaged {
+			_ = staged.Close()
+		}
+	}()
+
+	if input.Size >= 0 && input.Size != staged.Size() {
+		return Result{}, NewError(CodeUploadBodyInvalid, nil)
+	}
+
+	detected, err := mimetype.DetectReader(staged)
+	if err != nil {
+		return Result{}, NewError(CodeFileContentInvalid, err)
+	}
+	detectedMIME := detected.String()
+
+	var validatedType CanonicalType
+	switch expectedType {
+	case TypeDOCX, TypeXLSX, TypePPTX:
+		validatedType, err = ValidateOOXML(staged, staged.Size(), expectedType)
+	default:
+		validatedType, err = ValidateContent(staged, expectedType)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+
+	definition, err := ResolveCanonicalType(TypeEvidence{
+		FileName:      input.FileName,
+		DeclaredMIME:  input.DeclaredMIME,
+		DetectedMIME:  detectedMIME,
+		ValidatedType: validatedType,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+
+	displayName, err := SanitizeDisplayName(
+		input.FileName,
+		PurposeManagedFile,
+		definition.CanonicalExtension,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err := staged.Seek(0, io.SeekStart); err != nil {
+		return Result{}, NewError(CodeFileContentInvalid, err)
+	}
+
+	keepStaged = true
+	return Result{
+		Purpose:            PurposeManagedFile,
+		FileName:           displayName,
+		CanonicalType:      definition.Type,
+		CanonicalExtension: definition.CanonicalExtension,
+		CanonicalMIME:      definition.MIME,
+		DetectedMIME:       detectedMIME,
+		Size:               staged.Size(),
+		PolicyVersion:      PolicyVersionV1,
+		Reader:             staged,
+	}, nil
+}

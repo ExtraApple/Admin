@@ -1,22 +1,46 @@
 package handler
 
 import (
-	"fmt"
+	"context"
+	"io"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"admin/dto"
-	"admin/initialize"
+	"admin/model"
 	"admin/service"
-	"admin/utils"
+	"admin/service/uploadsecurity"
 )
 
+type AvatarManager interface {
+	UploadWithResult(
+		ctx context.Context,
+		input service.UploadAvatarInput,
+	) (*service.UploadAvatarResult, error)
+	RestoreDefault(ctx context.Context, userID uint) (*model.User, error)
+}
+
+type AvatarContentOpener interface {
+	Open(ctx context.Context, userID uint) service.AvatarContent
+}
+
+type UserProfileUpdater interface {
+	Update(
+		ctx context.Context,
+		userID uint,
+		req dto.UpdateSelfReq,
+	) (*dto.UserInfo, error)
+}
+
 type UserHandler struct {
-	JwtCfg service.JWTConfig
+	JwtCfg               service.JWTConfig
+	Avatars              AvatarManager
+	AvatarContents       AvatarContentOpener
+	ProfileUpdates       UserProfileUpdater
+	AvatarMaxUploadBytes int64
 }
 
 // toStringSlice 从 Gin Context 中取出的任意值安全转换为字符串切片。
@@ -66,13 +90,35 @@ func (h *UserHandler) Login(c *gin.Context) {
 func (h *UserHandler) UpdateSelf(c *gin.Context) {
 	var req dto.UpdateSelfReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		writeUploadError(c, uploadsecurity.NewError(
+			uploadsecurity.CodeRequestInvalid,
+			err,
+		))
+		return
+	}
+	if req.HasAvatarField() {
+		writeUploadError(c, uploadsecurity.NewError(
+			uploadsecurity.CodeAvatarFieldNotWritable,
+			service.ErrAvatarFieldNotWritable,
+		))
 		return
 	}
 
-	user, err := service.UpdateSelf(c.GetUint("userID"), req)
+	var (
+		user *dto.UserInfo
+		err  error
+	)
+	if h.ProfileUpdates != nil {
+		user, err = h.ProfileUpdates.Update(
+			c.Request.Context(),
+			c.GetUint("userID"),
+			req,
+		)
+	} else {
+		user, err = service.UpdateSelf(c.GetUint("userID"), req)
+	}
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		writeUploadError(c, err)
 		return
 	}
 
@@ -104,48 +150,170 @@ func (h *UserHandler) Logout(c *gin.Context) {
 
 // UploadAvatar 上传/修改头像
 func (h *UserHandler) UploadAvatar(c *gin.Context) {
-	file, err := c.FormFile("file")
+	file, cleanup, err := parseSingleUpload(
+		c,
+		h.AvatarMaxUploadBytes,
+		avatarMultipartOverheadBytes,
+	)
+	defer cleanup()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "请选择文件"})
-		return
-	}
-	if file.Size > 2*1024*1024 {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像大小不能超过 2MB"})
-		return
-	}
-
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像仅支持 jpg / jpeg / png / webp 格式"})
+		setRejectedUploadAuditMetadata(
+			c,
+			uploadsecurity.PurposeAvatar,
+			nil,
+			err,
+		)
+		writeUploadError(c, err)
 		return
 	}
 
 	f, err := file.Open()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "文件打开失败"})
+		classifiedErr := uploadsecurity.NewError(
+			uploadsecurity.CodeUploadBodyInvalid,
+			err,
+		)
+		setRejectedUploadAuditMetadata(
+			c,
+			uploadsecurity.PurposeAvatar,
+			file,
+			classifiedErr,
+		)
+		writeUploadError(c, classifiedErr)
 		return
 	}
 	defer f.Close()
 
-	userID := c.GetUint("userID")
-	prefix := "avatars/" + strconv.FormatUint(uint64(userID), 10) + "/"
-	objName, err := utils.UploadStream("image", prefix, ext, file.Header.Get("Content-Type"), f, file.Size)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "头像上传失败: " + err.Error()})
+	if h.Avatars == nil {
+		classifiedErr := uploadsecurity.NewError(
+			uploadsecurity.CodeInternalError,
+			nil,
+		)
+		setRejectedUploadAuditMetadata(
+			c,
+			uploadsecurity.PurposeAvatar,
+			file,
+			classifiedErr,
+		)
+		writeUploadError(c, classifiedErr)
 		return
 	}
 
-	utils.CleanOldFiles("image", prefix, 2)
-
-	conf := initialize.InitConfig()
-	avatarURL := fmt.Sprintf("http://%s:%d/image/%s", conf.Minio.Host, conf.Minio.Port, objName)
-	user, err := service.SetAvatar(c.GetUint("userID"), avatarURL)
+	result, err := h.Avatars.UploadWithResult(c.Request.Context(), service.UploadAvatarInput{
+		UserID:      c.GetUint("userID"),
+		FileName:    file.Filename,
+		ContentType: file.Header.Get("Content-Type"),
+		Size:        file.Size,
+		MaxBytes:    h.AvatarMaxUploadBytes,
+		Reader:      f,
+	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		setRejectedUploadAuditMetadata(
+			c,
+			uploadsecurity.PurposeAvatar,
+			file,
+			err,
+		)
+		writeUploadError(c, err)
+		return
+	}
+	if result == nil || result.User == nil {
+		classifiedErr := uploadsecurity.NewError(
+			uploadsecurity.CodeInternalError,
+			nil,
+		)
+		setRejectedUploadAuditMetadata(
+			c,
+			uploadsecurity.PurposeAvatar,
+			file,
+			classifiedErr,
+		)
+		writeUploadError(c, classifiedErr)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "头像上传成功", "data": user})
+	c.Set(service.UploadAuditMetadataContextKey, service.UploadAuditMetadata{
+		Purpose:          string(uploadsecurity.PurposeAvatar),
+		FileName:         result.FileName,
+		FileSize:         result.FileSize,
+		DeclaredMIME:     file.Header.Get("Content-Type"),
+		DetectedMIME:     result.DetectedMIME,
+		ValidationResult: service.UploadValidationAccepted,
+		PolicyVersion:    result.PolicyVersion,
+	})
+
+	info := service.UserInfoFromModel(*result.User)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "头像上传成功", "data": info})
+}
+
+// RestoreDefaultAvatar 恢复系统默认头像。
+func (h *UserHandler) RestoreDefaultAvatar(c *gin.Context) {
+	if h.Avatars == nil {
+		writeUploadError(c, uploadsecurity.NewError(
+			uploadsecurity.CodeInternalError,
+			nil,
+		))
+		return
+	}
+
+	user, err := h.Avatars.RestoreDefault(
+		c.Request.Context(),
+		c.GetUint("userID"),
+	)
+	if err != nil {
+		writeUploadError(c, err)
+		return
+	}
+	if user == nil {
+		writeUploadError(c, uploadsecurity.NewError(
+			uploadsecurity.CodeInternalError,
+			nil,
+		))
+		return
+	}
+
+	info := service.UserInfoFromModel(*user)
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已恢复默认头像", "data": info})
+}
+
+// GetAvatar 公开读取可信用户头像；无效、缺失或不可用时返回默认 PNG。
+func (h *UserHandler) GetAvatar(c *gin.Context) {
+	userID, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || userID == 0 || h.AvatarContents == nil {
+		writeAvatarContent(c, service.DefaultAvatarContent(), "public, max-age=300")
+		return
+	}
+
+	content := h.AvatarContents.Open(c.Request.Context(), uint(userID))
+	writeAvatarContent(c, content, "public, max-age=300")
+}
+
+// GetDefaultAvatar 公开读取应用内置的默认 PNG。
+func (h *UserHandler) GetDefaultAvatar(c *gin.Context) {
+	writeAvatarContent(c, service.DefaultAvatarContent(), "public, max-age=86400")
+}
+
+func writeAvatarContent(
+	c *gin.Context,
+	content service.AvatarContent,
+	cacheControl string,
+) {
+	if content.Reader == nil ||
+		(content.ContentType != "image/jpeg" && content.ContentType != "image/png") {
+		if content.Reader != nil {
+			_ = content.Reader.Close()
+		}
+		content = service.DefaultAvatarContent()
+	}
+	defer content.Reader.Close()
+
+	c.Header("Content-Type", content.ContentType)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", cacheControl)
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, content.Reader); err != nil {
+		_ = c.Error(err)
+	}
 }
 
 // InitialContext 获取初始上下文（用户信息 + 角色 + 权限 + 菜单）

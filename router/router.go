@@ -10,10 +10,13 @@ import (
 	"admin/handler"
 	"admin/middleware"
 	"admin/service"
+	"admin/service/fileaccess"
 )
 
 type Options struct {
-	APIDocs APIDocsOptions
+	APIDocs    APIDocsOptions
+	FileAccess FileAccessOptions
+	FileUpload FileUploadOptions
 }
 
 type APIDocsOptions struct {
@@ -21,6 +24,15 @@ type APIDocsOptions struct {
 	Title       string
 	Version     string
 	Description string
+}
+
+type FileAccessOptions struct {
+	DownloadURLExpireSeconds int
+}
+
+type FileUploadOptions struct {
+	MaxSizeBytes       int64
+	AvatarMaxSizeBytes int64
 }
 
 // InitRouter 注册全局中间件、公开接口、用户接口和管理员接口。
@@ -44,12 +56,39 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 	}))
 
 	// ========== 依赖注入 ==========
-	userHandler := &handler.UserHandler{JwtCfg: jwtCfg}
+	maxUploadBytes := opt.FileUpload.MaxSizeBytes
+	if maxUploadBytes <= 0 {
+		maxUploadBytes = 50 * 1024 * 1024
+	}
+	avatarMaxUploadBytes := opt.FileUpload.AvatarMaxSizeBytes
+	if avatarMaxUploadBytes <= 0 {
+		avatarMaxUploadBytes = 2 * 1024 * 1024
+	}
+	userHandler := &handler.UserHandler{
+		JwtCfg:               jwtCfg,
+		Avatars:              service.NewManagedAvatarService(),
+		AvatarContents:       service.NewManagedAvatarContentService(),
+		AvatarMaxUploadBytes: avatarMaxUploadBytes,
+	}
 	captchaHandler := &handler.CaptchaHandler{}
 	adminUserHandler := &handler.AdminUserHandler{}
 	roleHandler := &handler.RoleHandler{}
 	permHandler := &handler.PermissionHandler{Engine: r}
-	fileHandler := &handler.FileHandler{}
+	fileAccessSigner, err := fileaccess.NewSignerFromJWTSecret(jwtCfg.Secret)
+	if err != nil {
+		panic("initialize file access signer: " + err.Error())
+	}
+	fileHandler := &handler.FileHandler{
+		Details: service.NewFileDetailService(
+			fileAccessSigner,
+			opt.FileAccess.DownloadURLExpireSeconds,
+			time.Now,
+		),
+		Uploads:        service.NewManagedFileService(),
+		Contents:       service.NewManagedFileContentService(fileAccessSigner),
+		Revalidations:  service.NewManagedFileRevalidationService(maxUploadBytes),
+		MaxUploadBytes: maxUploadBytes,
+	}
 	menuHandler := &handler.MenuHandler{}
 	auditLogHandler := &handler.AuditLogHandler{}
 	dictHandler := &handler.DictHandler{}
@@ -86,6 +125,8 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 		api.POST("/register", userHandler.Register)
 		api.POST("/login", userHandler.Login)
 		api.GET("/dicts/:type_code/items", dictHandler.ListEnabledItemsByTypeCode)
+		api.GET("/avatars/default", userHandler.GetDefaultAvatar)
+		api.GET("/avatars/:user_id", userHandler.GetAvatar)
 
 		// --- 需认证路由 ---
 		user := api.Group("/user").Use(auth)
@@ -95,6 +136,7 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 			user.PUT("/info", userHandler.UpdateSelf)
 			user.PUT("/password", userHandler.ChangePassword)
 			user.POST("/avatar", userHandler.UploadAvatar)
+			user.DELETE("/avatar", userHandler.RestoreDefaultAvatar)
 			user.POST("/logout", userHandler.Logout)
 		}
 
@@ -139,6 +181,9 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 			admin.GET("/files/:id", fileHandler.GetFile)
 			admin.PUT("/files/:id", fileHandler.UpdateFile)
 			admin.DELETE("/files/:id", fileHandler.DeleteFile)
+			admin.GET("/files/:id/download", fileHandler.Download)
+			admin.GET("/files/:id/preview", fileHandler.Preview)
+			admin.POST("/files/:id/revalidate", fileHandler.Revalidate)
 			admin.GET("/files-browse", fileHandler.BrowseFiles)
 
 			admin.GET("/menus", menuHandler.ListMenus)

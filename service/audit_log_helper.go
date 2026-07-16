@@ -101,6 +101,7 @@ func toAuditLogInfo(log model.AuditLog) dto.AuditLogInfo {
 		Path:      log.Path,
 		Query:     log.Query,
 		Body:      log.Body,
+		Metadata:  log.Metadata,
 		Status:    log.Status,
 		Duration:  log.Duration,
 		ClientIP:  log.ClientIP,

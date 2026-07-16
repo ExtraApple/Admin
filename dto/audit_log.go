@@ -1,5 +1,7 @@
 package dto
 
+import "encoding/json"
+
 type AuditLogListReq struct {
 	Page      int    `form:"page"`
 	Size      int    `form:"size"`
@@ -13,19 +15,20 @@ type AuditLogListReq struct {
 }
 
 type AuditLogInfo struct {
-	ID        uint   `json:"id"`
-	UserID    uint   `json:"user_id"`
-	Username  string `json:"username"`
-	Method    string `json:"method"`
-	Path      string `json:"path"`
-	Query     string `json:"query"`
-	Body      string `json:"body"`
-	Status    int    `json:"status"`
-	Duration  int64  `json:"duration"`
-	ClientIP  string `json:"client_ip"`
-	UserAgent string `json:"user_agent"`
-	Category  string `json:"category"`
-	CreatedAt string `json:"created_at"`
+	ID        uint            `json:"id"`
+	UserID    uint            `json:"user_id"`
+	Username  string          `json:"username"`
+	Method    string          `json:"method"`
+	Path      string          `json:"path"`
+	Query     string          `json:"query"`
+	Body      string          `json:"body"`
+	Metadata  json.RawMessage `json:"metadata"`
+	Status    int             `json:"status"`
+	Duration  int64           `json:"duration"`
+	ClientIP  string          `json:"client_ip"`
+	UserAgent string          `json:"user_agent"`
+	Category  string          `json:"category"`
+	CreatedAt string          `json:"created_at"`
 }
 
 type AuditLogListResp struct {

@@ -75,6 +75,13 @@ func main() {
 			Version:     conf.APIDocs.Version,
 			Description: conf.APIDocs.Description,
 		},
+		FileAccess: router.FileAccessOptions{
+			DownloadURLExpireSeconds: conf.FileUpload.DownloadURLExpireSeconds,
+		},
+		FileUpload: router.FileUploadOptions{
+			MaxSizeBytes:       int64(conf.FileUpload.MaxSizeMB) * 1024 * 1024,
+			AvatarMaxSizeBytes: int64(conf.FileUpload.AvatarMaxSizeMB) * 1024 * 1024,
+		},
 	})
 
 	routeInfos := r.Routes()

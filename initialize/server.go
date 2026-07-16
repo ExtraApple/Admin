@@ -59,6 +59,11 @@ type Config struct {
 		ColdBucket string `yaml:"cold_bucket"`
 		BatchSize  int    `yaml:"batch_size"`
 	} `yaml:"file_rotation"`
+	FileUpload struct {
+		MaxSizeMB                int `yaml:"max_size_mb"`
+		AvatarMaxSizeMB          int `yaml:"avatar_max_size_mb"`
+		DownloadURLExpireSeconds int `yaml:"download_url_expire_seconds"`
+	} `yaml:"file_upload"`
 	Logger          LoggerConfig `yaml:"logger"`
 	AuditLogArchive struct {
 		Enabled       bool `yaml:"enabled"`
@@ -99,7 +104,23 @@ func InitConfig() *Config {
 	if err := applyEnvConfig(&conf); err != nil {
 		panic(fmt.Sprintf("load env config failed: %v", err))
 	}
+	if err := validateFileUploadConfig(&conf); err != nil {
+		panic(fmt.Sprintf("validate config failed: %v", err))
+	}
 	return &conf
+}
+
+func validateFileUploadConfig(conf *Config) error {
+	if conf.FileUpload.MaxSizeMB < 1 || conf.FileUpload.MaxSizeMB > 100 {
+		return fmt.Errorf("file_upload.max_size_mb must be between 1 and 100")
+	}
+	if conf.FileUpload.AvatarMaxSizeMB < 1 || conf.FileUpload.AvatarMaxSizeMB > 10 {
+		return fmt.Errorf("file_upload.avatar_max_size_mb must be between 1 and 10")
+	}
+	if conf.FileUpload.DownloadURLExpireSeconds < 1 {
+		return fmt.Errorf("file_upload.download_url_expire_seconds must be a positive integer")
+	}
+	return nil
 }
 
 // loadDotEnv 在本地 .env 文件存在时加载环境变量。

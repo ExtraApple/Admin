@@ -48,6 +48,12 @@ file_rotation:
   cold_bucket: "files-archive"
   batch_size: 100
 
+# 文件上传安全配置
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+
 # 审计日志冷热归档配置
 audit_log_archive:
   enabled: true

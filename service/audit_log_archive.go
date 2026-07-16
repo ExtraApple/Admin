@@ -81,6 +81,7 @@ func toAuditLogArchive(log model.AuditLog, archivedAt time.Time) model.AuditLogA
 		Path:       log.Path,
 		Query:      log.Query,
 		Body:       log.Body,
+		Metadata:   log.Metadata,
 		Status:     log.Status,
 		Duration:   log.Duration,
 		ClientIP:   log.ClientIP,

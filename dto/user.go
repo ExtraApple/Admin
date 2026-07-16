@@ -1,5 +1,7 @@
 package dto
 
+import "encoding/json"
+
 // ========== 请求参数 ==========
 
 type RegisterReq struct {
@@ -40,8 +42,29 @@ type LoginResp struct {
 
 type UpdateSelfReq struct {
 	Nickname string `json:"nickname" binding:"max=100"`
-	Avatar   string `json:"avatar"   binding:"max=255"`
-	Email    string `json:"email"    binding:"email"`
+	Email    string `json:"email"    binding:"omitempty,email"`
+
+	avatarPresent bool
+}
+
+func (r *UpdateSelfReq) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Nickname string          `json:"nickname"`
+		Avatar   json.RawMessage `json:"avatar"`
+		Email    string          `json:"email"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	r.Nickname = wire.Nickname
+	r.Email = wire.Email
+	r.avatarPresent = wire.Avatar != nil
+	return nil
+}
+
+func (r UpdateSelfReq) HasAvatarField() bool {
+	return r.avatarPresent
 }
 
 type ChangePasswordReq struct {

@@ -105,6 +105,30 @@ base_url=http://localhost:8080
 admin_token=登录返回的 access_token
 ```
 
+### 文件上传安全 V1 部署后的必做操作
+
+V1 修改了文件和头像接口的请求约束、响应字段、错误状态，并新增下载、预览、重新验证、恢复默认头像和公开头像读取路由。后端部署并完成 Seed/API 同步后，前端和测试人员必须在 Apifox 中重新导入：
+
+```text
+http://localhost:8080/docs/openapi.json
+```
+
+不要继续使用旧集合中以下假设：
+
+- 文件详情返回 `bucket`、`object_name` 或 MinIO 预签名 URL。
+- `PUT /api/user/info` 可以提交 `avatar`。
+- 头像响应返回外部 URL 或 MinIO 地址。
+- 文件上传只按固定 50 MB 和扩展名校验。
+
+重新导入后重点确认：
+
+- `POST /api/admin/files` 和 `POST /api/user/avatar` 都是单个 `file` part 的 multipart 请求。
+- 文件详情包含验证状态，并按状态可选返回 `download_url`、`preview_url`。
+- 下载、预览和重新验证接口已出现。
+- `PUT /api/user/info` 的请求 schema 中没有可写 `avatar`。
+- `DELETE /api/user/avatar`、`GET /api/avatars/:user_id` 和 `GET /api/avatars/default` 已出现。
+- 文件与头像接口列出了 413、415、422、404、409、500/503 等相关错误响应。
+
 ## 推荐使用流程
 
 新增后端接口后：
@@ -142,12 +166,16 @@ POST /api/admin/apis/sync-permissions
 - DTO 中 `required`、`min`、`max`、`len`、`oneof`、`email` 等基础校验规则。
 - 通用 JSON 响应结构。
 - 上传接口的 `multipart/form-data` 文件字段。
+- 文件上传安全 V1 相关接口的显式请求/响应 schema。
+- 文件详情、上传、重新验证、头像上传和恢复默认头像的精确响应 DTO。
+- 文件下载、图片预览和公开头像读取的二进制响应 MIME。
+- 文件与头像安全接口的补充错误状态和稳定 `error_code` 响应结构。
 
 当前请求体 Schema 通过“路由 + DTO”的显式映射生成。新增有 JSON body 的接口后，需要在 OpenAPI 生成器中补充对应 DTO 映射，否则 Swagger UI 不会显示正确请求字段。
 
-当前不会自动推导每个接口的精确响应 DTO 字段。
+除已经显式登记的路由外，当前不会自动推导每个接口的精确响应 DTO 字段。
 
 后续如果要进一步细化字段级文档，可以继续补充：
 
-- 响应体 Schema。
-- 错误码枚举。
+- 更多接口的精确响应体 Schema。
+- 各接口完整的稳定错误码枚举。

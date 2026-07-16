@@ -48,10 +48,28 @@ func AuditLog() gin.HandlerFunc {
 			ClientIP:  c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 			Category:  auditCategory(c.Request.Method, c.Request.URL.Path),
+			Metadata:  uploadAuditMetadata(c),
 		}
 
 		go service.CreateAuditLog(&log)
 	}
+}
+
+func uploadAuditMetadata(c *gin.Context) json.RawMessage {
+	value, exists := c.Get(service.UploadAuditMetadataContextKey)
+	if !exists {
+		return nil
+	}
+
+	metadata, ok := value.(service.UploadAuditMetadata)
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(data)
 }
 
 // readAuditBody 安全读取请求体，并把 Body 放回请求，避免后续 handler 无法再次读取。

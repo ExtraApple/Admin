@@ -35,10 +35,7 @@ func GetAllUsers(operatorID uint, page, pageSize int) ([]dto.UserInfo, int64, er
 
 	list := make([]dto.UserInfo, len(users))
 	for i, u := range users {
-		list[i] = dto.UserInfo{
-			ID: u.ID, Username: u.Username, Nickname: u.Nickname,
-			Avatar: u.Avatar, Email: u.Email, Role: u.Role, Status: u.Status,
-		}
+		list[i] = UserInfoFromModel(u)
 	}
 	return list, total, nil
 }
@@ -104,10 +101,8 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	bumpUserTokenVersion(targetID)
 	// 刷新返回最新数据
 	global.DB.First(&target, targetID)
-	return &dto.UserInfo{
-		ID: target.ID, Username: target.Username, Nickname: target.Nickname,
-		Avatar: target.Avatar, Email: target.Email, Role: target.Role, Status: target.Status,
-	}, nil
+	info := UserInfoFromModel(target)
+	return &info, nil
 }
 
 // --- 切换用户状态 ---

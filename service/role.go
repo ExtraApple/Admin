@@ -220,10 +220,7 @@ func GetRoleUsers(roleID uint) ([]dto.UserInfo, error) {
 
 	list := make([]dto.UserInfo, len(users))
 	for i, u := range users {
-		list[i] = dto.UserInfo{
-			ID: u.ID, Username: u.Username, Nickname: u.Nickname,
-			Avatar: u.Avatar, Email: u.Email, Role: u.Role, Status: u.Status,
-		}
+		list[i] = UserInfoFromModel(u)
 	}
 	return list, nil
 }

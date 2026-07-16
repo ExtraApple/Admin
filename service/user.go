@@ -12,6 +12,7 @@ import (
 	"admin/dto"
 	"admin/global"
 	"admin/model"
+	"admin/service/uploadsecurity"
 	"admin/utils"
 )
 
@@ -20,6 +21,8 @@ type JWTConfig struct {
 	ExpireMins        int
 	RefreshExpireMins int
 }
+
+var ErrAvatarFieldNotWritable = errors.New("头像只能通过专用接口修改")
 
 // Register 用户注册
 func Register(req dto.RegisterReq) (*dto.UserInfo, error) {
@@ -58,14 +61,8 @@ func Register(req dto.RegisterReq) (*dto.UserInfo, error) {
 		return nil, errors.New("创建用户失败: " + err.Error())
 	}
 
-	return &dto.UserInfo{
-		ID:       user.ID,
-		Username: user.Username,
-		Nickname: user.Nickname,
-		Email:    user.Email,
-		Role:     user.Role,
-		Status:   user.Status,
-	}, nil
+	info := UserInfoFromModel(user)
+	return &info, nil
 }
 
 // Login 用户登录
@@ -136,42 +133,49 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 	return &dto.LoginResp{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		User: dto.UserInfo{
-			ID:       user.ID,
-			Username: user.Username,
-			Nickname: user.Nickname,
-			Avatar:   user.Avatar,
-			Email:    user.Email,
-			Role:     user.Role,
-			Status:   user.Status,
-		},
+		User:         UserInfoFromModel(user),
 	}, nil
 }
 
 // UpdateSelf 普通用户修改自己的基础信息（不可改密码、用户名、角色）
 func UpdateSelf(userID uint, req dto.UpdateSelfReq) (*dto.UserInfo, error) {
+	if req.HasAvatarField() {
+		return nil, ErrAvatarFieldNotWritable
+	}
+
 	updates := map[string]any{}
 	if req.Nickname != "" {
 		updates["nickname"] = req.Nickname
 	}
-	if req.Avatar != "" {
-		updates["avatar"] = req.Avatar
-	}
 	if req.Email != "" {
 		var exist int64
-		global.DB.Model(&model.User{}).Where("email = ? AND id != ?", req.Email, userID).Count(&exist)
+		if err := global.DB.Model(&model.User{}).
+			Where("email = ? AND id != ?", req.Email, userID).
+			Count(&exist).Error; err != nil {
+			return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+		}
 		if exist > 0 {
-			return nil, errors.New("邮箱已被占用")
+			return nil, uploadsecurity.NewError(
+				uploadsecurity.CodeRequestInvalid,
+				errors.New("邮箱已被占用"),
+			)
 		}
 		updates["email"] = req.Email
 	}
 	if len(updates) == 0 {
-		return nil, errors.New("无修改内容")
+		return nil, uploadsecurity.NewError(
+			uploadsecurity.CodeRequestInvalid,
+			errors.New("无修改内容"),
+		)
 	}
 	if err := global.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
-		return nil, errors.New("修改失败")
+		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
 	}
-	return GetUserInfo(userID)
+	user, err := GetUserInfo(userID)
+	if err != nil {
+		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+	}
+	return user, nil
 }
 
 // ChangePassword 修改自己的密码（需验证旧密码 + 两次新密码一致 + 复杂度）
@@ -205,14 +209,6 @@ func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 	return nil
 }
 
-// SetAvatar 设置/更新用户头像 URL
-func SetAvatar(userID uint, avatarURL string) (*dto.UserInfo, error) {
-	if err := global.DB.Model(&model.User{}).Where("id = ?", userID).Update("avatar", avatarURL).Error; err != nil {
-		return nil, errors.New("头像更新失败")
-	}
-	return GetUserInfo(userID)
-}
-
 // GetUserInfo 通过 ID 查询用户（脱敏）
 func GetUserInfo(userID uint) (*dto.UserInfo, error) {
 	var user model.User
@@ -223,15 +219,8 @@ func GetUserInfo(userID uint) (*dto.UserInfo, error) {
 		return nil, errors.New("查询用户失败: " + err.Error())
 	}
 
-	return &dto.UserInfo{
-		ID:       user.ID,
-		Username: user.Username,
-		Nickname: user.Nickname,
-		Avatar:   user.Avatar,
-		Email:    user.Email,
-		Role:     user.Role,
-		Status:   user.Status,
-	}, nil
+	info := UserInfoFromModel(user)
+	return &info, nil
 }
 
 // Logout 将 token 加入 Redis 黑名单，过期时间对齐 token 有效期

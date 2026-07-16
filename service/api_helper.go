@@ -167,7 +167,8 @@ func inferAPINeedAuth(path string) int {
 	case "/api/login", "/api/register", "/api/captcha":
 		return 0
 	default:
-		if strings.HasPrefix(path, "/api/dicts/") {
+		if strings.HasPrefix(path, "/api/dicts/") ||
+			strings.HasPrefix(path, "/api/avatars/") {
 			return 0
 		}
 		return 1
