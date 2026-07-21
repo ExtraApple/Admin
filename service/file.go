@@ -294,9 +294,9 @@ func isPreviewableImageMIME(contentType string) bool {
 	}
 }
 
-// ResolveFileDownloadAccess applies the current validation-state policy before
+// ResolveDownloadAccess applies the current validation-state policy before
 // a download handler opens or streams the stored object.
-func ResolveFileDownloadAccess(file *model.File) (*FileAccessDecision, error) {
+func ResolveDownloadAccess(file *model.File) (*FileAccessDecision, error) {
 	if file == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
 	}
@@ -332,9 +332,9 @@ func ResolveFileDownloadAccess(file *model.File) (*FileAccessDecision, error) {
 	}, nil
 }
 
-// ResolveFilePreviewAccess permits inline access only for validated V1 image
+// ResolvePreviewAccess permits inline access only for validated V1 image
 // types. All other files remain download-only or inaccessible.
-func ResolveFilePreviewAccess(file *model.File) (*FileAccessDecision, error) {
+func ResolvePreviewAccess(file *model.File) (*FileAccessDecision, error) {
 	if file == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
 	}
@@ -386,9 +386,9 @@ func (s *FileRevalidationService) Revalidate(
 
 	reader, err := s.storage.Open(ctx, file.Bucket, file.ObjectName)
 	if err != nil {
-		storageErr := classifyFileStorageError(err)
+		storageErr := classifyStorageError(err)
 		code, _ := uploadsecurity.CodeOf(storageErr)
-		if updateErr := s.recordRevalidationFailure(
+		if updateErr := s.saveRevalidationFailure(
 			ctx,
 			file,
 			model.FileValidationStatusValidationError,
@@ -410,7 +410,7 @@ func (s *FileRevalidationService) Revalidate(
 	})
 	if err != nil {
 		code, classified := uploadsecurity.CodeOf(err)
-		if classified && isManagedFilePolicyRejection(code) {
+		if classified && isFilePolicyRejection(code) {
 			validatedAt := s.now().UTC()
 			update := FileValidationUpdate{
 				ContentType:         file.ContentType,
@@ -423,8 +423,8 @@ func (s *FileRevalidationService) Revalidate(
 			if updateErr := s.files.UpdateValidation(ctx, file.ID, update); updateErr != nil {
 				return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, updateErr)
 			}
-		} else if classified && isRetryableRevalidationError(code) {
-			if updateErr := s.recordRevalidationFailure(
+		} else if classified && isRevalidationRetryable(code) {
+			if updateErr := s.saveRevalidationFailure(
 				ctx,
 				file,
 				model.FileValidationStatusValidationError,
@@ -451,7 +451,7 @@ func (s *FileRevalidationService) Revalidate(
 	if err := s.files.UpdateValidation(ctx, file.ID, update); err != nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
 	}
-	applyFileValidationUpdate(file, update)
+	applyValidationUpdate(file, update)
 	return toFileInfo(file), nil
 }
 
@@ -468,7 +468,7 @@ func (s *FileBrowseService) List(
 		Recursive: true,
 	})
 	if err != nil {
-		return nil, classifyFileStorageError(err)
+		return nil, classifyStorageError(err)
 	}
 
 	result := make([]dto.FileObjectInfo, len(objects))
@@ -483,7 +483,7 @@ func (s *FileBrowseService) List(
 	return result, nil
 }
 
-func (s *FileRevalidationService) recordRevalidationFailure(
+func (s *FileRevalidationService) saveRevalidationFailure(
 	ctx context.Context,
 	file *model.File,
 	status string,
@@ -504,7 +504,7 @@ func (s *FileRevalidationService) recordRevalidationFailure(
 	return nil
 }
 
-func isManagedFilePolicyRejection(code uploadsecurity.Code) bool {
+func isFilePolicyRejection(code uploadsecurity.Code) bool {
 	switch code {
 	case uploadsecurity.CodeFileEmpty,
 		uploadsecurity.CodeFileTooLarge,
@@ -524,7 +524,7 @@ func isManagedFilePolicyRejection(code uploadsecurity.Code) bool {
 	}
 }
 
-func isRetryableRevalidationError(code uploadsecurity.Code) bool {
+func isRevalidationRetryable(code uploadsecurity.Code) bool {
 	switch code {
 	case uploadsecurity.CodeUploadBodyInvalid,
 		uploadsecurity.CodeStorageObjectNotFound,
@@ -536,7 +536,7 @@ func isRetryableRevalidationError(code uploadsecurity.Code) bool {
 	}
 }
 
-func applyFileValidationUpdate(file *model.File, update FileValidationUpdate) {
+func applyValidationUpdate(file *model.File, update FileValidationUpdate) {
 	file.ContentType = update.ContentType
 	file.DetectedContentType = update.DetectedContentType
 	file.ValidationStatus = update.Status
@@ -582,7 +582,7 @@ func (s *FileService) Upload(
 		Size:        result.Size,
 		ContentType: result.CanonicalMIME,
 	}); err != nil {
-		storageErr := classifyFileStorageError(err)
+		storageErr := classifyStorageError(err)
 		code, _ := uploadsecurity.CodeOf(storageErr)
 		global.Logger.Error(
 			"managed file storage write failed",
@@ -612,7 +612,7 @@ func (s *FileService) Upload(
 			zap.String("error_code", string(uploadsecurity.CodePersistenceFailed)),
 		)
 		if deleteErr := s.storage.Delete(ctx, fileBucket, objectName); deleteErr != nil {
-			deleteErr = classifyFileStorageError(deleteErr)
+			deleteErr = classifyStorageError(deleteErr)
 			code, _ := uploadsecurity.CodeOf(deleteErr)
 			global.Logger.Error(
 				"managed file compensation delete failed",
@@ -625,7 +625,7 @@ func (s *FileService) Upload(
 	return toFileInfo(&file), nil
 }
 
-func classifyFileStorageError(err error) error {
+func classifyStorageError(err error) error {
 	if _, classified := uploadsecurity.CodeOf(err); classified {
 		return err
 	}
@@ -723,7 +723,7 @@ func DeleteFile(fileID uint) error {
 	}
 
 	if err := utils.RemoveFile(file.Bucket, file.ObjectName); err != nil {
-		return classifyFileStorageError(err)
+		return classifyStorageError(err)
 	}
 	if err := global.DB.Unscoped().Delete(&file).Error; err != nil {
 		return uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)

@@ -109,12 +109,12 @@ func TestFileValidationStateMatrix(t *testing.T) {
 				t.Fatalf("detail preview URL present = %v, want %v", got, tt.wantDetailPreviewURL)
 			}
 
-			download, err := ResolveFileDownloadAccess(&file)
+			download, err := ResolveDownloadAccess(&file)
 			if tt.wantDownloadCode != "" {
 				assertServiceUploadCode(t, err, tt.wantDownloadCode)
 			} else {
 				if err != nil {
-					t.Fatalf("ResolveFileDownloadAccess() error = %v", err)
+					t.Fatalf("ResolveDownloadAccess() error = %v", err)
 				}
 				if download.ContentType != tt.wantDownloadMIME ||
 					download.Disposition != FileDispositionAttachment {
@@ -123,12 +123,12 @@ func TestFileValidationStateMatrix(t *testing.T) {
 				}
 			}
 
-			preview, err := ResolveFilePreviewAccess(&file)
+			preview, err := ResolvePreviewAccess(&file)
 			if tt.wantPreviewCode != "" {
 				assertServiceUploadCode(t, err, tt.wantPreviewCode)
 			} else {
 				if err != nil {
-					t.Fatalf("ResolveFilePreviewAccess() error = %v", err)
+					t.Fatalf("ResolvePreviewAccess() error = %v", err)
 				}
 				if preview.ContentType != "image/png" ||
 					preview.Disposition != FileDispositionInline {

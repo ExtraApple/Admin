@@ -49,21 +49,21 @@ func TestUploadSecurityCoreValidationMatrix(t *testing.T) {
 		{
 			name: "dangerous double extension is rejected",
 			run: func() error {
-				return uploadsecurity.ValidateNoDangerousDoubleExtension("payload.exe.pdf")
+				return uploadsecurity.ValidateExtensionChain("payload.exe.pdf")
 			},
 			wantCode: uploadsecurity.CodeFileTypeNotAllowed,
 		},
 		{
 			name: "format character cannot hide dangerous double extension",
 			run: func() error {
-				return uploadsecurity.ValidateNoDangerousDoubleExtension("payload.e\u200bxe.pdf")
+				return uploadsecurity.ValidateExtensionChain("payload.e\u200bxe.pdf")
 			},
 			wantCode: uploadsecurity.CodeFileTypeNotAllowed,
 		},
 		{
 			name: "ordinary multi-dot filename is accepted",
 			run: func() error {
-				return uploadsecurity.ValidateNoDangerousDoubleExtension("annual.report.final.pdf")
+				return uploadsecurity.ValidateExtensionChain("annual.report.final.pdf")
 			},
 		},
 		{

@@ -21,7 +21,7 @@ func APIPermission() gin.HandlerFunc {
 		if path == "" {
 			path = c.Request.URL.Path
 		}
-		if isAPIPermissionBootstrapRoute(method, path) && hasContextRole(c, "admin") {
+		if isPermissionSyncRoute(method, path) && hasContextRole(c, "admin") {
 			c.Next()
 			return
 		}
@@ -67,8 +67,8 @@ func APIPermission() gin.HandlerFunc {
 	}
 }
 
-// isAPIPermissionBootstrapRoute 判断请求是否属于 API 权限初始化引导接口。
-func isAPIPermissionBootstrapRoute(method, path string) bool {
+// isPermissionSyncRoute 判断请求是否属于 API 权限初始化引导接口。
+func isPermissionSyncRoute(method, path string) bool {
 	return method == http.MethodPost && (path == "/api/admin/apis/sync" || path == "/api/admin/apis/sync-permissions")
 }
 

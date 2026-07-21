@@ -25,8 +25,8 @@ func normalizeDataScope(scope string) (string, error) {
 	}
 }
 
-// ensureOrganizationsExist 校验组织 ID 列表是否全部存在。
-func ensureOrganizationsExist(orgIDs []uint) error {
+// checkOrgIDsExist 校验组织 ID 列表是否全部存在。
+func checkOrgIDsExist(orgIDs []uint) error {
 	orgIDs = uniqueUintIDs(orgIDs)
 	if len(orgIDs) == 0 {
 		return nil
@@ -78,17 +78,17 @@ func getOperatorDataScope(operatorID uint) (bool, []uint, error) {
 			orgIDs = append(orgIDs, getUserOrganizationIDs(operatorID)...)
 		case model.DataScopeOrgAndChildren:
 			userOrgIDs := getUserOrganizationIDs(operatorID)
-			orgIDs = append(orgIDs, expandOrganizationIDsWithChildren(userOrgIDs)...)
+			orgIDs = append(orgIDs, includeDescendantOrgIDs(userOrgIDs)...)
 		case model.DataScopeCustom:
-			orgIDs = append(orgIDs, getRoleCustomOrganizationIDs(role.ID)...)
+			orgIDs = append(orgIDs, loadCustomScopeOrgIDs(role.ID)...)
 		}
 	}
 
 	return false, uniqueUintIDs(orgIDs), nil
 }
 
-// ensureUserVisibleToOperator 校验目标用户是否在操作人的可见数据范围内。
-func ensureUserVisibleToOperator(operatorID, targetID uint) error {
+// validateUserVisibility 校验目标用户是否在操作人的可见数据范围内。
+func validateUserVisibility(operatorID, targetID uint) error {
 	visibleUserIDs, hasAllData, err := GetVisibleUserIDs(operatorID)
 	if err != nil {
 		return err
@@ -99,8 +99,8 @@ func ensureUserVisibleToOperator(operatorID, targetID uint) error {
 	return errors.New("无权操作数据范围外的用户")
 }
 
-// ensureOrganizationVisibleToOperator 校验目标组织是否在操作人的可见数据范围内。
-func ensureOrganizationVisibleToOperator(operatorID, orgID uint) error {
+// validateOrgVisibility 校验目标组织是否在操作人的可见数据范围内。
+func validateOrgVisibility(operatorID, orgID uint) error {
 	visibleOrgIDs, hasAllData, err := GetVisibleOrganizationIDs(operatorID)
 	if err != nil {
 		return err
@@ -156,8 +156,8 @@ func getUserOrganizationIDs(userID uint) []uint {
 	return uniqueUintIDs(orgIDs)
 }
 
-// getRoleCustomOrganizationIDs 查询角色自定义数据范围绑定的组织 ID 列表。
-func getRoleCustomOrganizationIDs(roleID uint) []uint {
+// loadCustomScopeOrgIDs 查询角色自定义数据范围绑定的组织 ID 列表。
+func loadCustomScopeOrgIDs(roleID uint) []uint {
 	var orgIDs []uint
 	global.DB.Model(&model.RoleDataScope{}).
 		Where("role_id = ?", roleID).
@@ -165,8 +165,8 @@ func getRoleCustomOrganizationIDs(roleID uint) []uint {
 	return uniqueUintIDs(orgIDs)
 }
 
-// expandOrganizationIDsWithChildren 展开组织 ID 列表，包含所有子孙组织。
-func expandOrganizationIDsWithChildren(rootIDs []uint) []uint {
+// includeDescendantOrgIDs 展开组织 ID 列表，包含所有子孙组织。
+func includeDescendantOrgIDs(rootIDs []uint) []uint {
 	rootIDs = uniqueUintIDs(rootIDs)
 	if len(rootIDs) == 0 {
 		return []uint{}
@@ -198,8 +198,8 @@ func expandOrganizationIDsWithChildren(rootIDs []uint) []uint {
 	return result
 }
 
-// expandOrganizationIDsWithAncestors 展开组织 ID 列表，包含所有祖先组织。
-func expandOrganizationIDsWithAncestors(orgIDs []uint) []uint {
+// includeAncestorOrgIDs 展开组织 ID 列表，包含所有祖先组织。
+func includeAncestorOrgIDs(orgIDs []uint) []uint {
 	orgIDs = uniqueUintIDs(orgIDs)
 	if len(orgIDs) == 0 {
 		return []uint{}

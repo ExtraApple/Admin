@@ -58,7 +58,7 @@ func (avatarValidator) Validate(
 	if input.MaxBytes <= 0 || input.Size > input.MaxBytes {
 		return Result{}, NewError(CodeFileTooLarge, nil)
 	}
-	if err := ValidateNoDangerousDoubleExtension(input.FileName); err != nil {
+	if err := ValidateExtensionChain(input.FileName); err != nil {
 		return Result{}, err
 	}
 

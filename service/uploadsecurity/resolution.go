@@ -17,7 +17,7 @@ type TypeEvidence struct {
 // ResolveCanonicalType requires the filename extension, declared MIME,
 // detected MIME and dedicated validator result to resolve to one V1 type.
 func ResolveCanonicalType(evidence TypeEvidence) (TypeDefinition, error) {
-	if err := ValidateNoDangerousDoubleExtension(evidence.FileName); err != nil {
+	if err := ValidateExtensionChain(evidence.FileName); err != nil {
 		return TypeDefinition{}, err
 	}
 

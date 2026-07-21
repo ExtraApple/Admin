@@ -24,6 +24,8 @@ type JWTConfig struct {
 
 var ErrAvatarFieldNotWritable = errors.New("头像只能通过专用接口修改")
 
+const maxFailures = 5
+
 // Register 用户注册
 func Register(req dto.RegisterReq) (*dto.UserInfo, error) {
 	// 校验验证码
@@ -90,13 +92,17 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		count := incrFailed(req.Username)
+		key := "fail:" + req.Username
+		failureCount, _ := global.Redis.Incr(context.Background(), key).Result()
+		global.Redis.Expire(context.Background(), key, 24*time.Hour)
+
+		count := int(failureCount)
 		lockAfterFail(req.Username, count)
-		return nil, fmt.Errorf("用户名或密码错误（剩余尝试: %d 次）", 5-count)
+		return nil, fmt.Errorf("用户名或密码错误（剩余尝试: %d 次）", maxFailures-count)
 	}
 
 	// 登录成功，清除失败记录
-	clearFailed(req.Username)
+	global.Redis.Del(context.Background(), "fail:"+req.Username, "lock:"+req.Username)
 
 	// 查询用户关联的角色码
 	var roles []string
@@ -135,6 +141,40 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 		RefreshToken: refreshToken,
 		User:         UserInfoFromModel(user),
 	}, nil
+}
+
+// isLocked 检查指定用户名是否处于登录锁定状态，并返回剩余分钟数。
+func isLocked(username string) (int, bool) {
+	val, err := global.Redis.Get(context.Background(), "lock:"+username).Result()
+	if err != nil || val != "1" {
+		return 0, false
+	}
+
+	ttl, _ := global.Redis.TTL(context.Background(), "lock:"+username).Result()
+	mins := int(ttl.Minutes()) + 1
+	return mins, true
+}
+
+// lockAfterFail 在失败次数达到阈值时设置账号锁定标记。
+func lockAfterFail(username string, failures int) {
+	lockMinutes := 0
+	switch {
+	case failures < maxFailures:
+		return
+	case failures < 10:
+		lockMinutes = 1
+	case failures < 15:
+		lockMinutes = 5
+	case failures < 20:
+		lockMinutes = 15
+	default:
+		lockMinutes = 60
+	}
+
+	global.Redis.Set(context.Background(), "lock:"+username, "1", time.Duration(lockMinutes)*time.Minute)
+	if failures >= 10 {
+		global.Redis.Del(context.Background(), "fail:"+username)
+	}
 }
 
 // UpdateSelf 普通用户修改自己的基础信息（不可改密码、用户名、角色）
@@ -205,7 +245,7 @@ func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 	if err := global.DB.Model(&user).Update("password", string(hashed)).Error; err != nil {
 		return err
 	}
-	bumpUserTokenVersion(userID)
+	revokeTokensForUsers(userID)
 	return nil
 }
 

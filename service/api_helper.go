@@ -57,14 +57,6 @@ func normalizeAPIPath(path string) (string, error) {
 	return path, nil
 }
 
-// defaultAPIStatus 返回 API 状态默认值。
-func defaultAPIStatus(status *int) int {
-	if status == nil {
-		return 1
-	}
-	return *status
-}
-
 // defaultAPISwitch 返回 API 开关类字段的默认值。
 func defaultAPISwitch(value *int) int {
 	if value == nil {
@@ -73,8 +65,8 @@ func defaultAPISwitch(value *int) int {
 	return *value
 }
 
-// ensureAPIAvailable 校验同方法同路径的 API 是否可用。
-func ensureAPIAvailable(apiID uint, method, path string) error {
+// validateAPIUnique 校验同方法同路径的 API 是否可用。
+func validateAPIUnique(apiID uint, method, path string) error {
 	var count int64
 	query := global.DB.Model(&model.API{}).Where("method = ? AND path = ?", method, path)
 	if apiID > 0 {
@@ -111,15 +103,6 @@ func toAPIInfo(item model.API) *dto.APIInfo {
 		NeedAuth:       item.NeedAuth,
 		NeedAudit:      item.NeedAudit,
 	}
-}
-
-// shouldSyncAPIRoute 判断路由是否需要同步到 API 元数据表。
-func shouldSyncAPIRoute(path string) bool {
-	if path == "/ping" {
-		return false
-	}
-	// 检验字符串是否为指定的/api/开头
-	return strings.HasPrefix(path, "/api/")
 }
 
 // inferAPIGroup 根据路由路径推断 API 分组。
@@ -175,8 +158,8 @@ func inferAPINeedAuth(path string) int {
 	}
 }
 
-// generateAPIPermissionCode 根据 HTTP 方法和路径生成权限码。
-func generateAPIPermissionCode(method, path string) string {
+// deriveAPIPermissionCode 根据 HTTP 方法和路径生成权限码。
+func deriveAPIPermissionCode(method, path string) string {
 	code := strings.TrimPrefix(path, "/api/")
 	code = strings.ReplaceAll(code, ":", "")
 	code = strings.ReplaceAll(code, "/", ".")

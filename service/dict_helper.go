@@ -28,7 +28,7 @@ func defaultDictStatus(status *int) int {
 }
 
 // 字典类型是否存在
-func ensureDictTypeExists(typeCode string) error {
+func checkDictTypeExists(typeCode string) error {
 	var count int64
 	global.DB.Model(&model.DictType{}).Where("code = ?", typeCode).Count(&count)
 	if count == 0 {
@@ -38,7 +38,7 @@ func ensureDictTypeExists(typeCode string) error {
 }
 
 // 字典值是否存在
-func ensureDictItemValueAvailable(itemID uint, typeCode, value string) error {
+func validateDictValueUnique(itemID uint, typeCode, value string) error {
 	var count int64
 	query := global.DB.Model(&model.DictItem{}).Where("type_code = ? AND value = ?", typeCode, value)
 	if itemID > 0 {
@@ -49,15 +49,6 @@ func ensureDictItemValueAvailable(itemID uint, typeCode, value string) error {
 		return errors.New("同一字典类型下字典值已存在")
 	}
 	return nil
-}
-
-// 列出字典类型
-func toDictTypeInfoList(types []model.DictType) []dto.DictTypeInfo {
-	list := make([]dto.DictTypeInfo, len(types))
-	for i, item := range types {
-		list[i] = *toDictTypeInfo(item)
-	}
-	return list
 }
 
 // 字典类型信息

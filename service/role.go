@@ -134,7 +134,7 @@ func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 	if err := global.DB.Model(&role).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改角色失败")
 	}
-	bumpUsersTokenVersionByRole(roleID)
+	revokeTokensForRole(roleID)
 
 	global.DB.First(&role, roleID)
 	return &dto.RoleInfo{
@@ -165,7 +165,7 @@ func DeleteRole(roleID uint) error {
 	if err := global.DB.Unscoped().Delete(&role).Error; err != nil {
 		return err
 	}
-	bumpUserTokenVersion(oldUserIDs...)
+	revokeTokensForUsers(oldUserIDs...)
 	return nil
 }
 
@@ -193,7 +193,7 @@ func AssignUsersToRole(roleID uint, userIDs []uint) error {
 		}
 	}
 	affectedUserIDs := append(oldUserIDs, userIDs...)
-	bumpUserTokenVersion(affectedUserIDs...)
+	revokeTokensForUsers(affectedUserIDs...)
 	return nil
 }
 
@@ -245,7 +245,7 @@ func AssignRoleDataScope(roleID uint, req dto.AssignRoleDataScopeReq) error {
 		if len(organizationIDs) == 0 {
 			return errors.New("自定义数据范围必须选择组织")
 		}
-		if err := ensureOrganizationsExist(organizationIDs); err != nil {
+		if err := checkOrgIDsExist(organizationIDs); err != nil {
 			return err
 		}
 	}
@@ -273,7 +273,7 @@ func AssignRoleDataScope(roleID uint, req dto.AssignRoleDataScopeReq) error {
 		return errors.New("配置角色数据权限失败: " + err.Error())
 	}
 
-	bumpUsersTokenVersionByRole(roleID)
+	revokeTokensForRole(roleID)
 	return nil
 }
 

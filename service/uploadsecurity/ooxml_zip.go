@@ -55,7 +55,7 @@ func OpenRestrictedZIP(
 	size int64,
 	limits OOXMLZIPLimits,
 ) (*RestrictedZIP, error) {
-	limits = normalizeOOXMLZIPLimits(limits)
+	limits = normalizeZIPLimits(limits)
 	if source == nil || size < 1 ||
 		limits.MaxEntries < 1 ||
 		limits.MaxEntryUncompressedBytes < 1 ||
@@ -123,7 +123,7 @@ func OpenRestrictedZIP(
 	return archive, nil
 }
 
-func normalizeOOXMLZIPLimits(limits OOXMLZIPLimits) OOXMLZIPLimits {
+func normalizeZIPLimits(limits OOXMLZIPLimits) OOXMLZIPLimits {
 	if limits.MaxEntryCompressionRatio == 0 {
 		limits.MaxEntryCompressionRatio = defaultOOXMLMaxEntryCompressionRatio
 	}

@@ -17,7 +17,7 @@ func auditCategory(method, path string) string {
 	if isAuditReadMethod(method) {
 		return service.AuditCategoryDataAccess
 	}
-	if isAuditPermissionMutation(method, normalizedPath) {
+	if isPermissionMutation(method, normalizedPath) {
 		return service.AuditCategoryPermission
 	}
 	if isAuditWriteMethod(method) {
@@ -50,8 +50,8 @@ func isAuditWriteMethod(method string) bool {
 	}
 }
 
-// isAuditPermissionMutation 判断请求是否属于角色、权限或菜单相关的变更操作。
-func isAuditPermissionMutation(method, path string) bool {
+// isPermissionMutation 判断请求是否属于角色、权限或菜单相关的变更操作。
+func isPermissionMutation(method, path string) bool {
 	if !isAuditWriteMethod(method) {
 		return false
 	}

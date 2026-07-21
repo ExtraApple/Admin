@@ -49,7 +49,7 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return errors.New("用户不存在")
 	}
-	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+	if err := validateUserVisibility(operatorID, targetID); err != nil {
 		return err
 	}
 	if isAdminUser(user) {
@@ -67,7 +67,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	if err := global.DB.First(&target, targetID).Error; err != nil {
 		return nil, errors.New("用户不存在")
 	}
-	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+	if err := validateUserVisibility(operatorID, targetID); err != nil {
 		return nil, err
 	}
 	if isAdminUser(target) {
@@ -98,7 +98,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	if err := global.DB.Model(&target).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改失败")
 	}
-	bumpUserTokenVersion(targetID)
+	revokeTokensForUsers(targetID)
 	// 刷新返回最新数据
 	global.DB.First(&target, targetID)
 	info := UserInfoFromModel(target)
@@ -114,7 +114,7 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return 0, errors.New("用户不存在")
 	}
-	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+	if err := validateUserVisibility(operatorID, targetID); err != nil {
 		return 0, err
 	}
 	if isAdminUser(user) {
@@ -127,7 +127,7 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if err := global.DB.Model(&user).Update("status", newStatus).Error; err != nil {
 		return 0, errors.New("操作失败")
 	}
-	bumpUserTokenVersion(targetID)
+	revokeTokensForUsers(targetID)
 	return newStatus, nil
 }
 
@@ -141,13 +141,13 @@ func KickUserByAdmin(operatorID, targetID uint) error {
 	if err := global.DB.First(&user, targetID).Error; err != nil {
 		return errors.New("用户不存在")
 	}
-	if err := ensureUserVisibleToOperator(operatorID, targetID); err != nil {
+	if err := validateUserVisibility(operatorID, targetID); err != nil {
 		return err
 	}
 	if isAdminUser(user) {
 		return errors.New("不能强制下线其他管理员")
 	}
 
-	bumpUserTokenVersion(targetID)
+	revokeTokensForUsers(targetID)
 	return nil
 }

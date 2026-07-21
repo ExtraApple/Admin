@@ -30,7 +30,12 @@ func GetDictTypes(page, pageSize int, keyword string, status *int) ([]dto.DictTy
 	if err := query.Order("sort asc, id asc").Limit(pageSize).Offset((page - 1) * pageSize).Find(&types).Error; err != nil {
 		return nil, 0, errors.New("查询字典类型失败")
 	}
-	return toDictTypeInfoList(types), total, nil
+
+	list := make([]dto.DictTypeInfo, len(types))
+	for i, item := range types {
+		list[i] = *toDictTypeInfo(item)
+	}
+	return list, total, nil
 }
 
 // 创建字典类型
@@ -155,10 +160,10 @@ func GetDictItems(page, pageSize int, typeCode, keyword string, status *int) ([]
 
 // 创建字典组
 func CreateDictItem(req dto.CreateDictItemReq) (*dto.DictItemInfo, error) {
-	if err := ensureDictTypeExists(req.TypeCode); err != nil {
+	if err := checkDictTypeExists(req.TypeCode); err != nil {
 		return nil, err
 	}
-	if err := ensureDictItemValueAvailable(0, req.TypeCode, req.Value); err != nil {
+	if err := validateDictValueUnique(0, req.TypeCode, req.Value); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +193,7 @@ func UpdateDictItem(itemID uint, req dto.UpdateDictItemReq) (*dto.DictItemInfo, 
 
 	targetTypeCode := item.TypeCode
 	if req.TypeCode != "" {
-		if err := ensureDictTypeExists(req.TypeCode); err != nil {
+		if err := checkDictTypeExists(req.TypeCode); err != nil {
 			return nil, err
 		}
 		targetTypeCode = req.TypeCode
@@ -199,7 +204,7 @@ func UpdateDictItem(itemID uint, req dto.UpdateDictItemReq) (*dto.DictItemInfo, 
 		targetValue = req.Value
 	}
 	if targetTypeCode != item.TypeCode || targetValue != item.Value {
-		if err := ensureDictItemValueAvailable(itemID, targetTypeCode, targetValue); err != nil {
+		if err := validateDictValueUnique(itemID, targetTypeCode, targetValue); err != nil {
 			return nil, err
 		}
 	}
@@ -247,7 +252,7 @@ func DeleteDictItem(itemID uint) error {
 }
 
 // 根据字典类型编码，获取启用状态的字典条目
-func GetEnabledDictItemsByTypeCode(typeCode string) ([]dto.DictItemInfo, error) {
+func ListEnabledDictItems(typeCode string) ([]dto.DictItemInfo, error) {
 	var dictType model.DictType
 	if err := global.DB.Where("code = ? AND status = 1", typeCode).First(&dictType).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

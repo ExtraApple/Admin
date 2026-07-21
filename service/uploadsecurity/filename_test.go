@@ -111,7 +111,7 @@ func TestSanitizeDisplayNameRejectsInvalidCanonicalExtension(t *testing.T) {
 	}
 }
 
-func TestValidateNoDangerousDoubleExtension(t *testing.T) {
+func TestValidateExtensionChain(t *testing.T) {
 	rejected := []string{
 		"payload.exe.pdf",
 		"script.JS.txt",
@@ -123,7 +123,7 @@ func TestValidateNoDangerousDoubleExtension(t *testing.T) {
 	}
 	for _, name := range rejected {
 		t.Run("reject "+name, func(t *testing.T) {
-			err := uploadsecurity.ValidateNoDangerousDoubleExtension(name)
+			err := uploadsecurity.ValidateExtensionChain(name)
 			code, ok := uploadsecurity.CodeOf(err)
 			if !ok || code != uploadsecurity.CodeFileTypeNotAllowed {
 				t.Fatalf("code: got %q, classified=%v", code, ok)
@@ -140,7 +140,7 @@ func TestValidateNoDangerousDoubleExtension(t *testing.T) {
 	}
 	for _, name := range allowed {
 		t.Run("allow "+name, func(t *testing.T) {
-			if err := uploadsecurity.ValidateNoDangerousDoubleExtension(name); err != nil {
+			if err := uploadsecurity.ValidateExtensionChain(name); err != nil {
 				t.Fatalf("validate %q: %v", name, err)
 			}
 		})

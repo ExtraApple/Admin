@@ -116,8 +116,13 @@ func CreateAPI(req dto.CreateAPIReq) (*dto.APIInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureAPIAvailable(0, method, path); err != nil {
+	if err := validateAPIUnique(0, method, path); err != nil {
 		return nil, err
+	}
+
+	status := 1
+	if req.Status != nil {
+		status = *req.Status
 	}
 
 	api := model.API{
@@ -128,7 +133,7 @@ func CreateAPI(req dto.CreateAPIReq) (*dto.APIInfo, error) {
 		PermissionCode: strings.TrimSpace(req.PermissionCode),
 		Remark:         strings.TrimSpace(req.Remark),
 		Sort:           req.Sort,
-		Status:         defaultAPIStatus(req.Status),
+		Status:         status,
 		NeedAuth:       defaultAPISwitch(req.NeedAuth),
 		NeedAudit:      defaultAPISwitch(req.NeedAudit),
 	}
@@ -172,7 +177,7 @@ func UpdateAPI(apiID uint, req dto.UpdateAPIReq) (*dto.APIInfo, error) {
 		targetPath = path
 	}
 	if targetMethod != api.Method || targetPath != api.Path {
-		if err := ensureAPIAvailable(apiID, targetMethod, targetPath); err != nil {
+		if err := validateAPIUnique(apiID, targetMethod, targetPath); err != nil {
 			return nil, err
 		}
 	}
@@ -262,7 +267,7 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 			continue
 		}
 		path, err := normalizeAPIPath(route.Path)
-		if err != nil || !shouldSyncAPIRoute(path) {
+		if err != nil || path == "/ping" || !strings.HasPrefix(path, "/api/") {
 			continue
 		}
 
@@ -286,7 +291,7 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 		needAuth := inferAPINeedAuth(path)
 		permissionCode := ""
 		if needAuth == 1 {
-			permissionCode = generateAPIPermissionCode(method, path)
+			permissionCode = deriveAPIPermissionCode(method, path)
 		}
 
 		api := model.API{
@@ -331,7 +336,7 @@ func SyncAPIPermissions() ([]string, int, error) {
 		// 移除字符串前后空白字符
 		code := strings.TrimSpace(api.PermissionCode)
 		if code == "" {
-			code = generateAPIPermissionCode(api.Method, api.Path)
+			code = deriveAPIPermissionCode(api.Method, api.Path)
 			if err := global.DB.Model(&api).Update("permission_code", code).Error; err != nil {
 				return created, updatedAPI, errors.New("同步API权限码失败")
 			}

@@ -179,7 +179,7 @@ func (s *AvatarService) UploadWithResult(
 	if previousUser == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, nil)
 	}
-	oldObjectName, hasOldObject := trustedAvatarObjectName(previousUser, input.UserID)
+	oldObjectName, hasOldObject := validAvatarObjectName(previousUser, input.UserID)
 
 	objectName, err := objectstorage.NewAvatarObjectName(input.UserID, result.CanonicalType)
 	if err != nil {
@@ -192,7 +192,7 @@ func (s *AvatarService) UploadWithResult(
 		Size:        result.Size,
 		ContentType: result.CanonicalMIME,
 	}); err != nil {
-		return nil, classifyFileStorageError(err)
+		return nil, classifyStorageError(err)
 	}
 
 	validatedAt := s.now().UTC()
@@ -211,7 +211,7 @@ func (s *AvatarService) UploadWithResult(
 		)
 		if updateOutcome == AvatarUpdateNotCommitted {
 			if deleteErr := s.storage.Delete(ctx, avatarBucket, objectName); deleteErr != nil {
-				deleteErr = classifyFileStorageError(deleteErr)
+				deleteErr = classifyStorageError(deleteErr)
 				code, _ := uploadsecurity.CodeOf(deleteErr)
 				global.Logger.Error(
 					"avatar compensation delete failed",
@@ -227,7 +227,7 @@ func (s *AvatarService) UploadWithResult(
 	if hasOldObject &&
 		oldObjectName != objectName {
 		if deleteErr := s.storage.Delete(ctx, avatarBucket, oldObjectName); deleteErr != nil {
-			deleteErr = classifyFileStorageError(deleteErr)
+			deleteErr = classifyStorageError(deleteErr)
 			code, _ := uploadsecurity.CodeOf(deleteErr)
 			global.Logger.Error(
 				"old avatar cleanup failed",
@@ -259,8 +259,8 @@ func (s *AvatarService) RestoreDefault(
 	if previousUser == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, nil)
 	}
-	oldObjectName, hasOldObject := trustedAvatarObjectName(previousUser, userID)
-	if !hasPersistedAvatarMetadata(previousUser) {
+	oldObjectName, hasOldObject := validAvatarObjectName(previousUser, userID)
+	if !hasAvatarMetadata(previousUser) {
 		user := *previousUser
 		return &user, nil
 	}
@@ -275,7 +275,7 @@ func (s *AvatarService) RestoreDefault(
 	applyAvatarUpdate(&user, update)
 	if hasOldObject {
 		if deleteErr := s.storage.Delete(ctx, avatarBucket, oldObjectName); deleteErr != nil {
-			deleteErr = classifyFileStorageError(deleteErr)
+			deleteErr = classifyStorageError(deleteErr)
 			code, _ := uploadsecurity.CodeOf(deleteErr)
 			global.Logger.Error(
 				"old avatar cleanup failed",
@@ -296,7 +296,7 @@ func applyAvatarUpdate(user *model.User, update AvatarUpdate) {
 	user.AvatarValidatedAt = update.ValidatedAt
 }
 
-func hasPersistedAvatarMetadata(user *model.User) bool {
+func hasAvatarMetadata(user *model.User) bool {
 	return user != nil &&
 		(user.AvatarObjectName != "" ||
 			user.AvatarContentType != "" ||
@@ -304,7 +304,7 @@ func hasPersistedAvatarMetadata(user *model.User) bool {
 			user.AvatarValidatedAt != nil)
 }
 
-func trustedAvatarObjectName(user *model.User, userID uint) (string, bool) {
+func validAvatarObjectName(user *model.User, userID uint) (string, bool) {
 	if user == nil ||
 		userID == 0 ||
 		user.AvatarValidationStatus != model.FileValidationStatusValidated {

@@ -747,7 +747,7 @@ func TestFileDetailServiceRestrictsURLsByValidationStatusAndType(t *testing.T) {
 	}
 }
 
-func TestResolveFileDownloadAccessUsesCanonicalMIMEForValidatedFile(t *testing.T) {
+func TestResolveDownloadAccessUsesCanonicalMIMEForValidatedFile(t *testing.T) {
 	file := model.File{
 		Name:             "report.pdf",
 		Bucket:           "files-cold",
@@ -756,9 +756,9 @@ func TestResolveFileDownloadAccessUsesCanonicalMIMEForValidatedFile(t *testing.T
 		ValidationStatus: model.FileValidationStatusValidated,
 	}
 
-	decision, err := ResolveFileDownloadAccess(&file)
+	decision, err := ResolveDownloadAccess(&file)
 	if err != nil {
-		t.Fatalf("ResolveFileDownloadAccess() error = %v", err)
+		t.Fatalf("ResolveDownloadAccess() error = %v", err)
 	}
 	if decision.ContentType != "application/pdf" {
 		t.Fatalf("ContentType = %q, want application/pdf", decision.ContentType)
@@ -774,7 +774,7 @@ func TestResolveFileDownloadAccessUsesCanonicalMIMEForValidatedFile(t *testing.T
 	}
 }
 
-func TestResolveFileDownloadAccessForcesUnverifiedFilesToBinaryAttachment(t *testing.T) {
+func TestResolveDownloadAccessForcesUnverifiedFilesToBinaryAttachment(t *testing.T) {
 	for _, status := range []string{
 		model.FileValidationStatusLegacyUnverified,
 		model.FileValidationStatusValidationError,
@@ -788,9 +788,9 @@ func TestResolveFileDownloadAccessForcesUnverifiedFilesToBinaryAttachment(t *tes
 				ValidationStatus: status,
 			}
 
-			decision, err := ResolveFileDownloadAccess(&file)
+			decision, err := ResolveDownloadAccess(&file)
 			if err != nil {
-				t.Fatalf("ResolveFileDownloadAccess() error = %v", err)
+				t.Fatalf("ResolveDownloadAccess() error = %v", err)
 			}
 			if decision.ContentType != "application/octet-stream" {
 				t.Fatalf("ContentType = %q, want application/octet-stream", decision.ContentType)
@@ -805,8 +805,8 @@ func TestResolveFileDownloadAccessForcesUnverifiedFilesToBinaryAttachment(t *tes
 	}
 }
 
-func TestResolveFileDownloadAccessRejectsBlockedFile(t *testing.T) {
-	_, err := ResolveFileDownloadAccess(&model.File{
+func TestResolveDownloadAccessRejectsBlockedFile(t *testing.T) {
+	_, err := ResolveDownloadAccess(&model.File{
 		Name:             "blocked.pdf",
 		Bucket:           "files",
 		ObjectName:       "private-object.pdf",
@@ -821,7 +821,7 @@ func TestResolveFileDownloadAccessRejectsBlockedFile(t *testing.T) {
 	}
 }
 
-func TestResolveFilePreviewAccessAllowsOnlyValidatedImagesInline(t *testing.T) {
+func TestResolvePreviewAccessAllowsOnlyValidatedImagesInline(t *testing.T) {
 	for _, contentType := range []string{"image/jpeg", "image/png", "image/webp"} {
 		t.Run(contentType, func(t *testing.T) {
 			file := model.File{
@@ -832,9 +832,9 @@ func TestResolveFilePreviewAccessAllowsOnlyValidatedImagesInline(t *testing.T) {
 				ValidationStatus: model.FileValidationStatusValidated,
 			}
 
-			decision, err := ResolveFilePreviewAccess(&file)
+			decision, err := ResolvePreviewAccess(&file)
 			if err != nil {
-				t.Fatalf("ResolveFilePreviewAccess() error = %v", err)
+				t.Fatalf("ResolvePreviewAccess() error = %v", err)
 			}
 			if decision.ContentType != contentType {
 				t.Fatalf("ContentType = %q, want %q", decision.ContentType, contentType)
@@ -851,7 +851,7 @@ func TestResolveFilePreviewAccessAllowsOnlyValidatedImagesInline(t *testing.T) {
 	}
 }
 
-func TestResolveFilePreviewAccessRejectsNonImagesAndDisallowedStates(t *testing.T) {
+func TestResolvePreviewAccessRejectsNonImagesAndDisallowedStates(t *testing.T) {
 	tests := []struct {
 		name        string
 		status      string
@@ -866,7 +866,7 @@ func TestResolveFilePreviewAccessRejectsNonImagesAndDisallowedStates(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ResolveFilePreviewAccess(&model.File{
+			_, err := ResolvePreviewAccess(&model.File{
 				Name:             "preview-candidate",
 				Bucket:           "files",
 				ObjectName:       "private-object",

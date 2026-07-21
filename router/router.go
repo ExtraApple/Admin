@@ -124,7 +124,7 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 		// --- 公开路由 ---
 		api.POST("/register", userHandler.Register)
 		api.POST("/login", userHandler.Login)
-		api.GET("/dicts/:type_code/items", dictHandler.ListEnabledItemsByTypeCode)
+		api.GET("/dicts/:type_code/items", dictHandler.ListEnabledItems)
 		api.GET("/avatars/default", userHandler.GetDefaultAvatar)
 		api.GET("/avatars/:user_id", userHandler.GetAvatar)
 

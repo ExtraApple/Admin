@@ -142,9 +142,9 @@ func (h *DictHandler) DeleteDictItem(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
 }
 
-// ListEnabledItemsByTypeCode 按类型编码返回启用状态的字典项，供前端下拉框使用。
-func (h *DictHandler) ListEnabledItemsByTypeCode(c *gin.Context) {
-	items, err := service.GetEnabledDictItemsByTypeCode(c.Param("type_code"))
+// ListEnabledItems 按类型编码返回启用状态的字典项，供前端下拉框使用。
+func (h *DictHandler) ListEnabledItems(c *gin.Context) {
+	items, err := service.ListEnabledDictItems(c.Param("type_code"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return

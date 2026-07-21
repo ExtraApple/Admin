@@ -40,7 +40,12 @@ func GetOrganizations(operatorID uint, page, pageSize int, keyword string, statu
 	if err := query.Order("sort asc, id asc").Limit(pageSize).Offset((page - 1) * pageSize).Find(&organizations).Error; err != nil {
 		return nil, 0, errors.New("查询组织列表失败")
 	}
-	return toOrganizationInfoList(organizations), total, nil
+
+	list := make([]dto.OrganizationInfo, len(organizations))
+	for i, item := range organizations {
+		list[i] = *toOrganizationInfo(item)
+	}
+	return list, total, nil
 }
 
 // GetOrganizationTree 查询可见组织并组装为树形结构。
@@ -55,7 +60,7 @@ func GetOrganizationTree(operatorID uint) ([]dto.OrganizationTree, error) {
 		if len(visibleOrgIDs) == 0 {
 			return []dto.OrganizationTree{}, nil
 		}
-		query = query.Where("id IN ?", expandOrganizationIDsWithAncestors(visibleOrgIDs))
+		query = query.Where("id IN ?", includeAncestorOrgIDs(visibleOrgIDs))
 	}
 	if err := query.Find(&organizations).Error; err != nil {
 		return nil, errors.New("查询组织树失败")
@@ -66,7 +71,7 @@ func GetOrganizationTree(operatorID uint) ([]dto.OrganizationTree, error) {
 // CreateOrganization 创建组织节点，并校验父级存在和编码唯一性。
 func CreateOrganization(operatorID uint, req dto.CreateOrganizationReq) (*dto.OrganizationInfo, error) {
 	if req.ParentID != 0 {
-		if err := ensureOrganizationVisibleToOperator(operatorID, req.ParentID); err != nil {
+		if err := validateOrgVisibility(operatorID, req.ParentID); err != nil {
 			return nil, err
 		}
 	} else if _, hasAllData, err := GetVisibleOrganizationIDs(operatorID); err != nil {
@@ -75,10 +80,10 @@ func CreateOrganization(operatorID uint, req dto.CreateOrganizationReq) (*dto.Or
 		return nil, errors.New("无权创建根组织")
 	}
 
-	if err := ensureOrganizationParentExists(req.ParentID); err != nil {
+	if err := checkParentOrgExists(req.ParentID); err != nil {
 		return nil, err
 	}
-	if err := ensureOrganizationCodeAvailable(0, req.Code); err != nil {
+	if err := checkOrgCodeAvailable(0, req.Code); err != nil {
 		return nil, err
 	}
 
@@ -105,18 +110,18 @@ func UpdateOrganization(operatorID, orgID uint, req dto.UpdateOrganizationReq) (
 		}
 		return nil, errors.New("查询组织失败")
 	}
-	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+	if err := validateOrgVisibility(operatorID, orgID); err != nil {
 		return nil, err
 	}
 
 	updates := map[string]any{}
 	if req.ParentID != nil {
 		if *req.ParentID != 0 {
-			if err := ensureOrganizationVisibleToOperator(operatorID, *req.ParentID); err != nil {
+			if err := validateOrgVisibility(operatorID, *req.ParentID); err != nil {
 				return nil, err
 			}
 		}
-		if err := validateOrganizationParent(orgID, *req.ParentID); err != nil {
+		if err := validateOrgParent(orgID, *req.ParentID); err != nil {
 			return nil, err
 		}
 		updates["parent_id"] = *req.ParentID
@@ -125,7 +130,7 @@ func UpdateOrganization(operatorID, orgID uint, req dto.UpdateOrganizationReq) (
 		updates["name"] = req.Name
 	}
 	if req.Code != "" {
-		if err := ensureOrganizationCodeAvailable(orgID, req.Code); err != nil {
+		if err := checkOrgCodeAvailable(orgID, req.Code); err != nil {
 			return nil, err
 		}
 		updates["code"] = req.Code
@@ -160,7 +165,7 @@ func DeleteOrganization(operatorID, orgID uint) error {
 		}
 		return errors.New("查询组织失败")
 	}
-	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+	if err := validateOrgVisibility(operatorID, orgID); err != nil {
 		return err
 	}
 
@@ -178,18 +183,22 @@ func DeleteOrganization(operatorID, orgID uint) error {
 	})
 }
 
-// AssignUsersToOrganization 覆盖指定组织的成员绑定关系。
-func AssignUsersToOrganization(operatorID, orgID uint, userIDs []uint) error {
-	if err := ensureOrganizationExists(orgID); err != nil {
+// SetOrganizationUsers 覆盖指定组织的成员绑定关系。
+func SetOrganizationUsers(operatorID, orgID uint, userIDs []uint) error {
+	if err := checkOrgExists(orgID); err != nil {
 		return err
 	}
-	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+	if err := validateOrgVisibility(operatorID, orgID); err != nil {
 		return err
 	}
 
 	userIDs = uniqueUintIDs(userIDs)
-	if err := ensureUsersExist(userIDs); err != nil {
-		return err
+	if len(userIDs) > 0 {
+		var count int64
+		global.DB.Model(&model.User{}).Where("id IN ?", userIDs).Count(&count)
+		if count != int64(len(userIDs)) {
+			return errors.New("存在无效用户")
+		}
 	}
 
 	var oldUserIDs []uint
@@ -216,16 +225,16 @@ func AssignUsersToOrganization(operatorID, orgID uint, userIDs []uint) error {
 	}
 
 	affectedUserIDs := append(oldUserIDs, userIDs...)
-	bumpUserTokenVersion(affectedUserIDs...)
+	revokeTokensForUsers(affectedUserIDs...)
 	return nil
 }
 
 // GetOrganizationUsers 查询指定组织下的成员列表。
 func GetOrganizationUsers(operatorID, orgID uint) ([]dto.UserInfo, error) {
-	if err := ensureOrganizationExists(orgID); err != nil {
+	if err := checkOrgExists(orgID); err != nil {
 		return nil, err
 	}
-	if err := ensureOrganizationVisibleToOperator(operatorID, orgID); err != nil {
+	if err := validateOrgVisibility(operatorID, orgID); err != nil {
 		return nil, err
 	}
 
@@ -246,5 +255,60 @@ func GetOrganizationUsers(operatorID, orgID uint) ([]dto.UserInfo, error) {
 	if err := global.DB.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
 		return nil, errors.New("查询组织成员失败")
 	}
-	return toUserInfoList(users), nil
+
+	list := make([]dto.UserInfo, len(users))
+	for i, user := range users {
+		list[i] = UserInfoFromModel(user)
+	}
+	return list, nil
+}
+
+// validateOrgParent 校验父级组织合法性，避免把节点挂到自己或子孙节点下。
+func validateOrgParent(orgID, parentID uint) error {
+	if parentID == 0 {
+		return nil
+	}
+	if parentID == orgID {
+		return errors.New("不能将组织挂载到自身下面")
+	}
+	if err := checkParentOrgExists(parentID); err != nil {
+		return err
+	}
+
+	currentID := parentID
+	for currentID != 0 {
+		if currentID == orgID {
+			return errors.New("不能将组织挂载到自身子组织下面")
+		}
+
+		var organization model.Organization
+		if err := global.DB.Select("parent_id").First(&organization, currentID).Error; err != nil {
+			return nil
+		}
+		currentID = organization.ParentID
+	}
+	return nil
+}
+
+// buildOrganizationTree 将扁平组织列表按 parent_id 递归组装为树。
+func buildOrganizationTree(organizations []model.Organization, parentID uint) []dto.OrganizationTree {
+	tree := []dto.OrganizationTree{}
+	for _, organization := range organizations {
+		if organization.ParentID != parentID {
+			continue
+		}
+
+		node := dto.OrganizationTree{
+			ID:       organization.ID,
+			ParentID: organization.ParentID,
+			Name:     organization.Name,
+			Code:     organization.Code,
+			Remark:   organization.Remark,
+			Sort:     organization.Sort,
+			Status:   organization.Status,
+		}
+		node.Children = buildOrganizationTree(organizations, organization.ID)
+		tree = append(tree, node)
+	}
+	return tree
 }

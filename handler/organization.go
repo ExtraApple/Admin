@@ -102,7 +102,7 @@ func (h *OrganizationHandler) AssignUsers(c *gin.Context) {
 		return
 	}
 
-	if err := service.AssignUsersToOrganization(c.GetUint("userID"), uint(orgID), req.UserIDs); err != nil {
+	if err := service.SetOrganizationUsers(c.GetUint("userID"), uint(orgID), req.UserIDs); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}

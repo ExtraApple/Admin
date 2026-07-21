@@ -97,7 +97,7 @@ func DeletePermission(permID uint) error {
 	if err := global.DB.Unscoped().Delete(&p).Error; err != nil {
 		return err
 	}
-	bumpUsersTokenVersionByRoles(roleIDs)
+	revokeTokensForRoles(roleIDs)
 	return nil
 }
 
@@ -118,7 +118,7 @@ func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 			return errors.New("分配权限失败: " + err.Error())
 		}
 	}
-	bumpUsersTokenVersionByRole(roleID)
+	revokeTokensForRole(roleID)
 	return nil
 }
 

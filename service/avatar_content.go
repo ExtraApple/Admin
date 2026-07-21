@@ -77,7 +77,7 @@ func (s *AvatarContentService) Open(
 	if err != nil {
 		return DefaultAvatarContent()
 	}
-	objectName, trusted := trustedAvatarObjectName(user, userID)
+	objectName, trusted := validAvatarObjectName(user, userID)
 	if !trusted {
 		return DefaultAvatarContent()
 	}

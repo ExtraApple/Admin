@@ -156,7 +156,7 @@ func buildOpenAPIOperation(method, path, tag string, params []string, api model.
 	if requestBody := buildOpenAPIRequestBody(method, path); requestBody != nil {
 		operation["requestBody"] = requestBody
 	}
-	if shouldAttachOpenAPISecurity(path, api) {
+	if requiresBearerAuth(path, api) {
 		operation["security"] = []map[string][]string{
 			{"BearerAuth": []string{}},
 		}
@@ -534,8 +534,8 @@ func isRequiredBinding(binding string) bool {
 	return false
 }
 
-// shouldAttachOpenAPISecurity 判断 OpenAPI operation 是否需要挂载 BearerAuth。
-func shouldAttachOpenAPISecurity(path string, api model.API) bool {
+// requiresBearerAuth 判断 OpenAPI operation 是否需要挂载 BearerAuth。
+func requiresBearerAuth(path string, api model.API) bool {
 	if path == "/ping" {
 		return false
 	}

@@ -139,7 +139,7 @@ func (h *APIHandler) GenerateMenuButton(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
 		return
 	}
-	menu, err := service.GenerateMenuButtonFromAPI(uint(apiID), req)
+	menu, err := service.CreateMenuButtonFromAPI(uint(apiID), req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return

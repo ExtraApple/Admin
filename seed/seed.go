@@ -356,7 +356,7 @@ func seedAdminUser(tx *gorm.DB, conf *initialize.Config) error {
 	if err != nil {
 		return err
 	}
-	if hasEnabledSuperAdminInTx(tx, adminRole.ID) {
+	if hasActiveSuperAdmin(tx, adminRole.ID) {
 		return nil
 	}
 	if conf.Admin.Username == "" {
@@ -423,7 +423,7 @@ func getRoleByCode(tx *gorm.DB, code string) (model.Role, error) {
 	return role, err
 }
 
-func hasEnabledSuperAdminInTx(tx *gorm.DB, roleID uint) bool {
+func hasActiveSuperAdmin(tx *gorm.DB, roleID uint) bool {
 	var count int64
 	tx.Table("users").
 		Joins("JOIN user_roles ON user_roles.user_id = users.id").

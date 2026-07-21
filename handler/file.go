@@ -52,7 +52,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 	)
 	defer cleanup()
 	if err != nil {
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeManagedFile,
 			nil,
@@ -68,7 +68,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 			uploadsecurity.CodeUploadBodyInvalid,
 			err,
 		)
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeManagedFile,
 			file,
@@ -84,7 +84,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 			uploadsecurity.CodeInternalError,
 			nil,
 		)
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeManagedFile,
 			file,
@@ -103,7 +103,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		Reader:      f,
 	})
 	if err != nil {
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeManagedFile,
 			file,

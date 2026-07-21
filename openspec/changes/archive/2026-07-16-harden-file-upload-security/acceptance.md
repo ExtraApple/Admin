@@ -79,7 +79,7 @@
 - ✅ **上传 UTF-8 文本**：`TestManagedFileV1AllowedTypeMatrix`、`TestValidateContentAcceptsStreamingUTF8TextWithOptionalBOM`。
 - ✅ **上传非 UTF-8 文本**：`TestValidateContentRejectsInvalidTextEncodingAndNUL`。
 - ✅ **上传危险或不支持格式**：`TestManagedFileV1ForbiddenTypeMatrix`。
-- ✅ **上传危险双扩展名**：`TestValidateNoDangerousDoubleExtension`、`TestManagedFileV1RejectsMIMEAndDangerousDoubleExtensionMatrix`。
+- ✅ **上传危险双扩展名**：`TestValidateExtensionChain`、`TestManagedFileV1RejectsMIMEAndDangerousDoubleExtensionMatrix`。
 
 ### Office Open XML 容器校验
 
@@ -98,10 +98,10 @@
 
 实现入口：`service/file.go`、`service/file_content.go`、`service/fileaccess/`、`handler/file.go`、`router/router.go`。
 
-- ✅ **下载验证通过文件**：`TestResolveFileDownloadAccessUsesCanonicalMIMEForValidatedFile`、`TestFileHandlerDownloadStreamsControlledAttachmentWithSecurityHeaders`、`TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess`。
-- ✅ **下载历史未验证文件**：`TestResolveFileDownloadAccessForcesUnverifiedFilesToBinaryAttachment`、`TestFileValidationStateMatrix`。
-- ✅ **预览验证通过图片**：`TestResolveFilePreviewAccessAllowsOnlyValidatedImagesInline`、`TestFileHandlerPreviewStreamsControlledImageInlineWithSecurityHeaders`。
-- ✅ **预览非图片或未验证文件**：`TestResolveFilePreviewAccessRejectsNonImagesAndDisallowedStates`、`TestFileHandlerPreviewMapsRestrictionsAndInvalidSignaturesToStableErrors`。
+- ✅ **下载验证通过文件**：`TestResolveDownloadAccessUsesCanonicalMIMEForValidatedFile`、`TestFileHandlerDownloadStreamsControlledAttachmentWithSecurityHeaders`、`TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess`。
+- ✅ **下载历史未验证文件**：`TestResolveDownloadAccessForcesUnverifiedFilesToBinaryAttachment`、`TestFileValidationStateMatrix`。
+- ✅ **预览验证通过图片**：`TestResolvePreviewAccessAllowsOnlyValidatedImagesInline`、`TestFileHandlerPreviewStreamsControlledImageInlineWithSecurityHeaders`。
+- ✅ **预览非图片或未验证文件**：`TestResolvePreviewAccessRejectsNonImagesAndDisallowedStates`、`TestFileHandlerPreviewMapsRestrictionsAndInvalidSignaturesToStableErrors`。
 - ✅ **临时 URL 无效**：`TestDerivedSignerRejectsEveryBoundClaimTamper`、`TestDerivedSignerRejectsDifferentJWTSecretAndExpiredAccess`、`TestFileContentServiceRejectsInvalidSignatureBeforeOpeningObject`。
 
 ### 历史文件验证状态和重新验证

@@ -9,6 +9,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// 文件上传常量
+const (
+	minManagedFileUploadSizeMB = 1
+	maxManagedFileUploadSizeMB = 100
+	minAvatarUploadSizeMB      = 1
+	maxAvatarUploadSizeMB      = 10
+)
+
 type Config struct {
 	Server struct {
 		Port int `yaml:"port"`
@@ -104,18 +112,28 @@ func InitConfig() *Config {
 	if err := applyEnvConfig(&conf); err != nil {
 		panic(fmt.Sprintf("load env config failed: %v", err))
 	}
-	if err := validateFileUploadConfig(&conf); err != nil {
+	if err := validateUploadConfig(&conf); err != nil {
 		panic(fmt.Sprintf("validate config failed: %v", err))
 	}
 	return &conf
 }
 
-func validateFileUploadConfig(conf *Config) error {
-	if conf.FileUpload.MaxSizeMB < 1 || conf.FileUpload.MaxSizeMB > 100 {
-		return fmt.Errorf("file_upload.max_size_mb must be between 1 and 100")
+func validateUploadConfig(conf *Config) error {
+	if conf.FileUpload.MaxSizeMB < minManagedFileUploadSizeMB ||
+		conf.FileUpload.MaxSizeMB > maxManagedFileUploadSizeMB {
+		return fmt.Errorf(
+			"file_upload.max_size_mb must be between %d and %d",
+			minManagedFileUploadSizeMB,
+			maxManagedFileUploadSizeMB,
+		)
 	}
-	if conf.FileUpload.AvatarMaxSizeMB < 1 || conf.FileUpload.AvatarMaxSizeMB > 10 {
-		return fmt.Errorf("file_upload.avatar_max_size_mb must be between 1 and 10")
+	if conf.FileUpload.AvatarMaxSizeMB < minAvatarUploadSizeMB ||
+		conf.FileUpload.AvatarMaxSizeMB > maxAvatarUploadSizeMB {
+		return fmt.Errorf(
+			"file_upload.avatar_max_size_mb must be between %d and %d",
+			minAvatarUploadSizeMB,
+			maxAvatarUploadSizeMB,
+		)
 	}
 	if conf.FileUpload.DownloadURLExpireSeconds < 1 {
 		return fmt.Errorf("file_upload.download_url_expire_seconds must be a positive integer")

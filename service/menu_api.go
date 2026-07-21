@@ -31,7 +31,7 @@ func AssignAPIsToMenu(menuID uint, req dto.AssignAPIsToMenuReq) error {
 		return err
 	}
 
-	permissionCode, err := resolveMenuAPIPermissionCode(req.PermissionCode, apis)
+	permissionCode, err := resolveAPIBindingCode(req.PermissionCode, apis)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func AssignAPIsToMenu(menuID uint, req dto.AssignAPIsToMenuReq) error {
 		return err
 	}
 
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	return nil
 }
 
@@ -91,8 +91,8 @@ func GetMenuAPIs(menuID uint) ([]dto.APIInfo, error) {
 	return toAPIInfoList(apis), nil
 }
 
-// GenerateMenuButtonFromAPI 根据 API 生成按钮菜单并建立绑定关系。
-func GenerateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq) (*dto.MenuDetail, error) {
+// CreateMenuButtonFromAPI 根据 API 生成按钮菜单并建立绑定关系。
+func CreateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq) (*dto.MenuDetail, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, errors.New("按钮名称不能为空")
@@ -119,7 +119,7 @@ func GenerateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq)
 
 	permissionCode := strings.TrimSpace(api.PermissionCode)
 	if permissionCode == "" {
-		permissionCode = generateAPIPermissionCode(api.Method, api.Path)
+		permissionCode = deriveAPIPermissionCode(api.Method, api.Path)
 	}
 
 	var menu model.Menu
@@ -153,7 +153,7 @@ func GenerateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq)
 		return nil, err
 	}
 
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	return toMenuDetail(menu), nil
 }
 
@@ -173,7 +173,7 @@ func syncLinkedMenusByAPI(api model.API) error {
 		if api.NeedAuth != 1 {
 			return nil
 		}
-		permissionCode = generateAPIPermissionCode(api.Method, api.Path)
+		permissionCode = deriveAPIPermissionCode(api.Method, api.Path)
 	}
 
 	if err := global.DB.Transaction(func(tx *gorm.DB) error {
@@ -199,7 +199,7 @@ func syncLinkedMenusByAPI(api model.API) error {
 		return err
 	}
 
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	return nil
 }
 
@@ -231,8 +231,8 @@ func validateLinkableAPI(api model.API) error {
 	return nil
 }
 
-// resolveMenuAPIPermissionCode 解析菜单绑定 API 时应使用的权限码。
-func resolveMenuAPIPermissionCode(manual string, apis []model.API) (string, error) {
+// resolveAPIBindingCode 解析菜单绑定 API 时应使用的权限码。
+func resolveAPIBindingCode(manual string, apis []model.API) (string, error) {
 	manual = strings.TrimSpace(manual)
 	if manual != "" {
 		return manual, nil
@@ -243,7 +243,7 @@ func resolveMenuAPIPermissionCode(manual string, apis []model.API) (string, erro
 	for _, api := range apis {
 		code := strings.TrimSpace(api.PermissionCode)
 		if code == "" {
-			code = generateAPIPermissionCode(api.Method, api.Path)
+			code = deriveAPIPermissionCode(api.Method, api.Path)
 		}
 		permissionSet[code] = struct{}{}
 		permissionCode = code

@@ -17,7 +17,7 @@ const (
 	uploadMultipartMemoryBytes        = int64(1 * 1024 * 1024)
 )
 
-func applyUploadBodyLimit(c *gin.Context, maxFileBytes, overheadBytes int64) {
+func limitUploadBody(c *gin.Context, maxFileBytes, overheadBytes int64) {
 	c.Request.Body = http.MaxBytesReader(
 		c.Writer,
 		c.Request.Body,
@@ -37,7 +37,7 @@ func parseSingleUpload(
 	c *gin.Context,
 	maxFileBytes, overheadBytes int64,
 ) (*multipart.FileHeader, func(), error) {
-	applyUploadBodyLimit(c, maxFileBytes, overheadBytes)
+	limitUploadBody(c, maxFileBytes, overheadBytes)
 
 	if err := c.Request.ParseMultipartForm(uploadMultipartMemoryBytes); err != nil {
 		if c.Request.MultipartForm != nil {
@@ -94,7 +94,7 @@ func writeUploadError(c *gin.Context, err error) {
 	})
 }
 
-func setRejectedUploadAuditMetadata(
+func setUploadRejectionAudit(
 	c *gin.Context,
 	purpose uploadsecurity.Purpose,
 	file *multipart.FileHeader,

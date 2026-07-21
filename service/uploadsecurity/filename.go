@@ -19,14 +19,14 @@ func SanitizeAuditFileName(raw string, purpose Purpose) string {
 		return ""
 	}
 
-	if extension, ok := normalizeCanonicalExtension(path.Ext(segment)); ok {
+	if extension, ok := normalizeExtension(path.Ext(segment)); ok {
 		name, err := SanitizeDisplayName(raw, purpose, extension)
 		if err == nil {
 			return name
 		}
 	}
 
-	name := sanitizeDisplayNameBody(segment)
+	name := sanitizeNameBody(segment)
 	runes := []rune(name)
 	if len(runes) > maxDisplayNameRunes {
 		name = strings.Trim(string(runes[:maxDisplayNameRunes]), " .")
@@ -37,7 +37,7 @@ func SanitizeAuditFileName(raw string, purpose Purpose) string {
 // SanitizeDisplayName returns a safe display-only filename while preserving
 // the canonical extension selected by the validation policy.
 func SanitizeDisplayName(raw string, purpose Purpose, canonicalExtension string) (string, error) {
-	extension, ok := normalizeCanonicalExtension(canonicalExtension)
+	extension, ok := normalizeExtension(canonicalExtension)
 	if !ok {
 		return "", NewError(CodeFileNameInvalid, nil)
 	}
@@ -50,9 +50,9 @@ func SanitizeDisplayName(raw string, purpose Purpose, canonicalExtension string)
 		segment = strings.TrimSuffix(segment, declaredExtension)
 	}
 
-	body := sanitizeDisplayNameBody(segment)
+	body := sanitizeNameBody(segment)
 	if body == "" {
-		body = fallbackDisplayNameBody(purpose)
+		body = fallbackNameBody(purpose)
 	}
 
 	maxBodyRunes := maxDisplayNameRunes - utf8.RuneCountInString(extension)
@@ -65,7 +65,7 @@ func SanitizeDisplayName(raw string, purpose Purpose, canonicalExtension string)
 		body = strings.Trim(body, " .")
 	}
 	if body == "" {
-		body = fallbackDisplayNameBody(purpose)
+		body = fallbackNameBody(purpose)
 	}
 
 	return body + extension, nil
@@ -76,7 +76,7 @@ func SanitizeDisplayName(raw string, purpose Purpose, canonicalExtension string)
 // characters, type-changing extensions, and dangerous double extensions are
 // rejected instead of silently normalized.
 func SanitizeManagedFileRename(rawBody, canonicalExtension string) (string, error) {
-	extension, ok := normalizeCanonicalExtension(canonicalExtension)
+	extension, ok := normalizeExtension(canonicalExtension)
 	if !ok {
 		return "", NewError(CodeFileNameInvalid, nil)
 	}
@@ -102,10 +102,10 @@ func SanitizeManagedFileRename(rawBody, canonicalExtension string) (string, erro
 			body = strings.TrimSuffix(body, submittedExtension)
 		}
 	}
-	if sanitizeDisplayNameBody(body) == "" {
+	if sanitizeNameBody(body) == "" {
 		return "", NewError(CodeFileNameInvalid, nil)
 	}
-	if err := ValidateNoDangerousDoubleExtension(body + extension); err != nil {
+	if err := ValidateExtensionChain(body + extension); err != nil {
 		return "", err
 	}
 
@@ -116,7 +116,7 @@ func SanitizeManagedFileRename(rawBody, canonicalExtension string) (string, erro
 	)
 }
 
-func normalizeCanonicalExtension(extension string) (string, bool) {
+func normalizeExtension(extension string) (string, bool) {
 	extension = strings.ToLower(strings.TrimSpace(extension))
 	if len(extension) < 2 || len(extension) > 16 || extension[0] != '.' {
 		return "", false
@@ -129,7 +129,7 @@ func normalizeCanonicalExtension(extension string) (string, bool) {
 	return extension, true
 }
 
-func sanitizeDisplayNameBody(body string) string {
+func sanitizeNameBody(body string) string {
 	var builder strings.Builder
 	builder.Grow(len(body))
 	previousWhitespace := false
@@ -143,7 +143,7 @@ func sanitizeDisplayNameBody(body string) string {
 				builder.WriteByte(' ')
 				previousWhitespace = true
 			}
-		case isAllowedDisplayNameRune(char):
+		case isAllowedNameRune(char):
 			builder.WriteRune(char)
 			previousWhitespace = false
 		}
@@ -152,7 +152,7 @@ func sanitizeDisplayNameBody(body string) string {
 	return strings.Trim(builder.String(), " .")
 }
 
-func isAllowedDisplayNameRune(char rune) bool {
+func isAllowedNameRune(char rune) bool {
 	if unicode.IsLetter(char) || unicode.IsNumber(char) || unicode.IsMark(char) {
 		return true
 	}
@@ -176,7 +176,7 @@ func isBidiControl(char rune) bool {
 	}
 }
 
-func fallbackDisplayNameBody(purpose Purpose) string {
+func fallbackNameBody(purpose Purpose) string {
 	if purpose == PurposeAvatar {
 		return "avatar"
 	}
@@ -197,10 +197,9 @@ var dangerousIntermediateExtensions = map[string]struct{}{
 	"xlsm": {}, "xltm": {}, "xz": {}, "zip": {}, "7z": {}, "bz2": {},
 }
 
-// ValidateNoDangerousDoubleExtension rejects dangerous executable, script,
-// active document and archive extensions that appear before the final
-// extension.
-func ValidateNoDangerousDoubleExtension(raw string) error {
+// ValidateExtensionChain rejects dangerous executable, script, active document
+// and archive extensions that appear before the final extension.
+func ValidateExtensionChain(raw string) error {
 	segment := path.Base(strings.ReplaceAll(raw, `\`, "/"))
 	parts := strings.Split(segment, ".")
 	if len(parts) < 3 {
@@ -208,7 +207,7 @@ func ValidateNoDangerousDoubleExtension(raw string) error {
 	}
 
 	for _, part := range parts[1 : len(parts)-1] {
-		extension := normalizeExtensionToken(part)
+		extension := normalizeExtensionPart(part)
 		if _, dangerous := dangerousIntermediateExtensions[extension]; dangerous {
 			return NewError(CodeFileTypeNotAllowed, nil)
 		}
@@ -216,7 +215,7 @@ func ValidateNoDangerousDoubleExtension(raw string) error {
 	return nil
 }
 
-func normalizeExtensionToken(value string) string {
+func normalizeExtensionPart(value string) string {
 	value = strings.TrimSpace(value)
 	return strings.Map(func(char rune) rune {
 		if isBidiControl(char) || unicode.IsControl(char) || unicode.Is(unicode.Cf, char) {

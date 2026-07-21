@@ -31,6 +31,11 @@ func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 		}
 	}
 
+	status := req.Status
+	if status == 0 {
+		status = 1
+	}
+
 	menu := model.Menu{
 		ParentID:       req.ParentID,
 		Name:           req.Name,
@@ -40,12 +45,12 @@ func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 		PermissionCode: strings.TrimSpace(req.PermissionCode),
 		Sort:           req.Sort,
 		Type:           defaultMenuType(req.Type),
-		Status:         defaultMenuStatus(req.Status),
+		Status:         status,
 	}
 	if err := global.DB.Create(&menu).Error; err != nil {
 		return nil, errors.New("创建菜单失败: " + err.Error())
 	}
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	return toMenuDetail(menu), nil
 }
 
@@ -103,7 +108,7 @@ func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 	if err := global.DB.Model(&menu).Updates(updates).Error; err != nil {
 		return nil, errors.New("修改菜单失败")
 	}
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	global.DB.First(&menu, menuID)
 	return toMenuDetail(menu), nil
 }
@@ -139,7 +144,7 @@ func DeleteMenu(menuID uint) error {
 		return err
 	}
 
-	bumpAllUsersTokenVersion()
+	revokeAllUserTokens()
 	return nil
 }
 
@@ -157,13 +162,13 @@ func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 		records = append(records, model.RoleMenu{RoleID: roleID, MenuID: menuID})
 	}
 	if len(records) == 0 {
-		bumpUsersTokenVersionByRole(roleID)
+		revokeTokensForRole(roleID)
 		return nil
 	}
 	if err := global.DB.Create(&records).Error; err != nil {
 		return errors.New("分配菜单失败: " + err.Error())
 	}
-	bumpUsersTokenVersionByRole(roleID)
+	revokeTokensForRole(roleID)
 	return nil
 }
 
@@ -205,7 +210,14 @@ func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 
 	var roles []model.Role
 	global.DB.Where("id IN ? AND status = 1", roleIDs).Find(&roles)
-	if hasRoleCode(roles, "admin") {
+	isAdmin := false
+	for _, role := range roles {
+		if role.Code == "admin" {
+			isAdmin = true
+			break
+		}
+	}
+	if isAdmin {
 		var menus []model.Menu
 		global.DB.Where("status = 1").Order("sort asc, id asc").Find(&menus)
 		return buildMenuTree(menus, 0), nil
@@ -230,6 +242,57 @@ func GetUserMenus(userID uint) ([]dto.MenuDetail, error) {
 	var menus []model.Menu
 	global.DB.Where("id IN ? AND status = 1", menuIDs).Order("sort asc, id asc").Find(&menus)
 	return buildMenuTree(filterMenusByPermissions(menus, GetUserPermissions(userID)), 0), nil
+}
+
+// filterMenusByPermissions 根据权限码过滤菜单并保留可见节点的父级链路。
+func filterMenusByPermissions(menus []model.Menu, permissions []string) []model.Menu {
+	if len(menus) == 0 {
+		return []model.Menu{}
+	}
+
+	permissionSet := make(map[string]struct{}, len(permissions))
+	for _, permission := range permissions {
+		permissionSet[permission] = struct{}{}
+	}
+	if _, ok := permissionSet["*"]; ok {
+		return menus
+	}
+	if _, ok := permissionSet["admin"]; ok {
+		return menus
+	}
+
+	visible := make(map[uint]struct{}, len(menus))
+	menuByID := make(map[uint]model.Menu, len(menus))
+	for _, menu := range menus {
+		menuByID[menu.ID] = menu
+		if menu.PermissionCode == "" {
+			visible[menu.ID] = struct{}{}
+			continue
+		}
+		if _, ok := permissionSet[menu.PermissionCode]; ok {
+			visible[menu.ID] = struct{}{}
+		}
+	}
+
+	for menuID := range visible {
+		parentID := menuByID[menuID].ParentID
+		for parentID != 0 {
+			parent, ok := menuByID[parentID]
+			if !ok {
+				break
+			}
+			visible[parent.ID] = struct{}{}
+			parentID = parent.ParentID
+		}
+	}
+
+	filtered := make([]model.Menu, 0, len(visible))
+	for _, menu := range menus {
+		if _, ok := visible[menu.ID]; ok {
+			filtered = append(filtered, menu)
+		}
+	}
+	return filtered
 }
 
 // SyncMenus 根据前端路由元数据创建缺失的菜单记录。
@@ -272,7 +335,7 @@ func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 		created++
 	}
 	if created > 0 {
-		bumpAllUsersTokenVersion()
+		revokeAllUserTokens()
 	}
 	return created, nil
 }

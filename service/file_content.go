@@ -95,9 +95,9 @@ func (s *FileContentService) Open(
 	var decision *FileAccessDecision
 	switch input.Mode {
 	case fileaccess.ModeDownload:
-		decision, err = ResolveFileDownloadAccess(file)
+		decision, err = ResolveDownloadAccess(file)
 	case fileaccess.ModePreview:
-		decision, err = ResolveFilePreviewAccess(file)
+		decision, err = ResolvePreviewAccess(file)
 	default:
 		return nil, uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, nil)
 	}
@@ -118,11 +118,11 @@ func (s *FileContentService) Open(
 
 	reader, err := s.storage.Open(ctx, decision.Bucket, decision.ObjectName)
 	if err != nil {
-		return nil, classifyFileStorageError(err)
+		return nil, classifyStorageError(err)
 	}
 	reader, err = prefetchReadCloser(reader, allowEmptyStream)
 	if err != nil {
-		return nil, classifyFileStorageError(err)
+		return nil, classifyStorageError(err)
 	}
 	return &FileContent{
 		FileName:    decision.FileName,

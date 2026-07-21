@@ -157,7 +157,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	)
 	defer cleanup()
 	if err != nil {
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeAvatar,
 			nil,
@@ -173,7 +173,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 			uploadsecurity.CodeUploadBodyInvalid,
 			err,
 		)
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeAvatar,
 			file,
@@ -189,7 +189,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 			uploadsecurity.CodeInternalError,
 			nil,
 		)
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeAvatar,
 			file,
@@ -208,7 +208,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		Reader:      f,
 	})
 	if err != nil {
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeAvatar,
 			file,
@@ -222,7 +222,7 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 			uploadsecurity.CodeInternalError,
 			nil,
 		)
-		setRejectedUploadAuditMetadata(
+		setUploadRejectionAudit(
 			c,
 			uploadsecurity.PurposeAvatar,
 			file,

@@ -40,8 +40,8 @@ func IsTokenVersionValid(userID uint, tokenVersion int) error {
 	return nil
 }
 
-// bumpUserTokenVersion 提升指定用户的 Token 版本，使其既有 Token 失效。
-func bumpUserTokenVersion(userIDs ...uint) {
+// revokeTokensForUsers 提升指定用户的 Token 版本，使其既有 Token 失效。
+func revokeTokensForUsers(userIDs ...uint) {
 	userIDs = uniqueUintIDs(userIDs)
 	if len(userIDs) == 0 {
 		return
@@ -49,25 +49,25 @@ func bumpUserTokenVersion(userIDs ...uint) {
 	global.DB.Model(&model.User{}).Where("id IN ?", userIDs).UpdateColumn("token_version", gorm.Expr("COALESCE(token_version, 0) + ?", 1))
 }
 
-// bumpUsersTokenVersionByRole 提升指定角色下所有用户的 Token 版本。
-func bumpUsersTokenVersionByRole(roleID uint) {
+// revokeTokensForRole 提升指定角色下所有用户的 Token 版本。
+func revokeTokensForRole(roleID uint) {
 	var userIDs []uint
 	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &userIDs)
-	bumpUserTokenVersion(userIDs...)
+	revokeTokensForUsers(userIDs...)
 }
 
-// bumpUsersTokenVersionByRoles 提升多个角色下所有用户的 Token 版本。
-func bumpUsersTokenVersionByRoles(roleIDs []uint) {
+// revokeTokensForRoles 提升多个角色下所有用户的 Token 版本。
+func revokeTokensForRoles(roleIDs []uint) {
 	roleIDs = uniqueUintIDs(roleIDs)
 	if len(roleIDs) == 0 {
 		return
 	}
 	var userIDs []uint
 	global.DB.Model(&model.UserRole{}).Where("role_id IN ?", roleIDs).Pluck("user_id", &userIDs)
-	bumpUserTokenVersion(userIDs...)
+	revokeTokensForUsers(userIDs...)
 }
 
-// bumpAllUsersTokenVersion 提升全部用户的 Token 版本。
-func bumpAllUsersTokenVersion() {
+// revokeAllUserTokens 提升全部用户的 Token 版本。
+func revokeAllUserTokens() {
 	global.DB.Model(&model.User{}).UpdateColumn("token_version", gorm.Expr("COALESCE(token_version, 0) + ?", 1))
 }

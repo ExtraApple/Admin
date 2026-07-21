@@ -69,19 +69,19 @@ func ValidateOOXML(
 		return "", err
 	}
 
-	if err := validateDangerousEntryNames(archive); err != nil {
+	if err := rejectDangerousNames(archive); err != nil {
 		return "", err
 	}
-	if err := validateDangerousEntryContents(archive); err != nil {
+	if err := rejectDangerousContent(archive); err != nil {
 		return "", err
 	}
-	if err := validateExclusiveBodyDirectory(archive, definition); err != nil {
+	if err := validateBodyDirectory(archive, definition); err != nil {
 		return "", err
 	}
-	if err := validateContentTypesEntry(archive, definition); err != nil {
+	if err := validateContentTypes(archive, definition); err != nil {
 		return "", err
 	}
-	if err := validatePackageRelationships(archive, definition); err != nil {
+	if err := validateRootRelationships(archive, definition); err != nil {
 		return "", err
 	}
 	if err := validateMainPart(archive, definition); err != nil {
@@ -90,7 +90,7 @@ func ValidateOOXML(
 	if err := validateMainRelationships(archive, definition); err != nil {
 		return "", err
 	}
-	if err := validateAdditionalRelationships(archive, definition); err != nil {
+	if err := validateOtherRelationships(archive, definition); err != nil {
 		return "", err
 	}
 	return expectedType, nil
@@ -109,7 +109,7 @@ func isOLECompoundContainer(source io.ReaderAt, size int64) bool {
 	})
 }
 
-func validateDangerousEntryNames(archive *RestrictedZIP) error {
+func rejectDangerousNames(archive *RestrictedZIP) error {
 	for _, name := range archive.Names() {
 		lowerName := strings.ToLower(name)
 		baseName := path.Base(lowerName)
@@ -138,7 +138,7 @@ var dangerousOOXMLEntryExtensions = map[string]struct{}{
 	".wsf": {},
 }
 
-func validateDangerousEntryContents(archive *RestrictedZIP) error {
+func rejectDangerousContent(archive *RestrictedZIP) error {
 	for _, name := range archive.Names() {
 		reader, err := archive.Open(name)
 		if err != nil {
@@ -156,14 +156,14 @@ func validateDangerousEntryContents(archive *RestrictedZIP) error {
 			}
 			return NewError(CodeOOXMLInvalid, readErr)
 		}
-		if hasDangerousEntrySignature(prefix[:count]) {
+		if hasDangerousSignature(prefix[:count]) {
 			return NewError(CodeOOXMLDangerousContent, nil)
 		}
 	}
 	return nil
 }
 
-func hasDangerousEntrySignature(prefix []byte) bool {
+func hasDangerousSignature(prefix []byte) bool {
 	signatures := [][]byte{
 		{'P', 'K', 3, 4},
 		{'P', 'K', 5, 6},
@@ -188,7 +188,7 @@ func hasDangerousEntrySignature(prefix []byte) bool {
 	return false
 }
 
-func validateExclusiveBodyDirectory(
+func validateBodyDirectory(
 	archive *RestrictedZIP,
 	expected ooxmlDefinition,
 ) error {
@@ -204,8 +204,8 @@ func validateExclusiveBodyDirectory(
 	return nil
 }
 
-func validateContentTypesEntry(archive *RestrictedZIP, definition ooxmlDefinition) error {
-	return withRestrictedZIPEntry(archive, "[Content_Types].xml", func(source io.Reader) error {
+func validateContentTypes(archive *RestrictedZIP, definition ooxmlDefinition) error {
+	return withZIPEntry(archive, "[Content_Types].xml", func(source io.Reader) error {
 		decoder := newRestrictedXMLDecoder(source)
 		rootSeen := false
 		mainTypeFound := false
@@ -216,7 +216,7 @@ func validateContentTypesEntry(archive *RestrictedZIP, definition ooxmlDefinitio
 				break
 			}
 			if err != nil {
-				return classifyXMLValidationError(err)
+				return classifyXMLError(err)
 			}
 
 			start, ok := token.(xml.StartElement)
@@ -233,7 +233,7 @@ func validateContentTypesEntry(archive *RestrictedZIP, definition ooxmlDefinitio
 			}
 			partName := xmlAttribute(start.Attr, "PartName")
 			contentType := xmlAttribute(start.Attr, "ContentType")
-			if isDangerousOOXMLContentType(contentType) {
+			if isDangerousContentType(contentType) {
 				return NewError(CodeOOXMLDangerousContent, nil)
 			}
 			if start.Name.Local != "Override" {
@@ -260,8 +260,8 @@ func validateContentTypesEntry(archive *RestrictedZIP, definition ooxmlDefinitio
 	})
 }
 
-func validatePackageRelationships(archive *RestrictedZIP, definition ooxmlDefinition) error {
-	return withRestrictedZIPEntry(archive, "_rels/.rels", func(source io.Reader) error {
+func validateRootRelationships(archive *RestrictedZIP, definition ooxmlDefinition) error {
+	return withZIPEntry(archive, "_rels/.rels", func(source io.Reader) error {
 		relationships, err := parseRelationships(source)
 		if err != nil {
 			return err
@@ -269,7 +269,7 @@ func validatePackageRelationships(archive *RestrictedZIP, definition ooxmlDefini
 		if err := rejectDangerousRelationships(relationships); err != nil {
 			return err
 		}
-		if err := rejectUnsafeExternalRelationships(relationships); err != nil {
+		if err := rejectUnsafeExternals(relationships); err != nil {
 			return err
 		}
 
@@ -292,7 +292,7 @@ func validatePackageRelationships(archive *RestrictedZIP, definition ooxmlDefini
 }
 
 func validateMainPart(archive *RestrictedZIP, definition ooxmlDefinition) error {
-	return withRestrictedZIPEntry(archive, definition.mainPart, func(source io.Reader) error {
+	return withZIPEntry(archive, definition.mainPart, func(source io.Reader) error {
 		decoder := newRestrictedXMLDecoder(source)
 		rootSeen := false
 		for {
@@ -301,7 +301,7 @@ func validateMainPart(archive *RestrictedZIP, definition ooxmlDefinition) error 
 				break
 			}
 			if err != nil {
-				return classifyXMLValidationError(err)
+				return classifyXMLError(err)
 			}
 			start, ok := token.(xml.StartElement)
 			if !ok || rootSeen {
@@ -321,7 +321,7 @@ func validateMainPart(archive *RestrictedZIP, definition ooxmlDefinition) error 
 }
 
 func validateMainRelationships(archive *RestrictedZIP, definition ooxmlDefinition) error {
-	return withRestrictedZIPEntry(
+	return withZIPEntry(
 		archive,
 		definition.mainRelationships,
 		func(source io.Reader) error {
@@ -332,12 +332,12 @@ func validateMainRelationships(archive *RestrictedZIP, definition ooxmlDefinitio
 			if err := rejectDangerousRelationships(relationships); err != nil {
 				return err
 			}
-			return rejectUnsafeExternalRelationships(relationships)
+			return rejectUnsafeExternals(relationships)
 		},
 	)
 }
 
-func validateAdditionalRelationships(
+func validateOtherRelationships(
 	archive *RestrictedZIP,
 	definition ooxmlDefinition,
 ) error {
@@ -347,7 +347,7 @@ func validateAdditionalRelationships(
 			name == definition.mainRelationships {
 			continue
 		}
-		if err := withRestrictedZIPEntry(archive, name, func(source io.Reader) error {
+		if err := withZIPEntry(archive, name, func(source io.Reader) error {
 			relationships, err := parseRelationships(source)
 			if err != nil {
 				return err
@@ -355,7 +355,7 @@ func validateAdditionalRelationships(
 			if err := rejectDangerousRelationships(relationships); err != nil {
 				return err
 			}
-			return rejectUnsafeExternalRelationships(relationships)
+			return rejectUnsafeExternals(relationships)
 		}); err != nil {
 			return err
 		}
@@ -380,7 +380,7 @@ func parseRelationships(source io.Reader) ([]ooxmlRelationship, error) {
 			break
 		}
 		if err != nil {
-			return nil, classifyXMLValidationError(err)
+			return nil, classifyXMLError(err)
 		}
 
 		start, ok := token.(xml.StartElement)
@@ -438,7 +438,7 @@ func (decoder *restrictedXMLDecoder) Token() (xml.Token, error) {
 	return token, nil
 }
 
-func classifyXMLValidationError(err error) error {
+func classifyXMLError(err error) error {
 	if _, classified := CodeOf(err); classified {
 		return err
 	}
@@ -464,7 +464,7 @@ func rejectDangerousRelationships(relationships []ooxmlRelationship) error {
 	return nil
 }
 
-func rejectUnsafeExternalRelationships(relationships []ooxmlRelationship) error {
+func rejectUnsafeExternals(relationships []ooxmlRelationship) error {
 	for _, relationship := range relationships {
 		mode := strings.TrimSpace(relationship.TargetMode)
 		target := strings.TrimSpace(relationship.Target)
@@ -488,7 +488,7 @@ func rejectUnsafeExternalRelationships(relationships []ooxmlRelationship) error 
 	return nil
 }
 
-func isDangerousOOXMLContentType(contentType string) bool {
+func isDangerousContentType(contentType string) bool {
 	contentType = strings.ToLower(strings.TrimSpace(contentType))
 	if contentType == "" {
 		return false
@@ -523,7 +523,7 @@ func xmlAttribute(attributes []xml.Attr, name string) string {
 	return ""
 }
 
-func withRestrictedZIPEntry(
+func withZIPEntry(
 	archive *RestrictedZIP,
 	name string,
 	validate func(io.Reader) error,

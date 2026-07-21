@@ -13,7 +13,7 @@ const defaultAvatarURL = "/api/avatars/default"
 // Avatar storage identifiers and legacy URLs are never exposed.
 func UserInfoFromModel(user model.User) dto.UserInfo {
 	avatarURL := defaultAvatarURL
-	if _, ok := trustedAvatarObjectName(&user, user.ID); ok {
+	if _, ok := validAvatarObjectName(&user, user.ID); ok {
 		avatarURL = "/api/avatars/" + strconv.FormatUint(uint64(user.ID), 10)
 	}
 
