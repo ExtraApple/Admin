@@ -38,8 +38,8 @@
 - **AND** 系统 SHALL 移除非像素元数据并重新编码为 PNG
 - **AND** 系统 SHALL 使用服务端生成的 `.png` object key 和 `image/png`
 
-#### Scenario: 头像请求体或输出过大
-- **WHEN** 头像请求体、原文件或重新编码后的输出超过 `file_upload.avatar_max_size_mb`
+#### Scenario: 头像请求体、原文件或输出过大
+- **WHEN** 整个 multipart 请求体超过 `file_upload.avatar_max_size_mb + 256 KiB`，或原文件 part、重新编码后的输出超过 `file_upload.avatar_max_size_mb`
 - **THEN** 系统 SHALL 返回 HTTP 413
 - **AND** 系统 SHALL NOT 更新用户头像记录
 
@@ -84,6 +84,12 @@
 - **WHEN** 用户调用恢复默认头像接口
 - **THEN** 系统 SHALL 清除当前可信头像对象标识并返回默认头像地址
 - **AND** 系统 SHALL 在数据库更新成功后尝试删除旧的系统生成头像对象
+
+#### Scenario: 恢复默认头像时数据库更新失败
+- **WHEN** 用户具有可信头像且清除数据库中的可信头像标识失败
+- **THEN** 系统 SHALL 返回不包含底层数据库信息的持久化错误
+- **AND** 系统 SHALL 保留原可信头像记录
+- **AND** 系统 SHALL NOT 删除原头像对象
 
 #### Scenario: 重复恢复默认头像
 - **WHEN** 用户已经没有可信头像对象并再次调用恢复默认头像接口

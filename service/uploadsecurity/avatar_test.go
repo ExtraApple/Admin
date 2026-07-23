@@ -3,7 +3,9 @@ package uploadsecurity_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -48,6 +50,39 @@ func TestAvatarValidatorReturnsNormalizedTrustedUploadResult(t *testing.T) {
 	}
 	if _, format, err := image.Decode(bytes.NewReader(normalized)); err != nil || format != "jpeg" {
 		t.Fatalf("normalized avatar format = %q, error = %v, want jpeg", format, err)
+	}
+}
+
+func TestAvatarResultDigestMatchesNormalizedOutputNotOriginalInput(t *testing.T) {
+	content := encodeAlphaPNG(t, false)
+	result, err := uploadsecurity.NewAvatarValidator().Validate(
+		context.Background(),
+		uploadsecurity.Input{
+			Purpose:      uploadsecurity.PurposeAvatar,
+			FileName:     "portrait.png",
+			DeclaredMIME: "image/png",
+			Size:         int64(len(content)),
+			MaxBytes:     2 << 20,
+			Reader:       bytes.NewReader(content),
+		},
+	)
+	if err != nil {
+		t.Fatalf("validate avatar: %v", err)
+	}
+
+	normalized, err := io.ReadAll(result.Reader)
+	if err != nil {
+		t.Fatalf("read normalized avatar: %v", err)
+	}
+	outputSum := sha256.Sum256(normalized)
+	inputSum := sha256.Sum256(content)
+	wantOutputDigest := hex.EncodeToString(outputSum[:])
+	inputDigest := hex.EncodeToString(inputSum[:])
+	if result.ContentSHA256 != wantOutputDigest {
+		t.Fatalf("normalized content sha256: got %q, want %q", result.ContentSHA256, wantOutputDigest)
+	}
+	if result.ContentSHA256 == inputDigest {
+		t.Fatalf("avatar digest unexpectedly matches original input digest %q", inputDigest)
 	}
 }
 

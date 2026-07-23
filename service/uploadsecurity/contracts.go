@@ -41,6 +41,7 @@ type Result struct {
 	CanonicalMIME      string
 	DetectedMIME       string
 	Size               int64
+	ContentSHA256      string
 	PolicyVersion      string
 	Reader             io.Reader
 }

@@ -34,11 +34,11 @@ func (managedFileValidator) Validate(
 
 	fileName := path.Base(strings.ReplaceAll(input.FileName, `\`, "/"))
 	expectedType, ok := LookupTypeByExtension(path.Ext(fileName))
-	if !ok {
+	if !ok || !IsManagedFileType(expectedType) {
 		return Result{}, NewError(CodeFileTypeNotAllowed, nil)
 	}
 	declaredType, ok := LookupTypeByMIME(input.DeclaredMIME)
-	if !ok {
+	if !ok || !IsManagedFileType(declaredType) {
 		return Result{}, NewError(CodeFileTypeNotAllowed, nil)
 	}
 	if declaredType != expectedType {
@@ -66,13 +66,7 @@ func (managedFileValidator) Validate(
 	}
 	detectedMIME := detected.String()
 
-	var validatedType CanonicalType
-	switch expectedType {
-	case TypeDOCX, TypeXLSX, TypePPTX:
-		validatedType, err = ValidateOOXML(staged, staged.Size(), expectedType)
-	default:
-		validatedType, err = ValidateContent(staged, expectedType)
-	}
+	validatedType, err := ValidateContent(staged, expectedType)
 	if err != nil {
 		return Result{}, err
 	}
@@ -85,6 +79,9 @@ func (managedFileValidator) Validate(
 	})
 	if err != nil {
 		return Result{}, err
+	}
+	if !IsManagedFileType(definition.Type) {
+		return Result{}, NewError(CodeFileTypeNotAllowed, nil)
 	}
 
 	displayName, err := SanitizeDisplayName(
@@ -108,6 +105,7 @@ func (managedFileValidator) Validate(
 		CanonicalMIME:      definition.MIME,
 		DetectedMIME:       detectedMIME,
 		Size:               staged.Size(),
+		ContentSHA256:      staged.ContentSHA256(),
 		PolicyVersion:      PolicyVersionV1,
 		Reader:             staged,
 	}, nil

@@ -15,6 +15,7 @@ type FileInfo struct {
 	Name                    string `json:"name"`
 	ContentType             string `json:"content_type"`
 	DetectedContentType     string `json:"detected_content_type"`
+	ContentSHA256           string `json:"content_sha256"`
 	Size                    int64  `json:"size"`
 	UploaderID              uint   `json:"uploader_id"`
 	ValidationStatus        string `json:"validation_status"`
@@ -34,7 +35,6 @@ type FileListResp struct {
 type FileDetailResp struct {
 	File        *FileInfo `json:"file"`
 	DownloadURL string    `json:"download_url,omitempty"`
-	PreviewURL  string    `json:"preview_url,omitempty"`
 }
 
 // FileObjectInfo is storage metadata returned by the administrator browse

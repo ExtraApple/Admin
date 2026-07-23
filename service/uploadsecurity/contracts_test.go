@@ -3,6 +3,9 @@ package uploadsecurity_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"testing"
 
 	"admin/service/uploadsecurity"
@@ -58,5 +61,42 @@ func TestValidatorContractAcceptsRestrictedInputAndReturnsCanonicalResult(t *tes
 	}
 	if input.MaxBytes != 1024 {
 		t.Fatalf("input limit changed: got %d", input.MaxBytes)
+	}
+}
+
+func TestManagedFileResultDigestMatchesCompleteReaderBytes(t *testing.T) {
+	content := []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\r\n")
+	result, err := uploadsecurity.NewManagedFileValidator().Validate(
+		context.Background(),
+		uploadsecurity.Input{
+			Purpose:      uploadsecurity.PurposeManagedFile,
+			FileName:     "report.pdf",
+			DeclaredMIME: "application/pdf",
+			Size:         int64(len(content)),
+			MaxBytes:     1024,
+			Reader:       bytes.NewReader(content),
+		},
+	)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if closer, ok := result.Reader.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	readBack, err := io.ReadAll(result.Reader)
+	if err != nil {
+		t.Fatalf("read validated result: %v", err)
+	}
+	sum := sha256.Sum256(content)
+	wantDigest := hex.EncodeToString(sum[:])
+	if string(readBack) != string(content) {
+		t.Fatalf("validated reader bytes: got %q, want %q", readBack, content)
+	}
+	if result.ContentSHA256 != wantDigest {
+		t.Fatalf("content sha256: got %q, want %q", result.ContentSHA256, wantDigest)
+	}
+	if len(result.ContentSHA256) != sha256.Size*2 {
+		t.Fatalf("content sha256 length: got %d, want %d", len(result.ContentSHA256), sha256.Size*2)
 	}
 }

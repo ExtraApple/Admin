@@ -10,9 +10,6 @@ const (
 	TypePNG  CanonicalType = "png"
 	TypeWebP CanonicalType = "webp"
 	TypePDF  CanonicalType = "pdf"
-	TypeDOCX CanonicalType = "docx"
-	TypeXLSX CanonicalType = "xlsx"
-	TypePPTX CanonicalType = "pptx"
 	TypeTXT  CanonicalType = "txt"
 	TypeCSV  CanonicalType = "csv"
 )
@@ -30,9 +27,6 @@ var typeDefinitions = map[CanonicalType]TypeDefinition{
 	TypePNG:  {TypePNG, ".png", []string{".png"}, "image/png"},
 	TypeWebP: {TypeWebP, ".webp", []string{".webp"}, "image/webp"},
 	TypePDF:  {TypePDF, ".pdf", []string{".pdf"}, "application/pdf"},
-	TypeDOCX: {TypeDOCX, ".docx", []string{".docx"}, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-	TypeXLSX: {TypeXLSX, ".xlsx", []string{".xlsx"}, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-	TypePPTX: {TypePPTX, ".pptx", []string{".pptx"}, "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
 	TypeTXT:  {TypeTXT, ".txt", []string{".txt"}, "text/plain"},
 	TypeCSV:  {TypeCSV, ".csv", []string{".csv"}, "text/csv"},
 }
@@ -43,9 +37,6 @@ var typesByExtension = map[string]CanonicalType{
 	".png":  TypePNG,
 	".webp": TypeWebP,
 	".pdf":  TypePDF,
-	".docx": TypeDOCX,
-	".xlsx": TypeXLSX,
-	".pptx": TypePPTX,
 	".txt":  TypeTXT,
 	".csv":  TypeCSV,
 }
@@ -55,11 +46,8 @@ var typesByMIME = map[string]CanonicalType{
 	"image/png":       TypePNG,
 	"image/webp":      TypeWebP,
 	"application/pdf": TypePDF,
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   TypeDOCX,
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         TypeXLSX,
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": TypePPTX,
-	"text/plain": TypeTXT,
-	"text/csv":   TypeCSV,
+	"text/plain":      TypeTXT,
+	"text/csv":        TypeCSV,
 }
 
 // LookupTypeByExtension returns the V1 canonical type for an extension.
@@ -87,4 +75,17 @@ func DefinitionForType(canonicalType CanonicalType) (TypeDefinition, bool) {
 	}
 	definition.Extensions = append([]string(nil), definition.Extensions...)
 	return definition, true
+}
+
+// IsManagedFileType reports whether a canonical type is allowed through the
+// administrator managed-file upload policy. Shared type definitions still
+// include images for the avatar policy, so callers must use this purpose
+// specific gate before accepting ordinary managed files.
+func IsManagedFileType(canonicalType CanonicalType) bool {
+	switch canonicalType {
+	case TypePDF, TypeTXT, TypeCSV:
+		return true
+	default:
+		return false
+	}
 }

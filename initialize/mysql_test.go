@@ -24,6 +24,24 @@ func (legacyFileRow) TableName() string {
 	return "files"
 }
 
+type preDigestFileRow struct {
+	gorm.Model
+	Name                    string
+	Bucket                  string
+	ObjectName              string
+	ContentType             string
+	DetectedContentType     string
+	Size                    int64
+	UploaderID              uint
+	ValidationStatus        string
+	ValidationPolicyVersion string
+	ValidationErrorCode     string
+}
+
+func (preDigestFileRow) TableName() string {
+	return "files"
+}
+
 type legacyUserRow struct {
 	gorm.Model
 	Username     string
@@ -50,9 +68,10 @@ func TestMigrateDatabaseBackfillsUploadValidationStatusIdempotently(t *testing.T
 	}
 
 	legacyFile := legacyFileRow{
-		Name:       "legacy.pdf",
-		Bucket:     "files",
-		ObjectName: "legacy-object",
+		Name:        "legacy.pdf",
+		Bucket:      "files",
+		ObjectName:  "legacy-object",
+		ContentType: "application/pdf",
 	}
 	if err := db.Create(&legacyFile).Error; err != nil {
 		t.Fatalf("create legacy file: %v", err)
@@ -142,6 +161,7 @@ func TestMigrateDatabaseCreatesUploadSecurityFieldsAndSafeDefaults(t *testing.T)
 		model any
 		field string
 	}{
+		{&model.File{}, "ContentSHA256"},
 		{&model.File{}, "DetectedContentType"},
 		{&model.File{}, "ValidationStatus"},
 		{&model.File{}, "ValidationPolicyVersion"},
@@ -149,6 +169,7 @@ func TestMigrateDatabaseCreatesUploadSecurityFieldsAndSafeDefaults(t *testing.T)
 		{&model.File{}, "ValidatedAt"},
 		{&model.User{}, "AvatarObjectName"},
 		{&model.User{}, "AvatarContentType"},
+		{&model.User{}, "AvatarContentSHA256"},
 		{&model.User{}, "AvatarValidationStatus"},
 		{&model.User{}, "AvatarValidatedAt"},
 		{&model.AuditLog{}, "Metadata"},
@@ -171,6 +192,9 @@ func TestMigrateDatabaseCreatesUploadSecurityFieldsAndSafeDefaults(t *testing.T)
 	if file.ValidationStatus != model.FileValidationStatusLegacyUnverified {
 		t.Fatalf("file default validation status: got %q", file.ValidationStatus)
 	}
+	if file.ContentSHA256 != "" {
+		t.Fatalf("new file should have empty content sha256 by default: got %q", file.ContentSHA256)
+	}
 	if file.ValidatedAt != nil {
 		t.Fatalf("unverified file should not have validated_at: %v", file.ValidatedAt)
 	}
@@ -185,6 +209,97 @@ func TestMigrateDatabaseCreatesUploadSecurityFieldsAndSafeDefaults(t *testing.T)
 	}
 	if user.AvatarValidationStatus != "" || user.AvatarObjectName != "" || user.AvatarValidatedAt != nil {
 		t.Fatalf("default avatar should remain unbound: %+v", user)
+	}
+	if user.AvatarContentSHA256 != "" {
+		t.Fatalf("default avatar should have empty sha256: got %q", user.AvatarContentSHA256)
+	}
+}
+
+func TestMigrateDatabaseDowngradesValidatedManagedFilesOutsideV1WhitelistIdempotently(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&preDigestFileRow{}); err != nil {
+		t.Fatalf("create pre-digest schema: %v", err)
+	}
+
+	rows := []preDigestFileRow{
+		{
+			Name:             "report.pdf",
+			Bucket:           "files",
+			ObjectName:       "objects/report",
+			ContentType:      "application/pdf",
+			ValidationStatus: model.FileValidationStatusValidated,
+		},
+		{
+			Name:             "notes.txt",
+			Bucket:           "files",
+			ObjectName:       "objects/notes",
+			ContentType:      "text/plain",
+			ValidationStatus: model.FileValidationStatusValidated,
+		},
+		{
+			Name:             "data.csv",
+			Bucket:           "files",
+			ObjectName:       "objects/data",
+			ContentType:      "text/csv",
+			ValidationStatus: model.FileValidationStatusValidated,
+		},
+		{
+			Name:             "old-image.png",
+			Bucket:           "files",
+			ObjectName:       "objects/old-image",
+			ContentType:      "image/png",
+			ValidationStatus: model.FileValidationStatusValidated,
+		},
+		{
+			Name:             "old-office.docx",
+			Bucket:           "files",
+			ObjectName:       "objects/old-office",
+			ContentType:      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			ValidationStatus: model.FileValidationStatusValidated,
+		},
+		{
+			Name:             "already-blocked.png",
+			Bucket:           "files",
+			ObjectName:       "objects/already-blocked",
+			ContentType:      "image/png",
+			ValidationStatus: model.FileValidationStatusBlocked,
+		},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed pre-digest files: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := migrateDatabase(db); err != nil {
+			t.Fatalf("migrate database run %d: %v", i+1, err)
+		}
+	}
+
+	expectedStatuses := map[string]string{
+		"report.pdf":          model.FileValidationStatusValidated,
+		"notes.txt":           model.FileValidationStatusValidated,
+		"data.csv":            model.FileValidationStatusValidated,
+		"old-image.png":       model.FileValidationStatusLegacyUnverified,
+		"old-office.docx":     model.FileValidationStatusLegacyUnverified,
+		"already-blocked.png": model.FileValidationStatusBlocked,
+	}
+	for name, want := range expectedStatuses {
+		var file model.File
+		if err := db.Where("name = ?", name).First(&file).Error; err != nil {
+			t.Fatalf("query %s: %v", name, err)
+		}
+		if file.ValidationStatus != want {
+			t.Fatalf("%s status: got %q, want %q", name, file.ValidationStatus, want)
+		}
+		if file.ContentSHA256 != "" {
+			t.Fatalf("%s historical digest should remain empty: got %q", name, file.ContentSHA256)
+		}
+		if file.ObjectName == "" {
+			t.Fatalf("%s object name should be preserved", name)
+		}
 	}
 }
 

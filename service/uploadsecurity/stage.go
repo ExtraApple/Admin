@@ -2,6 +2,8 @@ package uploadsecurity
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -16,6 +18,7 @@ type StagedFile struct {
 	file   *os.File
 	name   string
 	size   int64
+	digest string
 	mu     sync.Mutex
 	closed bool
 }
@@ -41,7 +44,7 @@ func Stage(ctx context.Context, reader io.Reader, maxBytes int64) (*StagedFile, 
 		_ = os.Remove(file.Name())
 	}
 
-	size, err := copyBounded(ctx, file, reader, maxBytes)
+	size, digest, err := copyBounded(ctx, file, reader, maxBytes)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -56,20 +59,22 @@ func Stage(ctx context.Context, reader io.Reader, maxBytes int64) (*StagedFile, 
 	}
 
 	return &StagedFile{
-		file: file,
-		name: file.Name(),
-		size: size,
+		file:   file,
+		name:   file.Name(),
+		size:   size,
+		digest: digest,
 	}, nil
 }
 
-func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, maxBytes int64) (int64, error) {
+func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, maxBytes int64) (int64, string, error) {
 	buffer := make([]byte, stageBufferSize)
 	var size int64
+	hash := sha256.New()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return size, NewError(CodeUploadBodyInvalid, ctx.Err())
+			return size, "", NewError(CodeUploadBodyInvalid, ctx.Err())
 		default:
 		}
 
@@ -80,27 +85,30 @@ func copyBounded(ctx context.Context, destination io.Writer, source io.Reader, m
 		count, readErr := source.Read(buffer[:readSize])
 		if count > 0 {
 			if size+int64(count) > maxBytes {
-				return size + int64(count), NewError(CodeFileTooLarge, nil)
+				return size + int64(count), "", NewError(CodeFileTooLarge, nil)
 			}
 			written, writeErr := destination.Write(buffer[:count])
 			if writeErr != nil {
-				return size, NewError(CodeStorageUnavailable, writeErr)
+				return size, "", NewError(CodeStorageUnavailable, writeErr)
 			}
 			if written != count {
-				return size, NewError(CodeStorageUnavailable, io.ErrShortWrite)
+				return size, "", NewError(CodeStorageUnavailable, io.ErrShortWrite)
+			}
+			if _, err := hash.Write(buffer[:written]); err != nil {
+				return size, "", NewError(CodeInternalError, err)
 			}
 			size += int64(written)
 		}
 		if readErr == io.EOF {
-			return size, nil
+			return size, hex.EncodeToString(hash.Sum(nil)), nil
 		}
 		if readErr != nil {
 			if code, classified := CodeOf(readErr); classified &&
 				(code == CodeStorageObjectNotFound ||
 					code == CodeStorageUnavailable) {
-				return size, readErr
+				return size, "", readErr
 			}
-			return size, NewError(CodeUploadBodyInvalid, readErr)
+			return size, "", NewError(CodeUploadBodyInvalid, readErr)
 		}
 	}
 }
@@ -120,6 +128,14 @@ func (f *StagedFile) Seek(offset int64, whence int) (int64, error) {
 // Size returns the number of staged bytes.
 func (f *StagedFile) Size() int64 {
 	return f.size
+}
+
+// ContentSHA256 returns the service-computed digest of all staged bytes.
+func (f *StagedFile) ContentSHA256() string {
+	if f == nil {
+		return ""
+	}
+	return f.digest
 }
 
 // Name returns the temporary path for low-level validators. It must never be

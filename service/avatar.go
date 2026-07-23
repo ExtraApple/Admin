@@ -41,6 +41,7 @@ const (
 type AvatarUpdate struct {
 	ObjectName       string
 	ContentType      string
+	ContentSHA256    string
 	ValidationStatus string
 	ValidatedAt      *time.Time
 }
@@ -97,6 +98,7 @@ func (r gormAvatarRepository) UpdateAvatar(
 		Updates(map[string]any{
 			"avatar_object_name":       update.ObjectName,
 			"avatar_content_type":      update.ContentType,
+			"avatar_content_sha256":    update.ContentSHA256,
 			"avatar_validation_status": update.ValidationStatus,
 			"avatar_validated_at":      update.ValidatedAt,
 		})
@@ -199,6 +201,7 @@ func (s *AvatarService) UploadWithResult(
 	update := AvatarUpdate{
 		ObjectName:       objectName,
 		ContentType:      result.CanonicalMIME,
+		ContentSHA256:    result.ContentSHA256,
 		ValidationStatus: model.FileValidationStatusValidated,
 		ValidatedAt:      &validatedAt,
 	}
@@ -292,6 +295,7 @@ func applyAvatarUpdate(user *model.User, update AvatarUpdate) {
 	}
 	user.AvatarObjectName = update.ObjectName
 	user.AvatarContentType = update.ContentType
+	user.AvatarContentSHA256 = update.ContentSHA256
 	user.AvatarValidationStatus = update.ValidationStatus
 	user.AvatarValidatedAt = update.ValidatedAt
 }
@@ -300,6 +304,7 @@ func hasAvatarMetadata(user *model.User) bool {
 	return user != nil &&
 		(user.AvatarObjectName != "" ||
 			user.AvatarContentType != "" ||
+			user.AvatarContentSHA256 != "" ||
 			user.AvatarValidationStatus != "" ||
 			user.AvatarValidatedAt != nil)
 }

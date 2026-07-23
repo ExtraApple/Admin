@@ -15,7 +15,7 @@
 - **AND** 系统 SHALL 返回 HTTP 400 和稳定安全错误码
 
 #### Scenario: 上传文件超过大小限制
-- **WHEN** 整个请求体或单个文件超过当前普通文件配置上限
+- **WHEN** 单个文件 part 超过 `file_upload.max_size_mb`，或整个 multipart 请求体超过 `file_upload.max_size_mb + 1 MiB`
 - **THEN** 系统 SHALL 返回 HTTP 413
 - **AND** 系统 SHALL NOT 完整解析超限 multipart 正文
 - **AND** 系统 SHALL NOT 写入 MinIO 或数据库

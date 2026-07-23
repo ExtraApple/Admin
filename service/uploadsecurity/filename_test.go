@@ -46,10 +46,10 @@ func TestSanitizeDisplayName(t *testing.T) {
 		},
 		{
 			name:      "keeps common chinese and ascii brackets",
-			raw:       "报表（最终）[已审].xlsx",
+			raw:       "报表（最终）[已审].csv",
 			purpose:   uploadsecurity.PurposeManagedFile,
-			extension: ".xlsx",
-			want:      "报表（最终）[已审].xlsx",
+			extension: ".csv",
+			want:      "报表（最终）[已审].csv",
 		},
 		{
 			name:      "uses managed file fallback for empty body",
@@ -119,7 +119,7 @@ func TestValidateExtensionChain(t *testing.T) {
 		"archive.tar.gz.pdf",
 		`C:\fakepath\payload.ps1.PDF`,
 		"payload.e\u202Exe.pdf",
-		"macro.docm.docx",
+		"macro.docm.pdf",
 	}
 	for _, name := range rejected {
 		t.Run("reject "+name, func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestValidateExtensionChain(t *testing.T) {
 	allowed := []string{
 		"annual.report.final.pdf",
 		"photo.family.2026.jpg",
-		"数据.最终.版本.xlsx",
+		"数据.最终.版本.csv",
 		".bashrc.txt",
 		"simple.csv",
 	}

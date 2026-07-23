@@ -18,9 +18,6 @@ func TestCanonicalTypeMappings(t *testing.T) {
 		{".png", "image/png", uploadsecurity.TypePNG, ".png"},
 		{".webp", "image/webp", uploadsecurity.TypeWebP, ".webp"},
 		{".pdf", "application/pdf", uploadsecurity.TypePDF, ".pdf"},
-		{".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", uploadsecurity.TypeDOCX, ".docx"},
-		{".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", uploadsecurity.TypeXLSX, ".xlsx"},
-		{".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", uploadsecurity.TypePPTX, ".pptx"},
 		{".txt", "text/plain", uploadsecurity.TypeTXT, ".txt"},
 		{".csv", "text/csv", uploadsecurity.TypeCSV, ".csv"},
 	}
@@ -63,7 +60,9 @@ func TestCanonicalTypeMappingsNormalizeCaseAndMIMEParameters(t *testing.T) {
 }
 
 func TestCanonicalTypeMappingsRejectUnlistedTypes(t *testing.T) {
-	for _, extension := range []string{".zip", ".exe", ".doc", ".xls", ".ppt", ".svg"} {
+	for _, extension := range []string{
+		".zip", ".exe", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".svg",
+	} {
 		if got, ok := uploadsecurity.LookupTypeByExtension(extension); ok {
 			t.Errorf("extension %q unexpectedly mapped to %q", extension, got)
 		}
@@ -73,6 +72,9 @@ func TestCanonicalTypeMappingsRejectUnlistedTypes(t *testing.T) {
 		"application/octet-stream",
 		"application/zip",
 		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		"text/html",
 		"image/svg+xml",
 	} {

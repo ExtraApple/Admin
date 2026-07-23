@@ -17,7 +17,6 @@ func TestNewManagedFileObjectNameUsesUUIDAndCanonicalExtension(t *testing.T) {
 	}{
 		{uploadsecurity.TypeJPEG, ".jpg"},
 		{uploadsecurity.TypePDF, ".pdf"},
-		{uploadsecurity.TypeDOCX, ".docx"},
 		{uploadsecurity.TypeCSV, ".csv"},
 	}
 

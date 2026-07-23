@@ -25,9 +25,6 @@ func TestUploadSecurityErrorCodesAreStable(t *testing.T) {
 		"FILE_CONTENT_INVALID":      uploadsecurity.CodeFileContentInvalid,
 		"IMAGE_DIMENSION_LIMIT":     uploadsecurity.CodeImageDimensionLimit,
 		"IMAGE_DECODE_INVALID":      uploadsecurity.CodeImageDecodeInvalid,
-		"OOXML_INVALID":             uploadsecurity.CodeOOXMLInvalid,
-		"OOXML_DANGEROUS_CONTENT":   uploadsecurity.CodeOOXMLDangerousContent,
-		"OOXML_RESOURCE_LIMIT":      uploadsecurity.CodeOOXMLResourceLimit,
 		"FILE_NOT_FOUND":            uploadsecurity.CodeFileNotFound,
 		"FILE_ACCESS_INVALID":       uploadsecurity.CodeFileAccessInvalid,
 		"FILE_STATE_BLOCKED":        uploadsecurity.CodeFileStateBlocked,
@@ -46,15 +43,15 @@ func TestUploadSecurityErrorCodesAreStable(t *testing.T) {
 }
 
 func TestCodeOfFindsUploadSecurityErrorThroughWrapping(t *testing.T) {
-	internal := errors.New("zip parser details")
-	securityErr := uploadsecurity.NewError(uploadsecurity.CodeOOXMLInvalid, internal)
+	internal := errors.New("image decoder details")
+	securityErr := uploadsecurity.NewError(uploadsecurity.CodeImageDecodeInvalid, internal)
 	wrapped := fmt.Errorf("validate upload: %w", securityErr)
 
 	code, ok := uploadsecurity.CodeOf(wrapped)
 	if !ok {
 		t.Fatal("expected upload security error code")
 	}
-	if code != uploadsecurity.CodeOOXMLInvalid {
+	if code != uploadsecurity.CodeImageDecodeInvalid {
 		t.Fatalf("code: got %q", code)
 	}
 	if !errors.Is(wrapped, internal) {

@@ -241,7 +241,7 @@ func TestFileHandlerDownloadStreamsControlledAttachmentWithSecurityHeaders(t *te
 	}
 }
 
-func TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess(t *testing.T) {
+func TestFileHandlerDownloadSurfacesFirstStorageReadFailureBeforeCommittingSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	now := time.Unix(1_700_000_000, 0)
@@ -267,14 +267,6 @@ func TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess(t *te
 			contentType: "application/pdf",
 			target:      "/api/admin/files/7/download",
 			invoke:      func(h *FileHandler, c *gin.Context) { h.Download(c) },
-		},
-		{
-			name:        "preview",
-			mode:        fileaccess.ModePreview,
-			fileName:    "preview.png",
-			contentType: "image/png",
-			target:      "/api/admin/files/7/preview",
-			invoke:      func(h *FileHandler, c *gin.Context) { h.Preview(c) },
 		},
 	}
 
@@ -388,7 +380,7 @@ func TestFileHandlerDownloadMapsInvalidSignatureToStableForbiddenResponse(t *tes
 	}
 }
 
-func TestFileHandlerDownloadAndPreviewRejectInvalidParametersBeforeOpeningContent(t *testing.T) {
+func TestFileHandlerRejectsInvalidFileIDAndDownloadAccessParametersBeforeOpeningContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -414,12 +406,6 @@ func TestFileHandlerDownloadAndPreviewRejectInvalidParametersBeforeOpeningConten
 			target: "/api/admin/files/7/download?signature=signed",
 			id:     "7",
 			invoke: func(h *FileHandler, c *gin.Context) { h.Download(c) },
-		},
-		{
-			name:   "preview non-positive expiry",
-			target: "/api/admin/files/7/preview?expires=0&signature=signed",
-			id:     "7",
-			invoke: func(h *FileHandler, c *gin.Context) { h.Preview(c) },
 		},
 		{
 			name:   "download missing signature",
@@ -454,64 +440,66 @@ func TestFileHandlerDownloadAndPreviewRejectInvalidParametersBeforeOpeningConten
 	}
 }
 
-func TestFileHandlerPreviewStreamsControlledImageInlineWithSecurityHeaders(t *testing.T) {
+func TestFileHandlerPreviewReturnsConflictWithoutSignedParametersBeforeOpeningObjectStorage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	reader := &closingReadCloser{Reader: strings.NewReader("normalized image")}
-	content := &service.FileContent{
-		FileName:    "preview.png",
-		ContentType: "image/png",
-		Disposition: service.FileDispositionInline,
-		Reader:      reader,
+	file := &model.File{
+		Model:            gorm.Model{ID: 8},
+		Name:             "historical-image.png",
+		Bucket:           "files",
+		ObjectName:       "historical-image.png",
+		ContentType:      "image/png",
+		ValidationStatus: model.FileValidationStatusLegacyUnverified,
 	}
-	opener := &recordingFileContentOpener{result: content}
-	fileHandler := &FileHandler{Contents: opener}
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(
-		http.MethodGet,
-		"/api/admin/files/8/preview?expires=1700000300&signature=preview-signature",
-		nil,
+	store := &firstReadErrorStore{}
+	signer, err := fileaccess.NewSigner(
+		[]byte("0123456789abcdef0123456789abcdef"),
 	)
-	c.Params = gin.Params{{Key: "id", Value: "8"}}
-	c.Set("userID", uint(43))
+	if err != nil {
+		t.Fatalf("NewSigner() error = %v", err)
+	}
+	contents := service.NewFileContentService(
+		signer,
+		store,
+		&fileAccessRepositoryStub{file: file},
+		func() time.Time { return time.Unix(1_700_000_000, 0) },
+	)
+	fileHandler := &FileHandler{Contents: contents}
 
-	fileHandler.Preview(c)
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{
+			name:   "missing expiry and signature",
+			target: "/api/admin/files/8/preview",
+		},
+		{
+			name:   "invalid expiry and missing signature",
+			target: "/api/admin/files/8/preview?expires=not-a-number",
+		},
+	}
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, tt.target, nil)
+			c.Params = gin.Params{{Key: "id", Value: "8"}}
+			c.Set("userID", uint(43))
+
+			fileHandler.Preview(c)
+
+			assertUploadErrorResponse(
+				t,
+				recorder,
+				http.StatusConflict,
+				uploadsecurity.CodeFileStateConflict,
+			)
+		})
 	}
-	if opener.calls != 1 {
-		t.Fatalf("Open() calls = %d, want 1", opener.calls)
-	}
-	if opener.input.UserID != 43 ||
-		opener.input.FileID != 8 ||
-		opener.input.ExpiresAt != 1_700_000_300 ||
-		opener.input.Signature != "preview-signature" ||
-		opener.input.Mode != fileaccess.ModePreview {
-		t.Fatalf("Open() input = %#v, want signed preview access input", opener.input)
-	}
-	if got := recorder.Header().Get("Content-Type"); got != "image/png" {
-		t.Fatalf("Content-Type = %q, want image/png", got)
-	}
-	wantDisposition := mime.FormatMediaType("inline", map[string]string{
-		"filename": "preview.png",
-	})
-	if got := recorder.Header().Get("Content-Disposition"); got != wantDisposition {
-		t.Fatalf("Content-Disposition = %q, want %q", got, wantDisposition)
-	}
-	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
-		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
-	}
-	if got := recorder.Header().Get("Cache-Control"); got != "private, no-store" {
-		t.Fatalf("Cache-Control = %q, want private, no-store", got)
-	}
-	if got := recorder.Body.String(); got != "normalized image" {
-		t.Fatalf("body = %q, want streamed preview content", got)
-	}
-	if !reader.closed {
-		t.Fatal("preview content reader was not closed")
+	if store.openCalls != 0 {
+		t.Fatalf("storage Open() calls = %d, want 0 for rejected previews", store.openCalls)
 	}
 }
 
@@ -678,10 +666,10 @@ func TestFileHandlerRevalidateMapsValidationAndInfrastructureFailures(t *testing
 		{
 			name:      "policy rejects file content",
 			id:        "12",
-			err:       uploadsecurity.NewError(uploadsecurity.CodeOOXMLDangerousContent, nil),
+			err:       uploadsecurity.NewError(uploadsecurity.CodeFileContentInvalid, nil),
 			wantCalls: 1,
 			wantHTTP:  http.StatusUnprocessableEntity,
-			wantCode:  uploadsecurity.CodeOOXMLDangerousContent,
+			wantCode:  uploadsecurity.CodeFileContentInvalid,
 		},
 		{
 			name:      "storage is temporarily unavailable",
@@ -720,7 +708,7 @@ func TestFileHandlerRevalidateMapsValidationAndInfrastructureFailures(t *testing
 	}
 }
 
-func TestFileHandlerGetFileReturnsControlledApplicationURLs(t *testing.T) {
+func TestFileHandlerGetFileReturnsControlledDownloadURLWithoutPreviewURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	details := &recordingFileDetailGetter{
@@ -732,7 +720,6 @@ func TestFileHandlerGetFileReturnsControlledApplicationURLs(t *testing.T) {
 				ValidationStatus: "validated",
 			},
 			DownloadURL: "/api/admin/files/7/download?expires=1700000300&signature=download",
-			PreviewURL:  "/api/admin/files/7/preview?expires=1700000300&signature=preview",
 		},
 	}
 	fileHandler := &FileHandler{Details: details}
@@ -758,9 +745,19 @@ func TestFileHandlerGetFileReturnsControlledApplicationURLs(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Data.DownloadURL != details.result.DownloadURL ||
-		response.Data.PreviewURL != details.result.PreviewURL {
-		t.Fatalf("response URLs = %#v, want controlled detail URLs %#v", response.Data, details.result)
+	if response.Data.DownloadURL != details.result.DownloadURL {
+		t.Fatalf("response URL = %#v, want controlled detail URL %#v", response.Data, details.result)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("response data = %#v, want object", payload["data"])
+	}
+	if _, ok := data["preview_url"]; ok {
+		t.Fatalf("response unexpectedly exposes preview_url: %s", recorder.Body.String())
 	}
 }
 
@@ -1087,6 +1084,41 @@ func TestFileHandlerUploadPassesBoundedInputToFileService(t *testing.T) {
 		metadata.PolicyVersion != uploader.result.ValidationPolicyVersion ||
 		metadata.ReasonCode != "" {
 		t.Fatalf("upload audit metadata = %#v, want controlled accepted result", metadata)
+	}
+}
+
+func TestFileHandlerUploadRejectsAdministratorImageAsUnsupportedMediaType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	uploader := &recordingFileUploader{
+		err: uploadsecurity.NewError(
+			uploadsecurity.CodeFileTypeNotAllowed,
+			nil,
+		),
+	}
+	fileHandler := &FileHandler{
+		Uploads:        uploader,
+		MaxUploadBytes: 1024,
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = newMultipartRequest(t, "/api/admin/files", []multipartUploadPart{{
+		FieldName: "file",
+		FileName:  "avatar.png",
+		Content:   []byte("png-image-content"),
+	}})
+	c.Set("userID", uint(42))
+
+	fileHandler.Upload(c)
+
+	assertUploadErrorResponse(
+		t,
+		recorder,
+		http.StatusUnsupportedMediaType,
+		uploadsecurity.CodeFileTypeNotAllowed,
+	)
+	if uploader.calls != 1 {
+		t.Fatalf("Upload() calls = %d, want 1", uploader.calls)
 	}
 }
 

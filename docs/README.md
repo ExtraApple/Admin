@@ -27,12 +27,16 @@
 
 ## modify 目录
 
-`docs/modify/` 用来记录已经完成的跨模块重要修改，例如权限链路、配置迁移、数据权限、菜单与 API 联动。
+`docs/modify/` 用来记录跨模块重要修改、架构演进、项目优化路线和当前专题设计。
 
 当前主要记录：
 
 ```text
 docs/modify/权限链路修改记录.md
+docs/modify/成熟后台项目对比与改进建议.md
+docs/modify/成熟后台项目对比概览.md
+docs/modify/项目优化路线图.md
+docs/modify/文件上传安全优化建议.md
 ```
 
 ## 维护规则

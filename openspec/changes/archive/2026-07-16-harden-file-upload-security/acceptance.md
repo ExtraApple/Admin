@@ -2,6 +2,8 @@
 
 验收日期：2026-07-16
 
+补充校正日期：2026-07-22
+
 验收范围：
 
 - `specs/file-management/spec.md`
@@ -100,6 +102,8 @@
 
 - ✅ **下载验证通过文件**：`TestResolveDownloadAccessUsesCanonicalMIMEForValidatedFile`、`TestFileHandlerDownloadStreamsControlledAttachmentWithSecurityHeaders`、`TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess`。
 - ✅ **下载历史未验证文件**：`TestResolveDownloadAccessForcesUnverifiedFilesToBinaryAttachment`、`TestFileValidationStateMatrix`。
+- ✅ **下载零字节历史文件**：`TestFileContentServiceAllowsEmptyHistoricalDownload`。
+- ✅ **对象首批字节伴随存储错误**：`TestFileContentServicePreservesErrorReturnedWithFirstByte`、`TestFileHandlerSurfacesFirstStorageReadFailureBeforeCommittingSuccess`。
 - ✅ **预览验证通过图片**：`TestResolvePreviewAccessAllowsOnlyValidatedImagesInline`、`TestFileHandlerPreviewStreamsControlledImageInlineWithSecurityHeaders`。
 - ✅ **预览非图片或未验证文件**：`TestResolvePreviewAccessRejectsNonImagesAndDisallowedStates`、`TestFileHandlerPreviewMapsRestrictionsAndInvalidSignaturesToStableErrors`。
 - ✅ **临时 URL 无效**：`TestDerivedSignerRejectsEveryBoundClaimTamper`、`TestDerivedSignerRejectsDifferentJWTSecretAndExpiredAccess`、`TestFileContentServiceRejectsInvalidSignatureBeforeOpeningObject`。
@@ -131,11 +135,12 @@
 
 - ✅ **无透明头像上传成功**：`TestNormalizeAvatarReencodesOpaqueAndTransparentPixelsToTrustedFormats`、`TestAvatarServiceStoresNormalizedOutputAndTrustedMetadata`。
 - ✅ **透明头像上传成功**：`TestNormalizeAvatarReencodesOpaqueAndTransparentPixelsToTrustedFormats`、`TestNormalizeAvatarConvertsWebPToTrustedJPEGOrPNGOutput`。
-- ✅ **头像请求体或输出过大**：`TestUserHandlerUploadAvatarRejectsBodyAboveHardLimitBeforeMultipartParsing`、`TestNormalizeAvatarEnforcesReencodedOutputSizeBoundary`。
+- ✅ **头像请求体、原文件或输出过大**：`TestUserHandlerUploadAvatarRejectsBodyAboveHardLimitBeforeMultipartParsing`、`TestNormalizeAvatarEnforcesReencodedOutputSizeBoundary`。
 - ✅ **头像尺寸或像素超限**：`TestProbeAvatarHeaderRejectsDimensionLimitsBeforeFullDecode`。
 - ✅ **头像格式不受支持或损坏**：`TestNormalizeAvatarRejectsCorruptMismatchedAndAnimatedImages`。
 - ✅ **新头像对象写入失败**：`TestAvatarServicePreservesOriginalWhenNewObjectWriteFails`。
-- ✅ **新头像写入后数据库更新失败**：`TestAvatarServiceDeletesNewObjectWhenDatabaseUpdateFails`。
+- ✅ **新头像写入后数据库确认未提交**：`TestAvatarServiceDeletesNewObjectWhenDatabaseUpdateIsNotCommitted`。
+- ✅ **新头像数据库提交结果不确定**：`TestAvatarServiceKeepsNewObjectWhenDatabaseCommitOutcomeIsZeroValue`。
 - ✅ **新头像替换成功**：`TestAvatarServiceDeletesOldTrustedObjectAfterCommittedReplacement`、`TestAvatarServiceKeepsSuccessfulReplacementWhenOldObjectCleanupFails`、`TestAvatarServiceDoesNotDeleteNewObjectAfterCommittedDatabaseUpdate`。
 
 ### 恢复默认头像
@@ -143,6 +148,8 @@
 实现入口：`service/avatar.go`、`handler/user.go`。
 
 - ✅ **恢复默认头像成功**：`TestAvatarServiceRestoresDefaultBeforeDeletingOldTrustedObject`、`TestUserHandlerRestoreDefaultAvatarReturnsControlledDefaultURL`。
+- ✅ **恢复默认头像时数据库更新失败**：`TestAvatarServicePreservesTrustedAvatarWhenRestoreUpdateFails`。
+- ✅ **重复恢复默认头像**：`TestAvatarServiceRestoreDefaultIsIdempotentWhenAlreadyDefault`。
 - ✅ **删除旧头像对象失败**：`TestAvatarServiceKeepsDefaultWhenRestoreCleanupFails`、`TestUserHandlerAvatarMutationsReturnStableErrorsWithoutLeakingDetails`。
 
 ### 历史头像来源过渡

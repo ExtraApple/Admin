@@ -47,6 +47,7 @@ type FileRevalidationRepository interface {
 type FileValidationUpdate struct {
 	ContentType         string
 	DetectedContentType string
+	ContentSHA256       string
 	Status              string
 	PolicyVersion       string
 	ErrorCode           string
@@ -119,6 +120,7 @@ func (r gormFileRevalidationRepository) UpdateValidation(
 		Updates(map[string]any{
 			"content_type":              update.ContentType,
 			"detected_content_type":     update.DetectedContentType,
+			"content_sha256":            update.ContentSHA256,
 			"validation_status":         update.Status,
 			"validation_policy_version": update.PolicyVersion,
 			"validation_error_code":     update.ErrorCode,
@@ -223,11 +225,9 @@ func (s *FileDetailService) Get(
 
 	result := &dto.FileDetailResp{File: toFileInfo(&file)}
 	allowDownload := false
-	allowPreview := false
 	switch file.ValidationStatus {
 	case model.FileValidationStatusValidated:
-		allowDownload = true
-		allowPreview = isPreviewableImageMIME(file.ContentType)
+		_, allowDownload = managedDownloadMIME(file.ContentType)
 	case model.FileValidationStatusLegacyUnverified,
 		model.FileValidationStatusValidationError:
 		allowDownload = true
@@ -244,13 +244,6 @@ func (s *FileDetailService) Get(
 			return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, err)
 		}
 		result.DownloadURL = downloadURL
-	}
-	if allowPreview {
-		previewURL, err := s.signURL(userID, file.ID, file.ValidationStatus, fileaccess.ModePreview, expiresAt)
-		if err != nil {
-			return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, err)
-		}
-		result.PreviewURL = previewURL
 	}
 	return result, nil
 }
@@ -285,15 +278,6 @@ func (s *FileDetailService) signURL(
 	}).String(), nil
 }
 
-func isPreviewableImageMIME(contentType string) bool {
-	switch contentType {
-	case "image/jpeg", "image/png", "image/webp":
-		return true
-	default:
-		return false
-	}
-}
-
 // ResolveDownloadAccess applies the current validation-state policy before
 // a download handler opens or streams the stored object.
 func ResolveDownloadAccess(file *model.File) (*FileAccessDecision, error) {
@@ -304,15 +288,11 @@ func ResolveDownloadAccess(file *model.File) (*FileAccessDecision, error) {
 	contentType := ""
 	switch file.ValidationStatus {
 	case model.FileValidationStatusValidated:
-		canonicalType, ok := uploadsecurity.LookupTypeByMIME(file.ContentType)
+		var ok bool
+		contentType, ok = managedDownloadMIME(file.ContentType)
 		if !ok {
 			return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
 		}
-		definition, ok := uploadsecurity.DefinitionForType(canonicalType)
-		if !ok {
-			return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
-		}
-		contentType = definition.MIME
 	case model.FileValidationStatusLegacyUnverified,
 		model.FileValidationStatusValidationError:
 		contentType = "application/octet-stream"
@@ -332,36 +312,26 @@ func ResolveDownloadAccess(file *model.File) (*FileAccessDecision, error) {
 	}, nil
 }
 
-// ResolvePreviewAccess permits inline access only for validated V1 image
-// types. All other files remain download-only or inaccessible.
+func managedDownloadMIME(contentType string) (string, bool) {
+	canonicalType, ok := uploadsecurity.LookupTypeByMIME(contentType)
+	if !ok || !uploadsecurity.IsManagedFileType(canonicalType) {
+		return "", false
+	}
+	definition, ok := uploadsecurity.DefinitionForType(canonicalType)
+	if !ok {
+		return "", false
+	}
+	return definition.MIME, true
+}
+
+// ResolvePreviewAccess currently rejects every administrator managed file
+// before object storage is opened. The route is kept as a compatibility
+// placeholder, but V1 managed files only have attachment download semantics.
 func ResolvePreviewAccess(file *model.File) (*FileAccessDecision, error) {
 	if file == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
 	}
-	if file.ValidationStatus == model.FileValidationStatusBlocked {
-		return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateBlocked, nil)
-	}
-	if file.ValidationStatus != model.FileValidationStatusValidated {
-		return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
-	}
-
-	canonicalType, ok := uploadsecurity.LookupTypeByMIME(file.ContentType)
-	if !ok {
-		return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
-	}
-	definition, ok := uploadsecurity.DefinitionForType(canonicalType)
-	if !ok || !isPreviewableImageMIME(definition.MIME) {
-		return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
-	}
-
-	return &FileAccessDecision{
-		FileName:         file.Name,
-		Bucket:           file.Bucket,
-		ObjectName:       file.ObjectName,
-		ContentType:      definition.MIME,
-		ValidationStatus: file.ValidationStatus,
-		Disposition:      FileDispositionInline,
-	}, nil
+	return nil, uploadsecurity.NewError(uploadsecurity.CodeFileStateConflict, nil)
 }
 
 func (s *FileRevalidationService) Revalidate(
@@ -415,6 +385,7 @@ func (s *FileRevalidationService) Revalidate(
 			update := FileValidationUpdate{
 				ContentType:         file.ContentType,
 				DetectedContentType: file.DetectedContentType,
+				ContentSHA256:       file.ContentSHA256,
 				Status:              model.FileValidationStatusBlocked,
 				PolicyVersion:       uploadsecurity.PolicyVersionV1,
 				ErrorCode:           string(code),
@@ -443,6 +414,7 @@ func (s *FileRevalidationService) Revalidate(
 	update := FileValidationUpdate{
 		ContentType:         result.CanonicalMIME,
 		DetectedContentType: result.DetectedMIME,
+		ContentSHA256:       result.ContentSHA256,
 		Status:              model.FileValidationStatusValidated,
 		PolicyVersion:       result.PolicyVersion,
 		ErrorCode:           "",
@@ -493,6 +465,7 @@ func (s *FileRevalidationService) saveRevalidationFailure(
 	update := FileValidationUpdate{
 		ContentType:         file.ContentType,
 		DetectedContentType: file.DetectedContentType,
+		ContentSHA256:       file.ContentSHA256,
 		Status:              status,
 		PolicyVersion:       uploadsecurity.PolicyVersionV1,
 		ErrorCode:           string(code),
@@ -514,10 +487,7 @@ func isFilePolicyRejection(code uploadsecurity.Code) bool {
 		uploadsecurity.CodeFileEncodingInvalid,
 		uploadsecurity.CodeFileContentInvalid,
 		uploadsecurity.CodeImageDimensionLimit,
-		uploadsecurity.CodeImageDecodeInvalid,
-		uploadsecurity.CodeOOXMLInvalid,
-		uploadsecurity.CodeOOXMLDangerousContent,
-		uploadsecurity.CodeOOXMLResourceLimit:
+		uploadsecurity.CodeImageDecodeInvalid:
 		return true
 	default:
 		return false
@@ -539,6 +509,7 @@ func isRevalidationRetryable(code uploadsecurity.Code) bool {
 func applyValidationUpdate(file *model.File, update FileValidationUpdate) {
 	file.ContentType = update.ContentType
 	file.DetectedContentType = update.DetectedContentType
+	file.ContentSHA256 = update.ContentSHA256
 	file.ValidationStatus = update.Status
 	file.ValidationPolicyVersion = update.PolicyVersion
 	file.ValidationErrorCode = update.ErrorCode
@@ -598,6 +569,7 @@ func (s *FileService) Upload(
 		ObjectName:              objectName,
 		ContentType:             result.CanonicalMIME,
 		DetectedContentType:     result.DetectedMIME,
+		ContentSHA256:           result.ContentSHA256,
 		Size:                    result.Size,
 		UploaderID:              input.UploaderID,
 		ValidationStatus:        model.FileValidationStatusValidated,
@@ -749,6 +721,7 @@ func toFileInfo(f *model.File) *dto.FileInfo {
 		Name:                    f.Name,
 		ContentType:             f.ContentType,
 		DetectedContentType:     f.DetectedContentType,
+		ContentSHA256:           f.ContentSHA256,
 		Size:                    f.Size,
 		UploaderID:              f.UploaderID,
 		ValidationStatus:        f.ValidationStatus,

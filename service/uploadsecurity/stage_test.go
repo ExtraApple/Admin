@@ -3,6 +3,8 @@ package uploadsecurity_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -60,6 +62,29 @@ func TestStageProvidesBoundedReaderAtInputAndRemovesItOnClose(t *testing.T) {
 	}
 	if err := staged.Close(); err != nil {
 		t.Fatalf("second close should be safe: %v", err)
+	}
+}
+
+func TestStageComputesDigestAndKeepsReaderAtStart(t *testing.T) {
+	content := []byte("stage digest content")
+	staged, err := uploadsecurity.Stage(context.Background(), bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	defer staged.Close()
+
+	sum := sha256.Sum256(content)
+	wantDigest := hex.EncodeToString(sum[:])
+	if staged.ContentSHA256() != wantDigest {
+		t.Fatalf("staged content sha256: got %q, want %q", staged.ContentSHA256(), wantDigest)
+	}
+
+	readBack, err := io.ReadAll(staged)
+	if err != nil {
+		t.Fatalf("read staged content: %v", err)
+	}
+	if !bytes.Equal(readBack, content) {
+		t.Fatalf("staged reader should start at beginning: got %q, want %q", readBack, content)
 	}
 }
 

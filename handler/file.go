@@ -43,7 +43,7 @@ type FileHandler struct {
 	MaxUploadBytes int64
 }
 
-// Upload 上传文件
+// Upload 上传管理员普通文件，仅接受 PDF、UTF-8 TXT 和 UTF-8 CSV。
 func (h *FileHandler) Upload(c *gin.Context) {
 	file, cleanup, err := parseSingleUpload(
 		c,
@@ -183,7 +183,7 @@ func (h *FileHandler) Download(c *gin.Context) {
 	}
 }
 
-// Preview 预览文件
+// Preview 保留兼容路由；当前管理员普通文件策略始终拒绝预览。
 func (h *FileHandler) Preview(c *gin.Context) {
 	fileID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -193,14 +193,7 @@ func (h *FileHandler) Preview(c *gin.Context) {
 		))
 		return
 	}
-	expiresAt, err := strconv.ParseInt(c.Query("expires"), 10, 64)
-	if err != nil || expiresAt < 1 || c.Query("signature") == "" {
-		writeUploadError(c, uploadsecurity.NewError(
-			uploadsecurity.CodeRequestInvalid,
-			err,
-		))
-		return
-	}
+	expiresAt, _ := strconv.ParseInt(c.Query("expires"), 10, 64)
 	if h.Contents == nil {
 		writeUploadError(c, uploadsecurity.NewError(
 			uploadsecurity.CodeInternalError,

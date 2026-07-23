@@ -11,6 +11,7 @@ func TestUserKeepsLegacyAvatarAndExposesValidatedAvatarMetadata(t *testing.T) {
 		Avatar:                 "https://legacy.example/avatar.png",
 		AvatarObjectName:       "avatars/7/avatar.jpg",
 		AvatarContentType:      "image/jpeg",
+		AvatarContentSHA256:    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		AvatarValidationStatus: FileValidationStatusValidated,
 		AvatarValidatedAt:      &validatedAt,
 	}
@@ -23,6 +24,9 @@ func TestUserKeepsLegacyAvatarAndExposesValidatedAvatarMetadata(t *testing.T) {
 	}
 	if user.AvatarContentType != "image/jpeg" {
 		t.Fatalf("avatar content type: got %q", user.AvatarContentType)
+	}
+	if !isLowercaseSHA256Hex(user.AvatarContentSHA256) {
+		t.Fatalf("avatar content sha256 = %q, want 64 lowercase hex characters", user.AvatarContentSHA256)
 	}
 	if user.AvatarValidationStatus != "validated" {
 		t.Fatalf("avatar validation status: got %q", user.AvatarValidationStatus)

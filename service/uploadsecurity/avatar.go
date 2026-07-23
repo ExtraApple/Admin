@@ -125,6 +125,7 @@ func (avatarValidator) Validate(
 		CanonicalMIME:      normalized.MIME,
 		DetectedMIME:       inputDefinition.MIME,
 		Size:               int64(len(normalized.Data)),
+		ContentSHA256:      SHA256Hex(normalized.Data),
 		PolicyVersion:      PolicyVersionV1,
 		Reader:             bytes.NewReader(normalized.Data),
 	}, nil

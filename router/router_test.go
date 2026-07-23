@@ -84,6 +84,12 @@ func TestAdminFileAccessRoutesEnforceJWTAndDynamicPermissions(t *testing.T) {
 		permissionCode string
 	}{
 		{
+			method:         http.MethodPost,
+			path:           "/api/admin/files",
+			registeredPath: "/api/admin/files",
+			permissionCode: "admin.files.post",
+		},
+		{
 			method:         http.MethodGet,
 			path:           "/api/admin/files/not-a-number/download",
 			registeredPath: "/api/admin/files/:id/download",
@@ -203,7 +209,8 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	)
 	fileUploadDescription, _ := fileUploadOperation["description"].(string)
 	for _, fragment := range []string{
-		"JPEG、PNG、WebP、PDF、DOCX、XLSX、PPTX、UTF-8 TXT、UTF-8 CSV",
+		"PDF、UTF-8 TXT、UTF-8 CSV",
+		"当前不支持 Office 文档",
 		"只能包含一个名为 file 的文件 part",
 	} {
 		if !strings.Contains(fileUploadDescription, fragment) {
@@ -213,6 +220,19 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 				fileUploadDescription,
 			)
 		}
+	}
+	if strings.Contains(fileUploadDescription, "JPEG、PNG、WebP、PDF") {
+		t.Fatalf(
+			"managed file upload description still advertises images: %q",
+			fileUploadDescription,
+		)
+	}
+	fileUploadDataProperties := getJSONSuccessDataProperties(
+		t,
+		fileUploadOperation,
+	)
+	if _, ok := fileUploadDataProperties["content_sha256"]; !ok {
+		t.Fatal("managed file upload response data should contain content_sha256")
 	}
 	assertOpenAPIResponseCodes(
 		t,
@@ -250,7 +270,6 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	for _, fragment := range []string{
 		"validated、legacy_unverified、validation_error、blocked",
 		"download_url",
-		"preview_url",
 	} {
 		if !strings.Contains(fileDetailDescription, fragment) {
 			t.Fatalf(
@@ -259,6 +278,30 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 				fileDetailDescription,
 			)
 		}
+	}
+	if strings.Contains(fileDetailDescription, "preview_url") {
+		t.Fatalf(
+			"file detail description must not promise preview_url: %q",
+			fileDetailDescription,
+		)
+	}
+	fileDetailDataProperties := getJSONSuccessDataProperties(
+		t,
+		fileDetailOperation,
+	)
+	if _, ok := fileDetailDataProperties["preview_url"]; ok {
+		t.Fatal("file detail response data must not contain preview_url")
+	}
+	fileSchema, ok := fileDetailDataProperties["file"].(map[string]any)
+	if !ok {
+		t.Fatal("file detail response data should contain file schema")
+	}
+	fileProperties, ok := fileSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("file detail file schema should contain properties")
+	}
+	if _, ok := fileProperties["content_sha256"]; !ok {
+		t.Fatal("file detail metadata should contain content_sha256")
 	}
 
 	components, ok := doc["components"].(map[string]any)
@@ -300,6 +343,7 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	for _, name := range []string{
 		"validation_status",
 		"detected_content_type",
+		"content_sha256",
 		"validation_policy_version",
 		"validated_at",
 	} {
@@ -320,6 +364,16 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	if _, ok := restoreAvatarDataProperties["avatar"]; !ok {
 		t.Fatal("restore-default response data should contain avatar")
 	}
+	if _, ok := restoreAvatarDataProperties["avatar_content_sha256"]; ok {
+		t.Fatal("restore-default response must not expose avatar_content_sha256")
+	}
+	avatarUploadDataProperties := getJSONSuccessDataProperties(
+		t,
+		avatarUploadOperation,
+	)
+	if _, ok := avatarUploadDataProperties["avatar_content_sha256"]; ok {
+		t.Fatal("avatar upload response must not expose avatar_content_sha256")
+	}
 
 	downloadOperation := getOpenAPIOperation(
 		t,
@@ -333,8 +387,22 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 		paths["/api/admin/files/{id}/preview"],
 		"get",
 	)
-	for _, contentType := range []string{"image/jpeg", "image/png", "image/webp"} {
-		assertOpenAPIBinaryResponse(t, previewOperation, contentType)
+	previewDescription, _ := previewOperation["description"].(string)
+	if !strings.Contains(previewDescription, "始终返回 HTTP 409") {
+		t.Fatalf(
+			"preview description should document stable rejection, got %q",
+			previewDescription,
+		)
+	}
+	previewResponses, ok := previewOperation["responses"].(map[string]any)
+	if !ok {
+		t.Fatal("preview operation should contain responses")
+	}
+	if _, ok := previewResponses["200"]; ok {
+		t.Fatal("preview operation must not document a successful binary response")
+	}
+	if _, ok := previewResponses["409"]; !ok {
+		t.Fatal("preview operation should document HTTP 409")
 	}
 
 	avatarContentTypes := map[string][]string{
@@ -400,6 +468,14 @@ func setupAdminFileRouteTest(t *testing.T) (*gin.Engine, string) {
 	}
 
 	apis := []model.API{
+		{
+			Name:           "上传文件",
+			Method:         http.MethodPost,
+			Path:           "/api/admin/files",
+			PermissionCode: "admin.files.post",
+			Status:         1,
+			NeedAuth:       1,
+		},
 		{
 			Name:           "下载文件",
 			Method:         http.MethodGet,

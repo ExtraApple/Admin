@@ -43,7 +43,6 @@ func TestFileValidationStateMatrix(t *testing.T) {
 	tests := []struct {
 		status                  string
 		wantDetailDownloadURL   bool
-		wantDetailPreviewURL    bool
 		wantDownloadMIME        string
 		wantDownloadCode        uploadsecurity.Code
 		wantPreviewCode         uploadsecurity.Code
@@ -52,14 +51,13 @@ func TestFileValidationStateMatrix(t *testing.T) {
 		{
 			status:                  model.FileValidationStatusValidated,
 			wantDetailDownloadURL:   true,
-			wantDetailPreviewURL:    true,
-			wantDownloadMIME:        "image/png",
+			wantDownloadMIME:        "application/pdf",
+			wantPreviewCode:         uploadsecurity.CodeFileStateConflict,
 			wantRevalidationAllowed: false,
 		},
 		{
 			status:                  model.FileValidationStatusLegacyUnverified,
 			wantDetailDownloadURL:   true,
-			wantDetailPreviewURL:    false,
 			wantDownloadMIME:        "application/octet-stream",
 			wantPreviewCode:         uploadsecurity.CodeFileStateConflict,
 			wantRevalidationAllowed: true,
@@ -67,7 +65,6 @@ func TestFileValidationStateMatrix(t *testing.T) {
 		{
 			status:                  model.FileValidationStatusValidationError,
 			wantDetailDownloadURL:   true,
-			wantDetailPreviewURL:    false,
 			wantDownloadMIME:        "application/octet-stream",
 			wantPreviewCode:         uploadsecurity.CodeFileStateConflict,
 			wantRevalidationAllowed: true,
@@ -75,9 +72,8 @@ func TestFileValidationStateMatrix(t *testing.T) {
 		{
 			status:                  model.FileValidationStatusBlocked,
 			wantDetailDownloadURL:   false,
-			wantDetailPreviewURL:    false,
 			wantDownloadCode:        uploadsecurity.CodeFileStateBlocked,
-			wantPreviewCode:         uploadsecurity.CodeFileStateBlocked,
+			wantPreviewCode:         uploadsecurity.CodeFileStateConflict,
 			wantRevalidationAllowed: false,
 		},
 	}
@@ -85,11 +81,11 @@ func TestFileValidationStateMatrix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
 			file := model.File{
-				Name:                    "matrix-image.png",
+				Name:                    "matrix-report.pdf",
 				Bucket:                  "files-cold",
-				ObjectName:              "private-object.png",
-				ContentType:             "image/png",
-				DetectedContentType:     "image/png",
+				ObjectName:              "private-object.pdf",
+				ContentType:             "application/pdf",
+				DetectedContentType:     "application/pdf",
 				Size:                    128,
 				ValidationStatus:        tt.status,
 				ValidationPolicyVersion: uploadsecurity.PolicyVersionV1,
@@ -104,9 +100,6 @@ func TestFileValidationStateMatrix(t *testing.T) {
 			}
 			if got := detail.DownloadURL != ""; got != tt.wantDetailDownloadURL {
 				t.Fatalf("detail download URL present = %v, want %v", got, tt.wantDetailDownloadURL)
-			}
-			if got := detail.PreviewURL != ""; got != tt.wantDetailPreviewURL {
-				t.Fatalf("detail preview URL present = %v, want %v", got, tt.wantDetailPreviewURL)
 			}
 
 			download, err := ResolveDownloadAccess(&file)
@@ -123,32 +116,22 @@ func TestFileValidationStateMatrix(t *testing.T) {
 				}
 			}
 
-			preview, err := ResolvePreviewAccess(&file)
-			if tt.wantPreviewCode != "" {
-				assertServiceUploadCode(t, err, tt.wantPreviewCode)
-			} else {
-				if err != nil {
-					t.Fatalf("ResolvePreviewAccess() error = %v", err)
-				}
-				if preview.ContentType != "image/png" ||
-					preview.Disposition != FileDispositionInline {
-					t.Fatalf("preview decision = %#v, want inline PNG", preview)
-				}
-			}
+			_, err = ResolvePreviewAccess(&file)
+			assertServiceUploadCode(t, err, tt.wantPreviewCode)
 
 			repository := &recordingFileRevalidationRepository{file: file}
-			store := &recordingFileStore{openContent: "historical image"}
+			store := &recordingFileStore{openContent: "historical pdf"}
 			validator := &recordingFileValidator{
 				result: uploadsecurity.Result{
 					Purpose:            uploadsecurity.PurposeManagedFile,
 					FileName:           file.Name,
-					CanonicalType:      uploadsecurity.TypePNG,
-					CanonicalExtension: ".png",
-					CanonicalMIME:      "image/png",
-					DetectedMIME:       "image/png",
+					CanonicalType:      uploadsecurity.TypePDF,
+					CanonicalExtension: ".pdf",
+					CanonicalMIME:      "application/pdf",
+					DetectedMIME:       "application/pdf",
 					Size:               file.Size,
 					PolicyVersion:      uploadsecurity.PolicyVersionV1,
-					Reader:             strings.NewReader("validated image"),
+					Reader:             strings.NewReader("validated pdf"),
 				},
 			}
 			revalidation := NewFileRevalidationService(

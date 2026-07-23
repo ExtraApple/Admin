@@ -11,6 +11,7 @@ func TestFileInfoJSONExposesValidationMetadataWithoutStorageDetails(t *testing.T
 		Name:                    "report.pdf",
 		ContentType:             "application/pdf",
 		DetectedContentType:     "application/pdf",
+		ContentSHA256:           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		Size:                    13,
 		UploaderID:              42,
 		ValidationStatus:        "validated",
@@ -32,6 +33,7 @@ func TestFileInfoJSONExposesValidationMetadataWithoutStorageDetails(t *testing.T
 
 	expected := map[string]any{
 		"detected_content_type":     "application/pdf",
+		"content_sha256":            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"validation_status":         "validated",
 		"validation_policy_version": "file-upload-v1",
 		"validation_error_code":     "",

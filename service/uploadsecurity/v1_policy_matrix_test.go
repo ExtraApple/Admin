@@ -18,21 +18,9 @@ func TestManagedFileV1AllowedTypeMatrix(t *testing.T) {
 		wantExtension string
 		wantMIME      string
 	}{
-		{"JPEG", "photo.jpeg", "image/jpeg", func(t *testing.T) []byte { return encodeTestJPEG(t) }, uploadsecurity.TypeJPEG, ".jpg", "image/jpeg"},
-		{"PNG", "photo.png", "image/png", func(t *testing.T) []byte { return encodeTestPNG(t) }, uploadsecurity.TypePNG, ".png", "image/png"},
-		{"WebP", "photo.webp", "image/webp", func(t *testing.T) []byte { return decodeTestWebP(t) }, uploadsecurity.TypeWebP, ".webp", "image/webp"},
 		{"PDF", "report.pdf", "application/pdf", func(*testing.T) []byte {
 			return []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\r\n")
 		}, uploadsecurity.TypePDF, ".pdf", "application/pdf"},
-		{"DOCX", "report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", func(t *testing.T) []byte {
-			return buildZIPFixture(t, ooxmlFixtureEntries(t, uploadsecurity.TypeDOCX))
-		}, uploadsecurity.TypeDOCX, ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-		{"XLSX", "report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", func(t *testing.T) []byte {
-			return buildZIPFixture(t, ooxmlFixtureEntries(t, uploadsecurity.TypeXLSX))
-		}, uploadsecurity.TypeXLSX, ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-		{"PPTX", "report.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", func(t *testing.T) []byte {
-			return buildZIPFixture(t, ooxmlFixtureEntries(t, uploadsecurity.TypePPTX))
-		}, uploadsecurity.TypePPTX, ".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
 		{"UTF-8 TXT", "notes.txt", "text/plain", func(*testing.T) []byte {
 			return []byte("plain UTF-8 文本\n")
 		}, uploadsecurity.TypeTXT, ".txt", "text/plain"},
@@ -75,27 +63,37 @@ func TestManagedFileV1ForbiddenTypeMatrix(t *testing.T) {
 		name         string
 		fileName     string
 		declaredMIME string
+		content      func(*testing.T) []byte
 	}{
-		{"ZIP archive", "archive.zip", "application/zip"},
-		{"RAR archive", "archive.rar", "application/vnd.rar"},
-		{"7Z archive", "archive.7z", "application/x-7z-compressed"},
-		{"legacy Word", "report.doc", "application/msword"},
-		{"legacy Excel", "report.xls", "application/vnd.ms-excel"},
-		{"legacy PowerPoint", "report.ppt", "application/vnd.ms-powerpoint"},
-		{"macro Word", "report.docm", "application/vnd.ms-word.document.macroenabled.12"},
-		{"macro Excel", "report.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12"},
-		{"macro PowerPoint", "report.pptm", "application/vnd.ms-powerpoint.presentation.macroenabled.12"},
-		{"HTML", "page.html", "text/html"},
-		{"SVG", "image.svg", "image/svg+xml"},
-		{"JavaScript", "script.js", "text/javascript"},
-		{"shell script", "script.sh", "application/x-sh"},
-		{"Windows executable", "program.exe", "application/vnd.microsoft.portable-executable"},
+		{"JPEG image", "photo.jpeg", "image/jpeg", func(t *testing.T) []byte { return encodeTestJPEG(t) }},
+		{"PNG image", "photo.png", "image/png", func(t *testing.T) []byte { return encodeTestPNG(t) }},
+		{"WebP image", "photo.webp", "image/webp", func(t *testing.T) []byte { return decodeTestWebP(t) }},
+		{"ZIP archive", "archive.zip", "application/zip", nil},
+		{"RAR archive", "archive.rar", "application/vnd.rar", nil},
+		{"7Z archive", "archive.7z", "application/x-7z-compressed", nil},
+		{"legacy Word", "report.doc", "application/msword", nil},
+		{"legacy Excel", "report.xls", "application/vnd.ms-excel", nil},
+		{"legacy PowerPoint", "report.ppt", "application/vnd.ms-powerpoint", nil},
+		{"Office Open XML Word", "report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", nil},
+		{"Office Open XML Excel", "report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", nil},
+		{"Office Open XML PowerPoint", "report.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", nil},
+		{"macro Word", "report.docm", "application/vnd.ms-word.document.macroenabled.12", nil},
+		{"macro Excel", "report.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12", nil},
+		{"macro PowerPoint", "report.pptm", "application/vnd.ms-powerpoint.presentation.macroenabled.12", nil},
+		{"HTML", "page.html", "text/html", nil},
+		{"SVG", "image.svg", "image/svg+xml", nil},
+		{"JavaScript", "script.js", "text/javascript", nil},
+		{"shell script", "script.sh", "application/x-sh", nil},
+		{"Windows executable", "program.exe", "application/vnd.microsoft.portable-executable", nil},
 	}
 
 	validator := uploadsecurity.NewManagedFileValidator()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := []byte("not allowed")
+			if tt.content != nil {
+				content = tt.content(t)
+			}
 			_, err := validator.Validate(context.Background(), uploadsecurity.Input{
 				Purpose:      uploadsecurity.PurposeManagedFile,
 				FileName:     tt.fileName,
@@ -117,7 +115,8 @@ func TestManagedFileV1RejectsMIMEAndDangerousDoubleExtensionMatrix(t *testing.T)
 		declaredMIME string
 		wantCode     uploadsecurity.Code
 	}{
-		{"declared MIME disagrees with extension and content", "report.pdf", "image/png", uploadsecurity.CodeFileTypeMismatch},
+		{"declared MIME outside managed-file policy", "report.pdf", "image/png", uploadsecurity.CodeFileTypeNotAllowed},
+		{"declared managed-file MIME disagrees with extension", "report.pdf", "text/plain", uploadsecurity.CodeFileTypeMismatch},
 		{"generic binary MIME is not accepted", "report.pdf", "application/octet-stream", uploadsecurity.CodeFileTypeNotAllowed},
 		{"executable double extension", "payload.exe.pdf", "application/pdf", uploadsecurity.CodeFileTypeNotAllowed},
 		{"script double extension", "payload.js.txt", "text/plain", uploadsecurity.CodeFileTypeNotAllowed},
@@ -138,6 +137,80 @@ func TestManagedFileV1RejectsMIMEAndDangerousDoubleExtensionMatrix(t *testing.T)
 				Reader:       bytesReader(validPDF),
 			})
 			assertUploadSecurityCode(t, err, tt.wantCode)
+		})
+	}
+}
+
+func TestV1PurposeSpecificValidatorsDoNotShareWhitelists(t *testing.T) {
+	imageUploads := []struct {
+		name         string
+		fileName     string
+		declaredMIME string
+		content      func(*testing.T) []byte
+	}{
+		{"JPEG", "portrait.jpeg", "image/jpeg", func(t *testing.T) []byte { return encodeTestJPEG(t) }},
+		{"PNG", "portrait.png", "image/png", func(t *testing.T) []byte { return encodeTestPNG(t) }},
+		{"WebP", "portrait.webp", "image/webp", func(t *testing.T) []byte { return decodeTestWebP(t) }},
+	}
+
+	managedValidator := uploadsecurity.NewManagedFileValidator()
+	avatarValidator := uploadsecurity.NewAvatarValidator()
+	for _, tt := range imageUploads {
+		t.Run("managed file rejects "+tt.name, func(t *testing.T) {
+			content := tt.content(t)
+			_, err := managedValidator.Validate(context.Background(), uploadsecurity.Input{
+				Purpose:      uploadsecurity.PurposeManagedFile,
+				FileName:     tt.fileName,
+				DeclaredMIME: tt.declaredMIME,
+				Size:         int64(len(content)),
+				MaxBytes:     int64(len(content)),
+				Reader:       bytesReader(content),
+			})
+			assertUploadSecurityCode(t, err, uploadsecurity.CodeFileTypeNotAllowed)
+		})
+
+		t.Run("avatar accepts "+tt.name, func(t *testing.T) {
+			content := tt.content(t)
+			result, err := avatarValidator.Validate(context.Background(), uploadsecurity.Input{
+				Purpose:      uploadsecurity.PurposeAvatar,
+				FileName:     tt.fileName,
+				DeclaredMIME: tt.declaredMIME,
+				Size:         int64(len(content)),
+				MaxBytes:     2 << 20,
+				Reader:       bytesReader(content),
+			})
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if result.Purpose != uploadsecurity.PurposeAvatar ||
+				(result.CanonicalType != uploadsecurity.TypeJPEG &&
+					result.CanonicalType != uploadsecurity.TypePNG) {
+				t.Fatalf("avatar result = %#v, want normalized JPEG or PNG", result)
+			}
+		})
+	}
+
+	managedUploads := []struct {
+		name         string
+		fileName     string
+		declaredMIME string
+		content      []byte
+	}{
+		{"PDF", "report.pdf", "application/pdf", []byte("%PDF-1.7\n%%EOF\r\n")},
+		{"TXT", "notes.txt", "text/plain", []byte("plain UTF-8\n")},
+		{"CSV", "report.csv", "text/csv", []byte("name,value\nalice,1\n")},
+	}
+	for _, tt := range managedUploads {
+		t.Run("avatar rejects "+tt.name, func(t *testing.T) {
+			_, err := avatarValidator.Validate(context.Background(), uploadsecurity.Input{
+				Purpose:      uploadsecurity.PurposeAvatar,
+				FileName:     tt.fileName,
+				DeclaredMIME: tt.declaredMIME,
+				Size:         int64(len(tt.content)),
+				MaxBytes:     2 << 20,
+				Reader:       bytesReader(tt.content),
+			})
+			assertUploadSecurityCode(t, err, uploadsecurity.CodeFileTypeNotAllowed)
 		})
 	}
 }

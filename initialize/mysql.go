@@ -40,6 +40,9 @@ func migrateDatabase(db *gorm.DB) error {
 	if err := backfillUploadValidationStatus(db); err != nil {
 		return fmt.Errorf("backfill upload validation status: %w", err)
 	}
+	if err := downgradeValidatedManagedFilesOutsideV1Policy(db); err != nil {
+		return fmt.Errorf("downgrade validated managed files outside V1 policy: %w", err)
+	}
 	return nil
 }
 
@@ -56,6 +59,25 @@ func backfillUploadValidationStatus(db *gorm.DB) error {
 		Where("(avatar_validation_status IS NULL OR avatar_validation_status = ?) AND avatar IS NOT NULL AND avatar <> ? AND avatar NOT LIKE ?", "", "", "%/browser/image/normal.png").
 		Update("avatar_validation_status", model.FileValidationStatusLegacyUnverified).Error; err != nil {
 		return fmt.Errorf("users: %w", err)
+	}
+	return nil
+}
+
+func downgradeValidatedManagedFilesOutsideV1Policy(db *gorm.DB) error {
+	allowedMIMEs := []string{
+		"application/pdf",
+		"text/plain",
+		"text/csv",
+	}
+	if err := db.Unscoped().
+		Model(&model.File{}).
+		Where(
+			"validation_status = ? AND (content_type IS NULL OR content_type NOT IN ?)",
+			model.FileValidationStatusValidated,
+			allowedMIMEs,
+		).
+		Update("validation_status", model.FileValidationStatusLegacyUnverified).Error; err != nil {
+		return fmt.Errorf("files: %w", err)
 	}
 	return nil
 }

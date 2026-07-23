@@ -254,6 +254,7 @@ func (r *recordingFileRevalidationRepository) UpdateValidation(
 	}
 	r.file.ContentType = update.ContentType
 	r.file.DetectedContentType = update.DetectedContentType
+	r.file.ContentSHA256 = update.ContentSHA256
 	r.file.ValidationStatus = update.Status
 	r.file.ValidationPolicyVersion = update.PolicyVersion
 	r.file.ValidationErrorCode = update.ErrorCode
@@ -303,6 +304,7 @@ func TestFileServiceStoresOnlyValidatedUploadResult(t *testing.T) {
 			CanonicalMIME:      "application/pdf",
 			DetectedMIME:       "application/pdf",
 			Size:               13,
+			ContentSHA256:      "0c339e699e5ff5f6f8f8d710b4d2e8053cb3dddf32980830f9e64bbd94c7eb2e",
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
 			Reader:             strings.NewReader("validated-pdf"),
 		}},
@@ -338,6 +340,12 @@ func TestFileServiceStoresOnlyValidatedUploadResult(t *testing.T) {
 		strings.Contains(store.putInput.Name, "unsafe-name") {
 		t.Fatalf("storage object name = %q, want server-generated .pdf name", store.putInput.Name)
 	}
+	if strings.Contains(
+		store.putInput.Name,
+		"0c339e699e5ff5f6f8f8d710b4d2e8053cb3dddf32980830f9e64bbd94c7eb2e",
+	) {
+		t.Fatalf("storage object name = %q, must not contain content digest", store.putInput.Name)
+	}
 	if store.putContent != "validated-pdf" {
 		t.Fatalf("storage content = %q, want validated reader content", store.putContent)
 	}
@@ -351,6 +359,7 @@ func TestFileServiceStoresOnlyValidatedUploadResult(t *testing.T) {
 		files.file.Size != 13 ||
 		files.file.UploaderID != 42 ||
 		files.file.ValidationStatus != model.FileValidationStatusValidated ||
+		files.file.ContentSHA256 != "0c339e699e5ff5f6f8f8d710b4d2e8053cb3dddf32980830f9e64bbd94c7eb2e" ||
 		files.file.ValidationPolicyVersion != uploadsecurity.PolicyVersionV1 ||
 		files.file.ValidationErrorCode != "" ||
 		files.file.ValidatedAt == nil {
@@ -360,7 +369,10 @@ func TestFileServiceStoresOnlyValidatedUploadResult(t *testing.T) {
 		t.Fatalf("validated_at = %v, want between %v and %v",
 			files.file.ValidatedAt, startedAt, finishedAt)
 	}
-	if info == nil || info.ID != 7 || info.Name != "report.pdf" {
+	if info == nil ||
+		info.ID != 7 ||
+		info.Name != "report.pdf" ||
+		info.ContentSHA256 != "0c339e699e5ff5f6f8f8d710b4d2e8053cb3dddf32980830f9e64bbd94c7eb2e" {
 		t.Fatalf("Upload() info = %#v, want created validated file", info)
 	}
 }
@@ -382,16 +394,16 @@ func TestListFilesReturnsValidationMetadata(t *testing.T) {
 
 	validatedAt := time.Date(2026, 7, 14, 9, 10, 11, 0, time.UTC)
 	file := model.File{
-		Name:                    "blocked.docx",
+		Name:                    "blocked.pdf",
 		Bucket:                  "files",
-		ObjectName:              "private-object.docx",
-		ContentType:             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		DetectedContentType:     "application/zip",
+		ObjectName:              "private-object.pdf",
+		ContentType:             "application/pdf",
+		DetectedContentType:     "application/pdf",
 		Size:                    128,
 		UploaderID:              42,
 		ValidationStatus:        model.FileValidationStatusBlocked,
 		ValidationPolicyVersion: model.FileUploadPolicyVersion,
-		ValidationErrorCode:     string(uploadsecurity.CodeOOXMLDangerousContent),
+		ValidationErrorCode:     string(uploadsecurity.CodeFileContentInvalid),
 		ValidatedAt:             &validatedAt,
 	}
 	if err := db.Create(&file).Error; err != nil {
@@ -457,13 +469,13 @@ func TestListFilesOrdersPaginatesFiltersAndPreservesValidationStates(t *testing.
 		},
 		{
 			Model:                   gorm.Model{CreatedAt: baseTime.Add(2 * time.Hour)},
-			Name:                    "blocked.docx",
+			Name:                    "blocked.pdf",
 			Bucket:                  "files",
-			ObjectName:              "team/blocked.docx",
-			ContentType:             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-			DetectedContentType:     "application/zip",
+			ObjectName:              "team/blocked.pdf",
+			ContentType:             "application/pdf",
+			DetectedContentType:     "application/pdf",
 			ValidationStatus:        model.FileValidationStatusBlocked,
-			ValidationErrorCode:     string(uploadsecurity.CodeOOXMLDangerousContent),
+			ValidationErrorCode:     string(uploadsecurity.CodeFileContentInvalid),
 			ValidationPolicyVersion: model.FileUploadPolicyVersion,
 		},
 		{
@@ -492,9 +504,9 @@ func TestListFilesOrdersPaginatesFiltersAndPreservesValidationStates(t *testing.
 	}
 	if firstPage[0].Name != "validated.png" ||
 		firstPage[0].ValidationStatus != model.FileValidationStatusValidated ||
-		firstPage[1].Name != "blocked.docx" ||
+		firstPage[1].Name != "blocked.pdf" ||
 		firstPage[1].ValidationStatus != model.FileValidationStatusBlocked ||
-		firstPage[1].ValidationErrorCode != string(uploadsecurity.CodeOOXMLDangerousContent) {
+		firstPage[1].ValidationErrorCode != string(uploadsecurity.CodeFileContentInvalid) {
 		t.Fatalf("ListFiles(first page) = %#v, want newest matching records with exact states", firstPage)
 	}
 
@@ -573,7 +585,7 @@ func TestGetFileReturnsValidationMetadataWithoutStorageURL(t *testing.T) {
 	}
 }
 
-func TestFileDetailServiceGeneratesBoundAccessURLsForValidatedImage(t *testing.T) {
+func TestFileDetailServiceGeneratesDownloadURLWithoutPreviewForValidatedFile(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -589,10 +601,10 @@ func TestFileDetailServiceGeneratesBoundAccessURLsForValidatedImage(t *testing.T
 	})
 
 	file := model.File{
-		Name:             "photo.png",
+		Name:             "report.pdf",
 		Bucket:           "files",
-		ObjectName:       "private-object.png",
-		ContentType:      "image/png",
+		ObjectName:       "private-object.pdf",
+		ContentType:      "application/pdf",
 		ValidationStatus: model.FileValidationStatusValidated,
 	}
 	if err := db.Create(&file).Error; err != nil {
@@ -621,7 +633,6 @@ func TestFileDetailServiceGeneratesBoundAccessURLsForValidatedImage(t *testing.T
 		path   string
 	}{
 		{"download", result.DownloadURL, fileaccess.ModeDownload, "/api/admin/files/" + strconv.FormatUint(uint64(file.ID), 10) + "/download"},
-		{"preview", result.PreviewURL, fileaccess.ModePreview, "/api/admin/files/" + strconv.FormatUint(uint64(file.ID), 10) + "/preview"},
 	} {
 		t.Run(access.name, func(t *testing.T) {
 			parsed, err := url.Parse(access.rawURL)
@@ -712,12 +723,14 @@ func TestFileDetailServiceRestrictsURLsByValidationStatusAndType(t *testing.T) {
 		status       string
 		contentType  string
 		wantDownload bool
-		wantPreview  bool
 	}{
-		{"validated PDF", model.FileValidationStatusValidated, "application/pdf", true, false},
-		{"legacy file", model.FileValidationStatusLegacyUnverified, "image/png", true, false},
-		{"temporary validation error", model.FileValidationStatusValidationError, "image/png", true, false},
-		{"blocked image", model.FileValidationStatusBlocked, "image/png", false, false},
+		{"validated PDF", model.FileValidationStatusValidated, "application/pdf", true},
+		{"validated TXT", model.FileValidationStatusValidated, "text/plain", true},
+		{"validated CSV", model.FileValidationStatusValidated, "text/csv", true},
+		{"stale validated image", model.FileValidationStatusValidated, "image/png", false},
+		{"legacy file", model.FileValidationStatusLegacyUnverified, "image/png", true},
+		{"temporary validation error", model.FileValidationStatusValidationError, "image/png", true},
+		{"blocked image", model.FileValidationStatusBlocked, "image/png", false},
 	}
 
 	for _, tt := range tests {
@@ -739,9 +752,6 @@ func TestFileDetailServiceRestrictsURLsByValidationStatusAndType(t *testing.T) {
 			}
 			if got := result.DownloadURL != ""; got != tt.wantDownload {
 				t.Fatalf("download URL present = %v, want %v (%q)", got, tt.wantDownload, result.DownloadURL)
-			}
-			if got := result.PreviewURL != ""; got != tt.wantPreview {
-				t.Fatalf("preview URL present = %v, want %v (%q)", got, tt.wantPreview, result.PreviewURL)
 			}
 		})
 	}
@@ -771,6 +781,25 @@ func TestResolveDownloadAccessUsesCanonicalMIMEForValidatedFile(t *testing.T) {
 		decision.ObjectName != file.ObjectName ||
 		decision.ValidationStatus != file.ValidationStatus {
 		t.Fatalf("decision = %#v, want trusted file access metadata", decision)
+	}
+}
+
+func TestResolveDownloadAccessRejectsValidatedTypeOutsideManagedWhitelist(t *testing.T) {
+	for _, contentType := range []string{
+		"image/jpeg",
+		"image/png",
+		"image/webp",
+	} {
+		t.Run(contentType, func(t *testing.T) {
+			_, err := ResolveDownloadAccess(&model.File{
+				Name:             "stale-validated-image",
+				Bucket:           "files",
+				ObjectName:       "private-object",
+				ContentType:      contentType,
+				ValidationStatus: model.FileValidationStatusValidated,
+			})
+			assertServiceUploadCode(t, err, uploadsecurity.CodeFileStateConflict)
+		})
 	}
 }
 
@@ -821,32 +850,26 @@ func TestResolveDownloadAccessRejectsBlockedFile(t *testing.T) {
 	}
 }
 
-func TestResolvePreviewAccessAllowsOnlyValidatedImagesInline(t *testing.T) {
-	for _, contentType := range []string{"image/jpeg", "image/png", "image/webp"} {
+func TestResolvePreviewAccessRejectsAllManagedFiles(t *testing.T) {
+	for _, contentType := range []string{
+		"application/pdf",
+		"text/plain",
+		"text/csv",
+		"image/jpeg",
+		"image/png",
+		"image/webp",
+	} {
 		t.Run(contentType, func(t *testing.T) {
 			file := model.File{
-				Name:             "preview-image",
+				Name:             "preview-candidate",
 				Bucket:           "files",
 				ObjectName:       "private-object",
 				ContentType:      contentType,
 				ValidationStatus: model.FileValidationStatusValidated,
 			}
 
-			decision, err := ResolvePreviewAccess(&file)
-			if err != nil {
-				t.Fatalf("ResolvePreviewAccess() error = %v", err)
-			}
-			if decision.ContentType != contentType {
-				t.Fatalf("ContentType = %q, want %q", decision.ContentType, contentType)
-			}
-			if decision.Disposition != FileDispositionInline {
-				t.Fatalf("Disposition = %q, want %q", decision.Disposition, FileDispositionInline)
-			}
-			if decision.Bucket != file.Bucket ||
-				decision.ObjectName != file.ObjectName ||
-				decision.ValidationStatus != file.ValidationStatus {
-				t.Fatalf("decision = %#v, want trusted preview metadata", decision)
-			}
+			_, err := ResolvePreviewAccess(&file)
+			assertServiceUploadCode(t, err, uploadsecurity.CodeFileStateConflict)
 		})
 	}
 }
@@ -861,7 +884,7 @@ func TestResolvePreviewAccessRejectsNonImagesAndDisallowedStates(t *testing.T) {
 		{"validated PDF", model.FileValidationStatusValidated, "application/pdf", uploadsecurity.CodeFileStateConflict},
 		{"legacy image", model.FileValidationStatusLegacyUnverified, "image/png", uploadsecurity.CodeFileStateConflict},
 		{"validation error image", model.FileValidationStatusValidationError, "image/png", uploadsecurity.CodeFileStateConflict},
-		{"blocked image", model.FileValidationStatusBlocked, "image/png", uploadsecurity.CodeFileStateBlocked},
+		{"blocked image", model.FileValidationStatusBlocked, "image/png", uploadsecurity.CodeFileStateConflict},
 	}
 
 	for _, tt := range tests {
@@ -948,6 +971,53 @@ func TestFileContentServiceVerifiesSignedDownloadBeforeOpeningTrustedObject(t *t
 	}
 	if string(body) != store.openContent {
 		t.Fatalf("content = %q, want %q", body, store.openContent)
+	}
+}
+
+func TestFileContentServiceRejectsPreviewBeforeOpeningObject(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	file := model.File{
+		Model:            gorm.Model{ID: 32},
+		Name:             "historical-image.png",
+		Bucket:           "files-cold",
+		ObjectName:       "private-object.png",
+		ContentType:      "image/png",
+		ValidationStatus: model.FileValidationStatusValidated,
+	}
+	repository := &recordingFileRevalidationRepository{file: file}
+	store := &recordingFileStore{openContent: "should not be opened"}
+	signer, err := fileaccess.NewSigner([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatalf("NewSigner() error = %v", err)
+	}
+	expiresAt := now.Add(5 * time.Minute).Unix()
+	signature, err := signer.Sign(fileaccess.Claims{
+		UserID:           42,
+		FileID:           file.ID,
+		Mode:             fileaccess.ModePreview,
+		ExpiresAt:        expiresAt,
+		ValidationStatus: file.ValidationStatus,
+	})
+	if err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+	contents := NewFileContentService(
+		signer,
+		store,
+		repository,
+		func() time.Time { return now },
+	)
+
+	_, err = contents.Open(context.Background(), FileAccessInput{
+		UserID:    42,
+		FileID:    file.ID,
+		ExpiresAt: expiresAt,
+		Signature: signature,
+		Mode:      fileaccess.ModePreview,
+	})
+	assertServiceUploadCode(t, err, uploadsecurity.CodeFileStateConflict)
+	if store.openCalls != 0 {
+		t.Fatalf("storage Open() calls = %d, want 0", store.openCalls)
 	}
 }
 
@@ -1257,6 +1327,10 @@ func TestFileContentServiceRejectsInvalidSignatureBeforeOpeningObject(t *testing
 }
 
 func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewritingObject(t *testing.T) {
+	const (
+		oldDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		newDigest = "1111111111111111111111111111111111111111111111111111111111111111"
+	)
 	validatedAt := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
 	file := model.File{
 		Model:            gorm.Model{ID: 21},
@@ -1264,6 +1338,7 @@ func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewrit
 		Bucket:           "files-cold",
 		ObjectName:       "private-object.pdf",
 		ContentType:      "application/pdf",
+		ContentSHA256:    oldDigest,
 		Size:             15,
 		ValidationStatus: model.FileValidationStatusLegacyUnverified,
 	}
@@ -1277,6 +1352,7 @@ func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewrit
 			CanonicalMIME:      "application/pdf",
 			DetectedMIME:       "application/pdf",
 			Size:               file.Size,
+			ContentSHA256:      newDigest,
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
 			Reader:             strings.NewReader("validated-copy"),
 		},
@@ -1314,6 +1390,7 @@ func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewrit
 	if repository.updateCalls != 1 ||
 		repository.update.ContentType != "application/pdf" ||
 		repository.update.DetectedContentType != "application/pdf" ||
+		repository.update.ContentSHA256 != newDigest ||
 		repository.update.Status != model.FileValidationStatusValidated ||
 		repository.update.PolicyVersion != uploadsecurity.PolicyVersionV1 ||
 		repository.update.ErrorCode != "" ||
@@ -1325,6 +1402,7 @@ func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewrit
 		info.ValidationStatus != model.FileValidationStatusValidated ||
 		info.ContentType != "application/pdf" ||
 		info.DetectedContentType != "application/pdf" ||
+		info.ContentSHA256 != newDigest ||
 		info.ValidationPolicyVersion != uploadsecurity.PolicyVersionV1 ||
 		info.ValidationErrorCode != "" ||
 		info.ValidatedAt != "2026-07-14 12:00:00" {
@@ -1333,6 +1411,7 @@ func TestFileRevalidationServiceMarksPassingHistoricalFileValidatedWithoutRewrit
 }
 
 func TestFileRevalidationServicePreservesStorageFailureFromObjectRead(t *testing.T) {
+	const oldDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	validatedAt := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
 	file := model.File{
 		Model:            gorm.Model{ID: 22},
@@ -1340,6 +1419,7 @@ func TestFileRevalidationServicePreservesStorageFailureFromObjectRead(t *testing
 		Bucket:           "files-cold",
 		ObjectName:       "private-object.pdf",
 		ContentType:      "application/pdf",
+		ContentSHA256:    oldDigest,
 		Size:             14,
 		ValidationStatus: model.FileValidationStatusLegacyUnverified,
 	}
@@ -1379,6 +1459,7 @@ func TestFileRevalidationServicePreservesStorageFailureFromObjectRead(t *testing
 	}
 	if repository.updateCalls != 1 ||
 		repository.file.ValidationStatus != model.FileValidationStatusValidationError ||
+		repository.file.ContentSHA256 != oldDigest ||
 		repository.file.ValidationErrorCode != string(uploadsecurity.CodeStorageUnavailable) {
 		t.Fatalf(
 			"validation failure update = %#v, persisted status=%q reason=%q; "+
@@ -1395,22 +1476,24 @@ func TestFileRevalidationServicePreservesStorageFailureFromObjectRead(t *testing
 }
 
 func TestFileRevalidationServiceMarksPolicyRejectionBlockedWithoutDeletingObject(t *testing.T) {
+	const oldDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	validatedAt := time.Date(2026, 7, 14, 12, 30, 0, 0, time.UTC)
 	file := model.File{
 		Model:                   gorm.Model{ID: 22},
-		Name:                    "historical.docx",
+		Name:                    "historical.pdf",
 		Bucket:                  "files",
-		ObjectName:              "private-object.docx",
-		ContentType:             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		DetectedContentType:     "application/zip",
+		ObjectName:              "private-object.pdf",
+		ContentType:             "application/pdf",
+		DetectedContentType:     "application/pdf",
+		ContentSHA256:           oldDigest,
 		Size:                    128,
 		ValidationStatus:        model.FileValidationStatusLegacyUnverified,
 		ValidationErrorCode:     "",
 		ValidationPolicyVersion: "",
 	}
-	policyErr := uploadsecurity.NewError(uploadsecurity.CodeOOXMLDangerousContent, errors.New("unsafe relationship"))
+	policyErr := uploadsecurity.NewError(uploadsecurity.CodeFileContentInvalid, errors.New("invalid PDF structure"))
 	repository := &recordingFileRevalidationRepository{file: file}
-	store := &recordingFileStore{openContent: "dangerous-ooxml"}
+	store := &recordingFileStore{openContent: "invalid-pdf"}
 	validator := &recordingFileValidator{err: policyErr}
 	revalidation := NewFileRevalidationService(
 		validator,
@@ -1427,9 +1510,10 @@ func TestFileRevalidationServiceMarksPolicyRejectionBlockedWithoutDeletingObject
 	if repository.updateCalls != 1 ||
 		repository.update.ContentType != file.ContentType ||
 		repository.update.DetectedContentType != file.DetectedContentType ||
+		repository.update.ContentSHA256 != oldDigest ||
 		repository.update.Status != model.FileValidationStatusBlocked ||
 		repository.update.PolicyVersion != uploadsecurity.PolicyVersionV1 ||
-		repository.update.ErrorCode != string(uploadsecurity.CodeOOXMLDangerousContent) ||
+		repository.update.ErrorCode != string(uploadsecurity.CodeFileContentInvalid) ||
 		repository.update.ValidatedAt == nil ||
 		!repository.update.ValidatedAt.Equal(validatedAt) {
 		t.Fatalf("validation update = %#v, want blocked policy result", repository.update)
@@ -1440,7 +1524,69 @@ func TestFileRevalidationServiceMarksPolicyRejectionBlockedWithoutDeletingObject
 	}
 }
 
+func TestFileRevalidationServiceBlocksHistoricalTypesOutsideManagedWhitelist(t *testing.T) {
+	const oldDigest = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	tests := []struct {
+		name        string
+		fileName    string
+		contentType string
+	}{
+		{
+			name:        "historical image",
+			fileName:    "historical.png",
+			contentType: "image/png",
+		},
+		{
+			name:        "historical office document",
+			fileName:    "historical.docx",
+			contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validatedAt := time.Date(2026, 7, 14, 12, 45, 0, 0, time.UTC)
+			file := model.File{
+				Model:               gorm.Model{ID: 26},
+				Name:                tt.fileName,
+				Bucket:              "files",
+				ObjectName:          "private-object",
+				ContentType:         tt.contentType,
+				ContentSHA256:       oldDigest,
+				Size:                16,
+				ValidationStatus:    model.FileValidationStatusLegacyUnverified,
+				ValidationErrorCode: "",
+			}
+			repository := &recordingFileRevalidationRepository{file: file}
+			store := &recordingFileStore{openContent: "historical-data"}
+			revalidation := NewFileRevalidationService(
+				uploadsecurity.NewManagedFileValidator(),
+				store,
+				repository,
+				1024,
+				func() time.Time { return validatedAt },
+			)
+
+			_, err := revalidation.Revalidate(context.Background(), file.ID)
+			assertServiceUploadCode(t, err, uploadsecurity.CodeFileTypeNotAllowed)
+			if repository.updateCalls != 1 ||
+				repository.update.ContentSHA256 != oldDigest ||
+				repository.update.Status != model.FileValidationStatusBlocked ||
+				repository.update.ErrorCode != string(uploadsecurity.CodeFileTypeNotAllowed) ||
+				repository.update.ValidatedAt == nil ||
+				!repository.update.ValidatedAt.Equal(validatedAt) {
+				t.Fatalf("validation update = %#v, want blocked result preserving prior digest", repository.update)
+			}
+			if store.openCalls != 1 || store.putCalls != 0 || store.deleteCalls != 0 {
+				t.Fatalf("storage calls: open=%d put=%d delete=%d, want 1, 0 and 0",
+					store.openCalls, store.putCalls, store.deleteCalls)
+			}
+		})
+	}
+}
+
 func TestFileRevalidationServiceMarksStorageFailureValidationErrorForRetry(t *testing.T) {
+	const oldDigest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	validatedAt := time.Date(2026, 7, 14, 13, 0, 0, 0, time.UTC)
 	file := model.File{
 		Model:                   gorm.Model{ID: 23},
@@ -1449,6 +1595,7 @@ func TestFileRevalidationServiceMarksStorageFailureValidationErrorForRetry(t *te
 		ObjectName:              "private-object.pdf",
 		ContentType:             "application/pdf",
 		DetectedContentType:     "application/pdf",
+		ContentSHA256:           oldDigest,
 		Size:                    128,
 		ValidationStatus:        model.FileValidationStatusLegacyUnverified,
 		ValidationPolicyVersion: "",
@@ -1473,6 +1620,7 @@ func TestFileRevalidationServiceMarksStorageFailureValidationErrorForRetry(t *te
 	if repository.updateCalls != 1 ||
 		repository.update.ContentType != file.ContentType ||
 		repository.update.DetectedContentType != file.DetectedContentType ||
+		repository.update.ContentSHA256 != oldDigest ||
 		repository.update.Status != model.FileValidationStatusValidationError ||
 		repository.update.PolicyVersion != uploadsecurity.PolicyVersionV1 ||
 		repository.update.ErrorCode != string(uploadsecurity.CodeStorageUnavailable) ||
@@ -1502,6 +1650,7 @@ func TestFileRevalidationServiceMarksTemporaryValidationFailureForRetry(t *testi
 				Bucket:              "files",
 				ObjectName:          "private-object.pdf",
 				ContentType:         "application/pdf",
+				ContentSHA256:       "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 				Size:                128,
 				ValidationStatus:    model.FileValidationStatusValidationError,
 				ValidationErrorCode: string(uploadsecurity.CodeStorageUnavailable),
@@ -1523,6 +1672,7 @@ func TestFileRevalidationServiceMarksTemporaryValidationFailureForRetry(t *testi
 				t.Fatalf("Revalidate() error = %v, want temporary error %v", err, validationErr)
 			}
 			if repository.updateCalls != 1 ||
+				repository.update.ContentSHA256 != file.ContentSHA256 ||
 				repository.update.Status != model.FileValidationStatusValidationError ||
 				repository.update.PolicyVersion != uploadsecurity.PolicyVersionV1 ||
 				repository.update.ErrorCode != string(errorCode) ||
@@ -1856,7 +2006,7 @@ func TestFileServiceUsesManagedFileValidationBeforeStorage(t *testing.T) {
 			contentType: "image/png",
 			content:     validPDF,
 			maxBytes:    1024,
-			wantCode:    uploadsecurity.CodeFileTypeMismatch,
+			wantCode:    uploadsecurity.CodeFileTypeNotAllowed,
 		},
 		{
 			name:        "content is malformed",
@@ -1936,7 +2086,7 @@ func TestManagedFileUploadEndToEndUsesOnlyValidatedSystemObjectKeys(t *testing.T
 			fileName:    "quarterly-report.pdf",
 			contentType: "image/png",
 			content:     validPDF,
-			wantCode:    uploadsecurity.CodeFileTypeMismatch,
+			wantCode:    uploadsecurity.CodeFileTypeNotAllowed,
 		},
 		{
 			name:        "damaged allowed content is rejected before persistence",
@@ -2054,6 +2204,7 @@ func TestFileServiceDeletesStoredObjectWhenRecordCreationFails(t *testing.T) {
 	const (
 		databaseDetail = "mysql password=database-secret"
 		deleteDetail   = "minio access-key=delete-secret"
+		contentDigest  = "4974036fd654294eb5da8a89f1c4ce8863c7c3e3b1c8f5e1f3a00d6e52a446f8"
 	)
 	logCore, observedLogs := observer.New(zap.ErrorLevel)
 	originalLogger := global.Logger
@@ -2073,6 +2224,7 @@ func TestFileServiceDeletesStoredObjectWhenRecordCreationFails(t *testing.T) {
 			CanonicalMIME:      "application/pdf",
 			DetectedMIME:       "application/pdf",
 			Size:               13,
+			ContentSHA256:      contentDigest,
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
 			Reader:             strings.NewReader("validated-pdf"),
 		}},
@@ -2121,6 +2273,7 @@ func TestFileServiceDeletesStoredObjectWhenRecordCreationFails(t *testing.T) {
 		}
 		if strings.Contains(encoded, databaseDetail) ||
 			strings.Contains(encoded, deleteDetail) ||
+			strings.Contains(encoded, contentDigest) ||
 			strings.Contains(encoded, store.putInput.Name) {
 			t.Fatalf("controlled log %q leaked sensitive detail", encoded)
 		}

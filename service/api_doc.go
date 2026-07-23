@@ -186,10 +186,10 @@ func resolveOpenAPIDescription(method, path string, api model.API) string {
 }
 
 var openAPIRouteDescriptions = map[string]string{
-	"POST /api/admin/files":                "管理员业务文件上传只能包含一个名为 file 的文件 part。V1 允许 JPEG、PNG、WebP、PDF、DOCX、XLSX、PPTX、UTF-8 TXT、UTF-8 CSV；扩展名、声明 MIME、检测 MIME 和专用验证结果必须一致，文件通过验证后才会写入对象存储。",
-	"GET /api/admin/files/:id":             "返回文件验证状态 validated、legacy_unverified、validation_error、blocked 及可信元数据。download_url 仅在状态允许下载时返回；preview_url 仅为 validated JPEG、PNG、WebP 返回；不会暴露 MinIO 直连地址。",
+	"POST /api/admin/files":                "管理员普通文件上传只能包含一个名为 file 的文件 part。V1 只允许 PDF、UTF-8 TXT、UTF-8 CSV，当前不支持 Office 文档，也不支持图片；扩展名、声明 MIME、检测 MIME 和专用验证结果必须一致，文件通过验证后才会写入对象存储。响应元数据包含服务端计算的 content_sha256。",
+	"GET /api/admin/files/:id":             "返回文件验证状态 validated、legacy_unverified、validation_error、blocked、content_sha256 及其他可信元数据。download_url 仅在状态允许下载时返回；不会暴露 MinIO 直连地址。",
 	"GET /api/admin/files/:id/download":    "使用 JWT、动态 API 权限、有效期和 HMAC 签名下载文件。validated 文件使用规范 MIME；legacy_unverified 和 validation_error 强制作为 application/octet-stream 附件；blocked 拒绝访问。",
-	"GET /api/admin/files/:id/preview":     "使用 JWT、动态 API 权限、有效期和 HMAC 签名内联预览，仅允许 validated JPEG、PNG、WebP，其他格式或状态返回稳定冲突错误。",
+	"GET /api/admin/files/:id/preview":     "该兼容路由不提供管理员普通文件预览；当前策略始终返回 HTTP 409 和稳定文件状态冲突错误，不读取或返回对象内容。",
 	"POST /api/admin/files/:id/revalidate": "仅允许重新验证 legacy_unverified 或 validation_error 文件；通过后更新为 validated，明确策略拒绝更新为 blocked，临时基础设施错误更新为 validation_error。",
 	"POST /api/user/avatar":                "头像上传只能包含一个名为 file 的文件 part，仅接受可完整解码的静态 JPEG、PNG、WebP。系统移除非像素元数据，按比例缩放至最大 1,024×1,024，并根据透明通道重新编码为 JPEG 或 PNG。",
 	"DELETE /api/user/avatar":              "清除当前可信头像标识并恢复 /api/avatars/default；旧系统头像对象在数据库更新成功后清理，清理失败不会回滚恢复结果。",
@@ -548,7 +548,6 @@ func requiresBearerAuth(path string, api model.API) bool {
 // buildOpenAPIResponses 构建通用响应并补充文件安全相关状态。
 func buildOpenAPIResponses(method, path string) map[string]any {
 	responses := map[string]any{
-		"200": buildOpenAPISuccessResponse(method, path),
 		"400": map[string]any{
 			"description": "bad request",
 			"content": map[string]any{
@@ -580,8 +579,12 @@ func buildOpenAPIResponses(method, path string) map[string]any {
 			},
 		},
 	}
+	route := method + " " + path
+	if _, rejectsSuccess := openAPINoSuccessRoutes[route]; !rejectsSuccess {
+		responses["200"] = buildOpenAPISuccessResponse(method, path)
+	}
 
-	for _, code := range openAPIAdditionalResponseCodes[method+" "+path] {
+	for _, code := range openAPIAdditionalResponseCodes[route] {
 		responses[code] = openAPIErrorResponse(code)
 	}
 	return responses
@@ -667,20 +670,9 @@ var openAPIJSONResponseSchemas = map[string]reflect.Type{
 var openAPIBinaryResponseTypes = map[string][]string{
 	"GET /api/admin/files/:id/download": {
 		"application/octet-stream",
-		"image/jpeg",
-		"image/png",
-		"image/webp",
 		"application/pdf",
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		"text/plain",
 		"text/csv",
-	},
-	"GET /api/admin/files/:id/preview": {
-		"image/jpeg",
-		"image/png",
-		"image/webp",
 	},
 	"GET /api/avatars/:user_id": {
 		"image/jpeg",
@@ -689,6 +681,10 @@ var openAPIBinaryResponseTypes = map[string][]string{
 	"GET /api/avatars/default": {
 		"image/png",
 	},
+}
+
+var openAPINoSuccessRoutes = map[string]struct{}{
+	"GET /api/admin/files/:id/preview": {},
 }
 
 var openAPIAdditionalResponseCodes = map[string][]string{

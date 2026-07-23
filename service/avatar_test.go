@@ -29,6 +29,8 @@ type recordingAvatarRepository struct {
 	updateErr     error
 }
 
+const normalizedAvatarSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func (r *recordingAvatarRepository) FindByID(
 	_ context.Context,
 	userID uint,
@@ -74,6 +76,7 @@ func TestAvatarServiceStoresNormalizedOutputAndTrustedMetadata(t *testing.T) {
 			DetectedMIME:       "image/png",
 			Size:               int64(len("normalized-avatar")),
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
+			ContentSHA256:      normalizedAvatarSHA256,
 			Reader:             strings.NewReader("normalized-avatar"),
 		},
 	}
@@ -119,7 +122,8 @@ func TestAvatarServiceStoresNormalizedOutputAndTrustedMetadata(t *testing.T) {
 		strings.Contains(store.putInput.Name, "portrait") ||
 		store.putInput.ContentType != "image/jpeg" ||
 		store.putInput.Size != int64(len("normalized-avatar")) ||
-		store.putContent != "normalized-avatar" {
+		store.putContent != "normalized-avatar" ||
+		strings.Contains(store.putInput.Name, normalizedAvatarSHA256) {
 		t.Fatalf("stored avatar = input %#v content %q, want normalized JPEG in user namespace",
 			store.putInput, store.putContent)
 	}
@@ -127,6 +131,7 @@ func TestAvatarServiceStoresNormalizedOutputAndTrustedMetadata(t *testing.T) {
 		users.userID != 42 ||
 		users.update.ObjectName != store.putInput.Name ||
 		users.update.ContentType != "image/jpeg" ||
+		users.update.ContentSHA256 != normalizedAvatarSHA256 ||
 		users.update.ValidationStatus != model.FileValidationStatusValidated ||
 		users.update.ValidatedAt == nil ||
 		!users.update.ValidatedAt.Equal(validatedAt) {
@@ -137,6 +142,7 @@ func TestAvatarServiceStoresNormalizedOutputAndTrustedMetadata(t *testing.T) {
 		result.User.ID != 42 ||
 		result.User.AvatarObjectName != store.putInput.Name ||
 		result.User.AvatarContentType != "image/jpeg" ||
+		result.User.AvatarContentSHA256 != normalizedAvatarSHA256 ||
 		result.User.AvatarValidationStatus != model.FileValidationStatusValidated ||
 		result.User.AvatarValidatedAt == nil ||
 		!result.User.AvatarValidatedAt.Equal(validatedAt) {
@@ -225,6 +231,7 @@ func TestAvatarServiceDeletesOldTrustedObjectAfterCommittedReplacement(t *testin
 			DetectedMIME:       "image/png",
 			Size:               int64(len("normalized-avatar")),
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
+			ContentSHA256:      normalizedAvatarSHA256,
 			Reader:             strings.NewReader("normalized-avatar"),
 		},
 	}
@@ -332,6 +339,7 @@ func TestAvatarServiceKeepsNewObjectWhenDatabaseCommitOutcomeIsZeroValue(t *test
 			DetectedMIME:       "image/jpeg",
 			Size:               int64(len("normalized-avatar")),
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
+			ContentSHA256:      normalizedAvatarSHA256,
 			Reader:             strings.NewReader("normalized-avatar"),
 		},
 	}
@@ -424,6 +432,7 @@ func TestAvatarServiceDoesNotDeleteNewObjectAfterCommittedDatabaseUpdate(t *test
 			DetectedMIME:       "image/jpeg",
 			Size:               int64(len("normalized-avatar")),
 			PolicyVersion:      uploadsecurity.PolicyVersionV1,
+			ContentSHA256:      normalizedAvatarSHA256,
 			Reader:             strings.NewReader("normalized-avatar"),
 		},
 	}
@@ -474,6 +483,10 @@ func TestAvatarServiceDoesNotDeleteNewObjectAfterCommittedDatabaseUpdate(t *test
 	if persisted.AvatarObjectName != store.putInput.Name {
 		t.Fatalf("persisted avatar = %q, want new object %q",
 			persisted.AvatarObjectName, store.putInput.Name)
+	}
+	if persisted.AvatarContentSHA256 != normalizedAvatarSHA256 {
+		t.Fatalf("persisted avatar SHA-256 = %q, want %q",
+			persisted.AvatarContentSHA256, normalizedAvatarSHA256)
 	}
 	if store.deleteCalls != 1 || store.deleteName != oldObject {
 		t.Fatalf("cleanup deleted %d object(s), last=%q; want only old object %q",
@@ -568,6 +581,7 @@ func TestAvatarServiceRestoresDefaultBeforeDeletingOldTrustedObject(t *testing.T
 		user: model.User{
 			AvatarObjectName:       oldObject,
 			AvatarContentType:      "image/jpeg",
+			AvatarContentSHA256:    normalizedAvatarSHA256,
 			AvatarValidationStatus: model.FileValidationStatusValidated,
 			AvatarValidatedAt: func() *time.Time {
 				value := time.Date(2026, 7, 14, 15, 0, 0, 0, time.UTC)
@@ -591,6 +605,7 @@ func TestAvatarServiceRestoresDefaultBeforeDeletingOldTrustedObject(t *testing.T
 	}
 	if users.update.ObjectName != "" ||
 		users.update.ContentType != "" ||
+		users.update.ContentSHA256 != "" ||
 		users.update.ValidationStatus != "" ||
 		users.update.ValidatedAt != nil {
 		t.Fatalf("default avatar update = %#v, want cleared trusted fields", users.update)
@@ -603,9 +618,42 @@ func TestAvatarServiceRestoresDefaultBeforeDeletingOldTrustedObject(t *testing.T
 	}
 	if user.AvatarObjectName != "" ||
 		user.AvatarContentType != "" ||
+		user.AvatarContentSHA256 != "" ||
 		user.AvatarValidationStatus != "" ||
 		user.AvatarValidatedAt != nil {
 		t.Fatalf("RestoreDefault() user = %#v, want cleared trusted avatar fields", user)
+	}
+}
+
+func TestAvatarServiceRestoresDefaultWhenOnlyDigestRemains(t *testing.T) {
+	store := &recordingFileStore{}
+	users := &recordingAvatarRepository{
+		user: model.User{
+			AvatarContentSHA256: normalizedAvatarSHA256,
+		},
+	}
+	avatars := NewAvatarService(
+		uploadsecurity.NewAvatarValidator(),
+		store,
+		users,
+		time.Now,
+	)
+
+	user, err := avatars.RestoreDefault(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("RestoreDefault() error = %v", err)
+	}
+	if users.updateCalls != 1 {
+		t.Fatalf("avatar update calls = %d, want 1 for residual digest cleanup", users.updateCalls)
+	}
+	if users.update.ContentSHA256 != "" {
+		t.Fatalf("default avatar update digest = %q, want empty", users.update.ContentSHA256)
+	}
+	if store.deleteCalls != 0 {
+		t.Fatalf("avatar delete calls = %d, want 0 without a trusted object name", store.deleteCalls)
+	}
+	if user == nil || user.AvatarContentSHA256 != "" {
+		t.Fatalf("RestoreDefault() user = %#v, want cleared residual digest", user)
 	}
 }
 
@@ -641,6 +689,7 @@ func TestAvatarServiceRestoreDefaultIsIdempotentWhenAlreadyDefault(t *testing.T)
 	if user == nil ||
 		user.AvatarObjectName != "" ||
 		user.AvatarContentType != "" ||
+		user.AvatarContentSHA256 != "" ||
 		user.AvatarValidationStatus != "" ||
 		user.AvatarValidatedAt != nil {
 		t.Fatalf("RestoreDefault() user = %#v, want default avatar fields", user)
@@ -669,6 +718,7 @@ func TestAvatarServiceKeepsDefaultWhenRestoreCleanupFails(t *testing.T) {
 		user: model.User{
 			AvatarObjectName:       oldObject,
 			AvatarContentType:      "image/jpeg",
+			AvatarContentSHA256:    normalizedAvatarSHA256,
 			AvatarValidationStatus: model.FileValidationStatusValidated,
 		},
 	}
@@ -688,6 +738,7 @@ func TestAvatarServiceKeepsDefaultWhenRestoreCleanupFails(t *testing.T) {
 	}
 	if user.AvatarObjectName != "" ||
 		user.AvatarContentType != "" ||
+		user.AvatarContentSHA256 != "" ||
 		user.AvatarValidationStatus != "" ||
 		user.AvatarValidatedAt != nil {
 		t.Fatalf("RestoreDefault() user = %#v, want default avatar despite cleanup failure", user)
@@ -715,6 +766,7 @@ func TestAvatarServicePreservesTrustedAvatarWhenRestoreUpdateFails(t *testing.T)
 		user: model.User{
 			AvatarObjectName:       oldObject,
 			AvatarContentType:      "image/png",
+			AvatarContentSHA256:    normalizedAvatarSHA256,
 			AvatarValidationStatus: model.FileValidationStatusValidated,
 		},
 		updateErr: errors.New(databaseError),
@@ -740,6 +792,7 @@ func TestAvatarServicePreservesTrustedAvatarWhenRestoreUpdateFails(t *testing.T)
 	}
 	if users.user.AvatarObjectName != oldObject ||
 		users.user.AvatarContentType != "image/png" ||
+		users.user.AvatarContentSHA256 != normalizedAvatarSHA256 ||
 		users.user.AvatarValidationStatus != model.FileValidationStatusValidated {
 		t.Fatalf("original avatar = %#v, want unchanged after update failure", users.user)
 	}
