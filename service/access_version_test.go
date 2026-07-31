@@ -161,10 +161,9 @@ func TestAccessVersionRepositoryEnsureAndIncrementJoinsCallerTransaction(t *test
 		t.Fatalf("create user for access-version increment: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	rollback := errors.New("rollback caller transaction")
 	err := db.Transaction(func(tx *gorm.DB) error {
-		if _, err := repository.EnsureAndIncrement(tx, user.ID); err != nil {
+		if _, err := NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID); err != nil {
 			return err
 		}
 
@@ -184,7 +183,7 @@ func TestAccessVersionRepositoryEnsureAndIncrementJoinsCallerTransaction(t *test
 		t.Fatalf("caller transaction error = %v, want rollback sentinel", err)
 	}
 
-	_, err = repository.CurrentVersion(user.ID)
+	_, err = NewAccessVersionRepository(db).CurrentVersion(user.ID)
 	if !errors.Is(err, ErrAccessVersionNotFound) {
 		t.Fatalf(
 			"version after caller rollback error = %v, want ErrAccessVersionNotFound",
@@ -216,10 +215,9 @@ func TestAccessVersionRepositoryEnsureAndIncrementReturnsFinalVersion(t *testing
 		t.Fatalf("create existing access version: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	var finalVersion int
 	err := db.Transaction(func(tx *gorm.DB) error {
-		version, err := repository.EnsureAndIncrement(tx, user.ID)
+		version, err := NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 		if err != nil {
 			return err
 		}
@@ -233,7 +231,7 @@ func TestAccessVersionRepositoryEnsureAndIncrementReturnsFinalVersion(t *testing
 		t.Fatalf("returned final version = %d, want 6", finalVersion)
 	}
 
-	storedVersion, err := repository.CurrentVersion(user.ID)
+	storedVersion, err := NewAccessVersionRepository(db).CurrentVersion(user.ID)
 	if err != nil {
 		t.Fatalf("read incremented access version: %v", err)
 	}
@@ -298,10 +296,9 @@ func TestAccessVersionRepositoryEnsureAndIncrementDoesNotWriteLegacyColumn(t *te
 		t.Fatalf("create authorization access version: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	var finalVersion int
 	err := db.Transaction(func(tx *gorm.DB) error {
-		version, err := repository.EnsureAndIncrement(tx, user.ID)
+		version, err := NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 		if err != nil {
 			return err
 		}
@@ -362,9 +359,8 @@ func TestAccessVersionRepositoryEnsureAndIncrementDoesNotRequireLegacyUserRow(t 
 		t.Fatalf("create access version without mirror target: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	err := db.Transaction(func(tx *gorm.DB) error {
-		version, err := repository.EnsureAndIncrement(tx, 1000)
+		version, err := NewAccessVersionRepository(tx).EnsureAndIncrement(1000)
 		if err != nil {
 			return err
 		}
@@ -380,7 +376,7 @@ func TestAccessVersionRepositoryEnsureAndIncrementDoesNotRequireLegacyUserRow(t 
 		t.Fatalf("increment version without legacy user row: %v", err)
 	}
 
-	version, err := repository.CurrentVersion(1000)
+	version, err := NewAccessVersionRepository(db).CurrentVersion(1000)
 	if err != nil {
 		t.Fatalf("read access version without legacy user row: %v", err)
 	}
@@ -464,9 +460,8 @@ func TestAccessVersionMetricsCountSuccessfulIncrement(t *testing.T) {
 	}
 
 	metrics := NewAccessVersionMetrics()
-	repository := NewAccessVersionRepository(db, metrics)
 	if err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := repository.EnsureAndIncrement(tx, user.ID)
+		_, err := NewAccessVersionRepository(tx, metrics).EnsureAndIncrement(user.ID)
 		return err
 	}); err != nil {
 		t.Fatalf("increment access version: %v", err)
@@ -514,9 +509,8 @@ func TestAccessVersionMetricsCountMissingRowAfterEnsureAndIncrement(
 	}
 
 	metrics := NewAccessVersionMetrics()
-	repository := NewAccessVersionRepository(db, metrics)
 	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := repository.EnsureAndIncrement(tx, user.ID)
+		_, err := NewAccessVersionRepository(tx, metrics).EnsureAndIncrement(user.ID)
 		return err
 	})
 	if !errors.Is(err, ErrAccessVersionNotFound) {

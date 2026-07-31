@@ -147,7 +147,7 @@ func inferAPIGroup(path string) string {
 // inferAPINeedAuth 根据路由路径推断 API 是否需要登录鉴权。
 func inferAPINeedAuth(path string) int {
 	switch path {
-	case "/api/login", "/api/register", "/api/captcha":
+	case "/api/login", "/api/register", "/api/captcha", "/api/refresh":
 		return 0
 	default:
 		if strings.HasPrefix(path, "/api/dicts/") ||

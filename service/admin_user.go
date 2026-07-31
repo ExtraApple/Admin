@@ -61,8 +61,7 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 		if err := tx.Delete(&user).Error; err != nil {
 			return err
 		}
-		_, err := NewAccessVersionRepository(tx).
-			EnsureAndIncrement(tx, targetID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(targetID)
 		return err
 	})
 }
@@ -108,8 +107,7 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 		if err := tx.Model(&target).Updates(updates).Error; err != nil {
 			return err
 		}
-		_, err := NewAccessVersionRepository(tx).
-			EnsureAndIncrement(tx, targetID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(targetID)
 		return err
 	}); err != nil {
 		return nil, errors.New("修改失败")
@@ -145,8 +143,7 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 		if err := tx.Model(&user).Update("status", newStatus).Error; err != nil {
 			return err
 		}
-		_, err := NewAccessVersionRepository(tx).
-			EnsureAndIncrement(tx, targetID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(targetID)
 		return err
 	}); err != nil {
 		return 0, errors.New("操作失败")
@@ -172,8 +169,7 @@ func KickUserByAdmin(operatorID, targetID uint) error {
 	}
 
 	return global.DB.Transaction(func(tx *gorm.DB) error {
-		_, err := NewAccessVersionRepository(tx).
-			EnsureAndIncrement(tx, targetID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(targetID)
 		return err
 	})
 }

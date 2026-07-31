@@ -87,6 +87,123 @@ func TestSyncAPIsGeneratesFileAccessPermissionsAndKeepsAvatarRoutesPublic(
 	}
 }
 
+func TestSyncAPIsKeepsRefreshRoutePublic(t *testing.T) {
+	db := setupAPITestDB(t)
+	if _, err := SyncAPIs([]dto.SyncAPIItem{
+		{Method: "POST", Path: "/api/refresh"},
+	}); err != nil {
+		t.Fatalf("sync refresh API failed: %v", err)
+	}
+	if _, _, err := SyncAPIPermissions(); err != nil {
+		t.Fatalf("sync refresh API permission failed: %v", err)
+	}
+
+	var api model.API
+	if err := db.Where("method = ? AND path = ?", "POST", "/api/refresh").
+		First(&api).Error; err != nil {
+		t.Fatalf("find synced refresh API failed: %v", err)
+	}
+	if api.NeedAuth != 0 || api.PermissionCode != "" {
+		t.Fatalf(
+			"POST /api/refresh should remain public, got need_auth=%d permission_code=%q",
+			api.NeedAuth,
+			api.PermissionCode,
+		)
+	}
+
+	var permissionCount int64
+	if err := db.Model(&model.Permission{}).
+		Where("code = ?", "refresh.post").
+		Count(&permissionCount).Error; err != nil {
+		t.Fatalf("count refresh permission failed: %v", err)
+	}
+	if permissionCount != 0 {
+		t.Fatalf("refresh.post permission count = %d, want 0", permissionCount)
+	}
+}
+
+func TestSyncAPIsRepairsExistingRefreshRouteMetadata(t *testing.T) {
+	db := setupAPITestDB(t)
+	stale := model.API{
+		Name:           "POST /api/refresh",
+		Method:         "POST",
+		Path:           "/api/refresh",
+		PermissionCode: "refresh.post",
+		Status:         1,
+		NeedAuth:       1,
+		NeedAudit:      1,
+	}
+	if err := db.Create(&stale).Error; err != nil {
+		t.Fatalf("create stale refresh API metadata: %v", err)
+	}
+
+	if _, err := SyncAPIs([]dto.SyncAPIItem{
+		{Method: "POST", Path: "/api/refresh"},
+	}); err != nil {
+		t.Fatalf("resync existing refresh API failed: %v", err)
+	}
+	if _, _, err := SyncAPIPermissions(); err != nil {
+		t.Fatalf("resync existing refresh API permission failed: %v", err)
+	}
+
+	var repaired model.API
+	if err := db.First(&repaired, stale.ID).Error; err != nil {
+		t.Fatalf("read repaired refresh API metadata: %v", err)
+	}
+	if repaired.NeedAuth != 0 || repaired.PermissionCode != "" {
+		t.Fatalf(
+			"existing POST /api/refresh metadata was not repaired: need_auth=%d permission_code=%q",
+			repaired.NeedAuth,
+			repaired.PermissionCode,
+		)
+	}
+
+	var permissionCount int64
+	if err := db.Model(&model.Permission{}).
+		Where("code = ?", "refresh.post").
+		Count(&permissionCount).Error; err != nil {
+		t.Fatalf("count repaired refresh permission failed: %v", err)
+	}
+	if permissionCount != 0 {
+		t.Fatalf("refresh.post permission count after repair = %d, want 0", permissionCount)
+	}
+}
+
+func TestSyncAPIsLeavesOtherExistingPublicMetadataUnchanged(t *testing.T) {
+	db := setupAPITestDB(t)
+	existing := model.API{
+		Name:           "POST /api/login",
+		Method:         "POST",
+		Path:           "/api/login",
+		PermissionCode: "custom.login",
+		Status:         1,
+		NeedAuth:       1,
+		NeedAudit:      1,
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing login API metadata: %v", err)
+	}
+
+	if _, err := SyncAPIs([]dto.SyncAPIItem{
+		{Method: "POST", Path: "/api/login"},
+	}); err != nil {
+		t.Fatalf("resync existing login API failed: %v", err)
+	}
+
+	var stored model.API
+	if err := db.First(&stored, existing.ID).Error; err != nil {
+		t.Fatalf("read existing login API metadata: %v", err)
+	}
+	if stored.NeedAuth != existing.NeedAuth ||
+		stored.PermissionCode != existing.PermissionCode {
+		t.Fatalf(
+			"unrelated public metadata changed: need_auth=%d permission_code=%q",
+			stored.NeedAuth,
+			stored.PermissionCode,
+		)
+	}
+}
+
 func setupAPITestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 

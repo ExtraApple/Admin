@@ -13,7 +13,7 @@ import (
 )
 
 // JWTAuth 返回一个 Gin 中间件，验证请求头中的 Bearer Token
-func JWTAuth(secret string) gin.HandlerFunc {
+func JWTAuth(cfg service.JWTConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -28,8 +28,11 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		}
 
 		tokenStr := parts[1]
-		claims, err := utils.ParseToken(tokenStr, secret)
-		if err != nil {
+		claims, err := utils.ParseToken(tokenStr, cfg.Secret)
+		if err != nil || !claims.HasPurpose(
+			utils.TokenPurposeAccess,
+			cfg.LegacyTokenPurposeConfig(),
+		) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Token 无效或已过期"})
 			return
 		}

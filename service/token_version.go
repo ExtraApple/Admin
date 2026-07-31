@@ -53,7 +53,7 @@ func incrementAccessVersionsForUsers(
 
 	repository := NewAccessVersionRepository(tx)
 	for _, userID := range userIDs {
-		if _, err := repository.EnsureAndIncrement(tx, userID); err != nil {
+		if _, err := repository.EnsureAndIncrement(userID); err != nil {
 			return err
 		}
 	}

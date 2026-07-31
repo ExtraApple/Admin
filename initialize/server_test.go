@@ -46,6 +46,35 @@ file_upload:
 	}
 }
 
+func TestInitConfigLoadsLegacyTokenPurposeDurations(t *testing.T) {
+	previousConf := conf
+	conf = Config{}
+	t.Cleanup(func() {
+		conf = previousConf
+	})
+
+	withTestConfig(t, `
+jwt:
+  expire: 5
+  refresh_expire: 15
+  legacy_access_expire: 15
+  legacy_refresh_expire: 60
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+
+	got := InitConfig()
+	if got.Jwt.LegacyAccessExpire != 15 || got.Jwt.LegacyRefreshExpire != 60 {
+		t.Fatalf(
+			"legacy token durations = %d/%d, want 15/60",
+			got.Jwt.LegacyAccessExpire,
+			got.Jwt.LegacyRefreshExpire,
+		)
+	}
+}
+
 // TestInitConfigAcceptsFileUploadBoundaryValues 验证程序硬上限边界仍可正常启动。
 func TestInitConfigAcceptsFileUploadBoundaryValues(t *testing.T) {
 	withTestConfig(t, `

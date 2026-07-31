@@ -102,7 +102,7 @@ func InitRouter(jwtCfg service.JWTConfig, options ...Options) *gin.Engine {
 			Description: opt.APIDocs.Description,
 		},
 	}
-	auth := middleware.JWTAuth(jwtCfg.Secret)
+	auth := middleware.JWTAuth(jwtCfg)
 	apiPermission := middleware.APIPermission()
 
 	// ========== 路由 ==========

@@ -62,9 +62,11 @@ func main() {
 
 	// 4. JWT 配置
 	jwtCfg := service.JWTConfig{
-		Secret:            conf.Jwt.Secret,
-		ExpireMins:        conf.Jwt.Expire,
-		RefreshExpireMins: conf.Jwt.RefreshExpire,
+		Secret:                  conf.Jwt.Secret,
+		ExpireMins:              conf.Jwt.Expire,
+		RefreshExpireMins:       conf.Jwt.RefreshExpire,
+		LegacyAccessExpireMins:  conf.Jwt.LegacyAccessExpire,
+		LegacyRefreshExpireMins: conf.Jwt.LegacyRefreshExpire,
 	}
 
 	// 5. 初始化 Gin 路由

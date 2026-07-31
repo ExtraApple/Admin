@@ -420,6 +420,42 @@ func TestOpenAPIDocumentEndpoint(t *testing.T) {
 	}
 }
 
+func TestRefreshOpenAPIContractIsPublicAndDocumentsBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := InitRouter(service.JWTConfig{Secret: "test"}, Options{
+		APIDocs: APIDocsOptions{Enabled: true},
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("openapi status = %d, want 200", w.Code)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode openapi document: %v", err)
+	}
+	paths, ok := doc["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi document should contain paths")
+	}
+	operation := getOpenAPIOperation(t, paths["/api/refresh"], "post")
+
+	t.Run("public", func(t *testing.T) {
+		if _, ok := operation["security"]; ok {
+			t.Fatal("POST /api/refresh should be documented as anonymous")
+		}
+	})
+	t.Run("request body", func(t *testing.T) {
+		properties := getRequestBodyProperties(t, operation)
+		if _, ok := properties["refresh_token"]; !ok {
+			t.Fatal("refresh request schema should contain refresh_token")
+		}
+	})
+}
+
 // TestAPIDocsCanBeDisabled 验证 API 文档路由默认关闭。
 func TestAPIDocsCanBeDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)

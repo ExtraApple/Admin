@@ -98,7 +98,7 @@ func TestRealRedisAccessRefreshAndBlacklistCombination(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/protected", middleware.JWTAuth(secret), func(c *gin.Context) {
+	router.GET("/protected", middleware.JWTAuth(cfg), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"code": http.StatusOK})
 	})
 

@@ -38,10 +38,12 @@ type Config struct {
 		PasswordEnv string `yaml:"password_env"`
 	} `yaml:"minio"`
 	Jwt struct {
-		Secret        string `yaml:"secret"`
-		SecretEnv     string `yaml:"secret_env"`
-		Expire        int    `yaml:"expire"`
-		RefreshExpire int    `yaml:"refresh_expire"`
+		Secret              string `yaml:"secret"`
+		SecretEnv           string `yaml:"secret_env"`
+		Expire              int    `yaml:"expire"`
+		RefreshExpire       int    `yaml:"refresh_expire"`
+		LegacyAccessExpire  int    `yaml:"legacy_access_expire"`
+		LegacyRefreshExpire int    `yaml:"legacy_refresh_expire"`
 	} `yaml:"jwt"`
 	Redis struct {
 		Host        string `yaml:"host"`

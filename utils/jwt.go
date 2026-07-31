@@ -7,22 +7,59 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type TokenPurpose string
+
+const (
+	TokenPurposeAccess  TokenPurpose = "access"
+	TokenPurposeRefresh TokenPurpose = "refresh"
+)
+
+type LegacyTokenPurposeConfig struct {
+	AccessExpireMins  int
+	RefreshExpireMins int
+}
+
 type Claims struct {
-	UserID       uint     `json:"user_id"`
-	TokenVersion int      `json:"token_version"`
-	Roles        []string `json:"roles"`
-	Permissions  []string `json:"permissions"`
+	UserID       uint         `json:"user_id"`
+	TokenVersion int          `json:"token_version"`
+	TokenPurpose TokenPurpose `json:"token_type,omitempty"`
+	Roles        []string     `json:"roles"`
+	Permissions  []string     `json:"permissions"`
 	jwt.RegisteredClaims
+}
+
+func (c *Claims) HasPurpose(
+	expected TokenPurpose,
+	legacy LegacyTokenPurposeConfig,
+) bool {
+	if c.TokenPurpose != "" {
+		return c.TokenPurpose == expected
+	}
+	if c.IssuedAt == nil || c.ExpiresAt == nil ||
+		legacy.AccessExpireMins <= 0 ||
+		legacy.RefreshExpireMins <= legacy.AccessExpireMins {
+		return false
+	}
+
+	lifetime := c.ExpiresAt.Time.Sub(c.IssuedAt.Time)
+	switch expected {
+	case TokenPurposeAccess:
+		return lifetime == time.Duration(legacy.AccessExpireMins)*time.Minute
+	case TokenPurposeRefresh:
+		return lifetime == time.Duration(legacy.RefreshExpireMins)*time.Minute
+	default:
+		return false
+	}
 }
 
 // GenerateToken 生成 access token（短期）和 refresh token（长期）
 func GenerateToken(userID uint, tokenVersion int, roles, permissions []string, secret string, expireMins int, refreshExpireMins int) (string, string, error) {
 	now := time.Now()
 
-	// Access Token
 	accessClaims := Claims{
 		UserID:       userID,
 		TokenVersion: tokenVersion,
+		TokenPurpose: TokenPurposeAccess,
 		Roles:        roles,
 		Permissions:  permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -35,10 +72,10 @@ func GenerateToken(userID uint, tokenVersion int, roles, permissions []string, s
 		return "", "", fmt.Errorf("generate access token failed: %w", err)
 	}
 
-	// Refresh Token
 	refreshClaims := Claims{
 		UserID:       userID,
 		TokenVersion: tokenVersion,
+		TokenPurpose: TokenPurposeRefresh,
 		Roles:        roles,
 		Permissions:  permissions,
 		RegisteredClaims: jwt.RegisteredClaims{

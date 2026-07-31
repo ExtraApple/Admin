@@ -280,6 +280,7 @@ var openAPIFileUploadRoutes = map[string]struct{}{
 var openAPIRequestSchemas = map[string]reflect.Type{
 	"POST /api/register":                      reflect.TypeOf(dto.RegisterReq{}),
 	"POST /api/login":                         reflect.TypeOf(dto.LoginReq{}),
+	"POST /api/refresh":                       reflect.TypeOf(dto.RefreshTokenReq{}),
 	"PUT /api/user/info":                      reflect.TypeOf(dto.UpdateSelfReq{}),
 	"PUT /api/user/password":                  reflect.TypeOf(dto.ChangePasswordReq{}),
 	"PUT /api/admin/users/:id":                reflect.TypeOf(dto.AdminUpdateUserReq{}),

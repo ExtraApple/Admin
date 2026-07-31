@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -82,7 +83,7 @@ func TestLoginInitializesMissingAccessVersionAfterCredentialsSucceed(t *testing.
 	}
 }
 
-func TestLoginRecordsSuccessfulTokenIssuanceWhenAuthorizationVersionIsMissing(
+func TestLoginRecordsMissingAuthorizationVersionAfterTokenIssuance(
 	t *testing.T,
 ) {
 	db := openTokenVersionRegressionDB(t)
@@ -459,7 +460,7 @@ func TestLoginRefreshTokenUsesAndValidatesAuthorizationAccessVersion(t *testing.
 	}
 }
 
-func TestRefreshTokensRecordsSuccessfulTokenIssuanceWhenAuthorizationVersionIsMissing(
+func TestRefreshTokensRecordsMissingAuthorizationVersionAfterTokenIssuance(
 	t *testing.T,
 ) {
 	db := openTokenVersionRegressionDB(t)
@@ -888,13 +889,28 @@ func TestTokensIssuedBeforeMigrationRemainValidAfterAuthorizationVersionBackfill
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("create pre-migration token user: %v", err)
 	}
-	accessToken, refreshToken := generateTokenVersionRegressionPair(t, user)
+	accessToken, refreshToken := generateLegacyTokenVersionRegressionPair(t, user)
 
 	if err := db.Create(&model.UserAccessVersion{
 		UserID:  user.ID,
 		Version: user.TokenVersion,
 	}).Error; err != nil {
 		t.Fatalf("backfill authorization access version: %v", err)
+	}
+	if _, err := RefreshTokens(dto.RefreshTokenReq{
+		RefreshToken: accessToken,
+	}, JWTConfig{
+		Secret:                  tokenVersionRegressionSecret,
+		ExpireMins:              15,
+		RefreshExpireMins:       60,
+		LegacyAccessExpireMins:  15,
+		LegacyRefreshExpireMins: 60,
+	}); !errors.Is(err, ErrRefreshTokenInvalid) {
+		t.Fatalf(
+			"pre-migration access token refresh error = %v, want %v",
+			err,
+			ErrRefreshTokenInvalid,
+		)
 	}
 
 	accessClaims := parseTokenVersionRegressionToken(t, accessToken)
@@ -908,9 +924,11 @@ func TestTokensIssuedBeforeMigrationRemainValidAfterAuthorizationVersionBackfill
 	refreshed, err := RefreshTokens(dto.RefreshTokenReq{
 		RefreshToken: refreshToken,
 	}, JWTConfig{
-		Secret:            tokenVersionRegressionSecret,
-		ExpireMins:        15,
-		RefreshExpireMins: 60,
+		Secret:                  tokenVersionRegressionSecret,
+		ExpireMins:              15,
+		RefreshExpireMins:       60,
+		LegacyAccessExpireMins:  15,
+		LegacyRefreshExpireMins: 60,
 	})
 	if err != nil {
 		t.Fatalf("pre-migration refresh token rejected after backfill: %v", err)
@@ -931,6 +949,73 @@ func TestTokensIssuedBeforeMigrationRemainValidAfterAuthorizationVersionBackfill
 			)
 		}
 	}
+}
+
+func TestLegacyTokenPurposeDoesNotFollowChangedCurrentDurations(t *testing.T) {
+	db := openTokenVersionRegressionDB(t)
+	redisClient := installTokenVersionRegressionGlobals(t, db)
+	redisClient.AddHook(tokenVersionRegressionRedisHook{})
+
+	user := exitAccessVersionTestUser{
+		Username:     "legacy-token-duration-user",
+		Password:     "not-used",
+		Email:        "legacy-token-duration-user@example.com",
+		Role:         "user",
+		Status:       1,
+		TokenVersion: 3,
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create legacy-duration user: %v", err)
+	}
+	if err := db.Create(&model.UserAccessVersion{
+		UserID:  user.ID,
+		Version: user.TokenVersion,
+	}).Error; err != nil {
+		t.Fatalf("create legacy-duration access version: %v", err)
+	}
+	accessToken, refreshToken := generateLegacyTokenVersionRegressionPair(t, user)
+	changedConfig := JWTConfig{
+		Secret:                  tokenVersionRegressionSecret,
+		ExpireMins:              5,
+		RefreshExpireMins:       15,
+		LegacyAccessExpireMins:  15,
+		LegacyRefreshExpireMins: 60,
+	}
+
+	t.Run("legacy access token remains access", func(t *testing.T) {
+		if _, err := RefreshTokens(dto.RefreshTokenReq{
+			RefreshToken: accessToken,
+		}, changedConfig); !errors.Is(err, ErrRefreshTokenInvalid) {
+			t.Fatalf("legacy access token refresh error = %v, want %v", err, ErrRefreshTokenInvalid)
+		}
+	})
+	t.Run("legacy refresh token remains refresh", func(t *testing.T) {
+		if _, err := RefreshTokens(dto.RefreshTokenReq{
+			RefreshToken: refreshToken,
+		}, changedConfig); err != nil {
+			t.Fatalf("legacy refresh token rejected after current duration change: %v", err)
+		}
+	})
+	t.Run("legacy refresh token cannot authenticate as access", func(t *testing.T) {
+		claims := parseTokenVersionRegressionToken(t, refreshToken)
+		if claims.HasPurpose(
+			utils.TokenPurposeAccess,
+			changedConfig.LegacyTokenPurposeConfig(),
+		) {
+			t.Fatal("legacy refresh token was accepted as an access token")
+		}
+	})
+	t.Run("ambiguous legacy lifetimes fail closed", func(t *testing.T) {
+		claims := parseTokenVersionRegressionToken(t, accessToken)
+		ambiguous := utils.LegacyTokenPurposeConfig{
+			AccessExpireMins:  15,
+			RefreshExpireMins: 15,
+		}
+		if claims.HasPurpose(utils.TokenPurposeAccess, ambiguous) ||
+			claims.HasPurpose(utils.TokenPurposeRefresh, ambiguous) {
+			t.Fatal("ambiguous legacy lifetime was assigned a token purpose")
+		}
+	})
 }
 
 func openTokenVersionRegressionDB(t *testing.T) *gorm.DB {
@@ -1057,6 +1142,35 @@ func generateTokenVersionRegressionPair(
 		t.Fatalf("generate token pair: %v", err)
 	}
 	return accessToken, refreshToken
+}
+
+func generateLegacyTokenVersionRegressionPair(
+	t *testing.T,
+	user exitAccessVersionTestUser,
+) (string, string) {
+	t.Helper()
+
+	now := time.Now()
+	sign := func(expireMins int) string {
+		claims := utils.Claims{
+			UserID:       user.ID,
+			TokenVersion: user.TokenVersion,
+			RegisteredClaims: jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(
+					now.Add(time.Duration(expireMins) * time.Minute),
+				),
+				IssuedAt: jwt.NewNumericDate(now),
+			},
+		}
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).
+			SignedString([]byte(tokenVersionRegressionSecret))
+		if err != nil {
+			t.Fatalf("generate legacy token: %v", err)
+		}
+		return token
+	}
+
+	return sign(15), sign(60)
 }
 
 func parseTokenVersionRegressionToken(t *testing.T, token string) *utils.Claims {

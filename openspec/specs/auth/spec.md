@@ -65,29 +65,38 @@
 - **AND** 系统签发 access token 和 refresh token
 
 ### Requirement: JWT 会话
-系统 SHALL 在登录成功后签发包含用户 ID、token 版本、角色码、权限码的 JWT。
+系统 SHALL 在登录成功后签发包含用户 ID、token 版本、令牌用途、角色码、权限码的 JWT。
 
 #### Scenario: 登录成功后返回令牌
 - **WHEN** 用户登录成功
 - **THEN** 响应包含 access token、refresh token 和脱敏后的用户信息
+- **AND** access token 用途为 `access`
+- **AND** refresh token 用途为 `refresh`
 - **AND** access token 可用于认证受保护的 `/api/user` 和 `/api/admin` 请求
 
+#### Scenario: 兼容无用途标记的存量令牌
+- **WHEN** 有效存量 JWT 未携带 `token_type`
+- **AND** 其 `iat` 与 `exp` 间隔唯一匹配切换时固定的旧 Access Token 或 Refresh Token 有效期
+- **THEN** 系统按匹配到的存量令牌用途继续校验
+- **AND** 当前 Token 有效期配置变化不改变存量令牌用途
+- **AND** 固定旧有效期缺少、非正数或无法区分时，系统拒绝该 Token
+
 ### Requirement: Token 实时失效
-系统 SHALL 使用 Authorization 持有的用户授权版本使权限和账号状态变更后的旧
+系统 SHALL 使用 Authorization 持有的用户授权版本使权限和用户状态变更后的旧
 Token 失效。
 
 #### Scenario: Token 版本一致
-- **WHEN** 已认证请求携带有效 JWT
+- **WHEN** 已认证请求携带用途为 Access Token 的有效 JWT
 - **AND** JWT 中的 `token_version` 等于 `user_access_versions.version`
 - **AND** 用户状态为启用
 - **THEN** JWT 中间件允许请求继续
 
 #### Scenario: Token 版本不一致
-- **WHEN** Access Token 或 Refresh Token 中的 `token_version` 与 `user_access_versions.version` 不一致
+- **WHEN** Access Token 或 Refresh Token 中的 `token_version` 与 `user_access_versions.version` 不一致，或令牌用途不符合请求场景
 - **THEN** 系统拒绝该 Token
 - **AND** 用户需要重新登录获取新 Token
 
-#### Scenario: 账号被禁用或删除
+#### Scenario: 用户被禁用或删除
 - **WHEN** 已认证请求对应用户不存在或状态不是启用
 - **THEN** JWT 中间件拒绝请求
 
@@ -103,13 +112,13 @@ Token 失效。
 - **AND** 系统不签发 Token
 
 #### Scenario: 使用 Refresh Token 刷新
-- **WHEN** 客户端向 `POST /api/refresh` 提交签名、有效期、用户状态和授权版本均有效的 `refresh_token`
+- **WHEN** 客户端向 `POST /api/refresh` 提交用途、签名、有效期、用户状态和授权版本均有效的 `refresh_token`
 - **THEN** 系统返回新的 Access Token 和 Refresh Token
-- **AND** 两个新 Token SHALL 使用 `user_access_versions` 中的当前版本
+- **AND** 两个新 Token SHALL 使用 `user_access_versions` 中的当前版本并携带对应用途
 - **AND** 成功响应 SHALL 保持 `code=200`、`msg=刷新成功` 和 `data.access_token`、`data.refresh_token`
 
 #### Scenario: Refresh Token 刷新失败
-- **WHEN** Refresh Token 无效、过期、用户不存在、用户被禁用、新表缺行或授权版本不一致
+- **WHEN** Refresh Token 无效、过期、用途错误、用户不存在、用户被禁用、新表缺行或授权版本不一致
 - **THEN** `POST /api/refresh` SHALL 返回 HTTP 401 和稳定 `code=401`
 - **AND** 系统 SHALL NOT 签发新 Token
 - **AND** 系统 SHALL NOT 回退其他授权版本存储

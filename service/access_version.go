@@ -46,7 +46,7 @@ func (r *AccessVersionRepository) CurrentVersion(userID uint) (int, error) {
 	return accessVersion.Version, nil
 }
 
-func (r *AccessVersionRepository) recordSuccessfulTokenIssuance(userID uint) {
+func (r *AccessVersionRepository) recordTokenIssuanceMissingVersion(userID uint) {
 	var accessVersion model.UserAccessVersion
 	err := r.db.Select("user_id").
 		First(&accessVersion, "user_id = ?", userID).Error
@@ -55,39 +55,49 @@ func (r *AccessVersionRepository) recordSuccessfulTokenIssuance(userID uint) {
 	}
 }
 
+func ensureAccessVersionRow(
+	tx *gorm.DB,
+	userID uint,
+) (model.UserAccessVersion, bool, error) {
+	var accessVersion model.UserAccessVersion
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&accessVersion, "user_id = ?", userID).Error
+	if err == nil {
+		return accessVersion, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return model.UserAccessVersion{}, false, err
+	}
+
+	createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&model.UserAccessVersion{
+			UserID:  userID,
+			Version: 1,
+		})
+	if createResult.Error != nil {
+		return model.UserAccessVersion{}, false, createResult.Error
+	}
+
+	accessVersion = model.UserAccessVersion{}
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&accessVersion, "user_id = ?", userID).Error; err != nil {
+		return model.UserAccessVersion{}, false, err
+	}
+	return accessVersion, createResult.RowsAffected == 1, nil
+}
+
 func (r *AccessVersionRepository) EnsureVersion(userID uint) (int, error) {
 	const maxAttempts = 5
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		var version int
 		var initialized bool
 		err := r.db.Transaction(func(tx *gorm.DB) error {
-			var accessVersion model.UserAccessVersion
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				First(&accessVersion, "user_id = ?", userID).Error
-			if err == nil {
-				version = accessVersion.Version
-				return nil
-			}
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-
-			createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).
-				Create(&model.UserAccessVersion{
-					UserID:  userID,
-					Version: 1,
-				})
-			if createResult.Error != nil {
-				return createResult.Error
-			}
-			initialized = createResult.RowsAffected == 1
-
-			accessVersion = model.UserAccessVersion{}
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				First(&accessVersion, "user_id = ?", userID).Error; err != nil {
+			accessVersion, created, err := ensureAccessVersionRow(tx, userID)
+			if err != nil {
 				return err
 			}
 			version = accessVersion.Version
+			initialized = created
 			return nil
 		})
 		if err == nil {
@@ -109,27 +119,13 @@ func (r *AccessVersionRepository) EnsureVersion(userID uint) (int, error) {
 	return 0, errors.New("授权版本初始化重试次数耗尽")
 }
 
-func (r *AccessVersionRepository) EnsureAndIncrement(tx *gorm.DB, userID uint) (int, error) {
-	var accessVersion model.UserAccessVersion
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		First(&accessVersion, "user_id = ?", userID).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).
-			Create(&model.UserAccessVersion{
-				UserID:  userID,
-				Version: 1,
-			}).Error; err != nil {
-			return 0, err
-		}
-		accessVersion = model.UserAccessVersion{}
-		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&accessVersion, "user_id = ?", userID).Error
-	}
+func (r *AccessVersionRepository) EnsureAndIncrement(userID uint) (int, error) {
+	accessVersion, _, err := ensureAccessVersionRow(r.db, userID)
 	if err != nil {
 		return 0, err
 	}
 
-	result := tx.Model(&model.UserAccessVersion{}).
+	result := r.db.Model(&model.UserAccessVersion{}).
 		Where("user_id = ?", userID).
 		UpdateColumn("version", gorm.Expr("version + ?", 1))
 	if result.Error != nil {
@@ -143,7 +139,7 @@ func (r *AccessVersionRepository) EnsureAndIncrement(tx *gorm.DB, userID uint) (
 	}
 
 	accessVersion = model.UserAccessVersion{}
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+	if err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&accessVersion, "user_id = ?", userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			r.metrics.postIncrementMissing.Add(1)

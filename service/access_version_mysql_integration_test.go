@@ -140,7 +140,6 @@ func TestMySQLAccessVersionRepositoryConcurrentIncrementsSerializeWithoutLosingV
 		t.Fatalf("create access version for concurrent increments: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	const workers = 8
 	start := make(chan struct{})
 	type result struct {
@@ -157,7 +156,7 @@ func TestMySQLAccessVersionRepositoryConcurrentIncrementsSerializeWithoutLosingV
 			var version int
 			err := db.Transaction(func(tx *gorm.DB) error {
 				var err error
-				version, err = repository.EnsureAndIncrement(tx, user.ID)
+				version, err = NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 				return err
 			})
 			results <- result{version: version, err: err}
@@ -182,7 +181,7 @@ func TestMySQLAccessVersionRepositoryConcurrentIncrementsSerializeWithoutLosingV
 		}
 	}
 
-	finalVersion, err := repository.CurrentVersion(user.ID)
+	finalVersion, err := NewAccessVersionRepository(db).CurrentVersion(user.ID)
 	if err != nil {
 		t.Fatalf("read final access version: %v", err)
 	}
@@ -214,7 +213,6 @@ func TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow(t *testin
 		t.Fatalf("create access version for row-lock test: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	firstTx := db.Begin()
 	if firstTx.Error != nil {
 		t.Fatalf("begin first increment transaction: %v", firstTx.Error)
@@ -222,7 +220,7 @@ func TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow(t *testin
 	t.Cleanup(func() {
 		_ = firstTx.Rollback().Error
 	})
-	firstVersion, err := repository.EnsureAndIncrement(firstTx, user.ID)
+	firstVersion, err := NewAccessVersionRepository(firstTx).EnsureAndIncrement(user.ID)
 	if err != nil {
 		t.Fatalf("increment access version while holding transaction: %v", err)
 	}
@@ -255,7 +253,7 @@ func TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow(t *testin
 		var version int
 		err := db.Transaction(func(tx *gorm.DB) error {
 			var err error
-			version, err = repository.EnsureAndIncrement(tx, user.ID)
+			version, err = NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 			return err
 		})
 		secondResult <- incrementResult{version: version, err: err}
@@ -287,7 +285,7 @@ func TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow(t *testin
 		t.Fatalf("second increment version = %d, want 7", result.version)
 	}
 
-	finalVersion, err := repository.CurrentVersion(user.ID)
+	finalVersion, err := NewAccessVersionRepository(db).CurrentVersion(user.ID)
 	if err != nil {
 		t.Fatalf("read version after serialized increments: %v", err)
 	}
@@ -358,7 +356,7 @@ func TestMySQLAccessVersionRepositoryConcurrentEnsureAndIncrementNeverRegressesV
 		version, err := runRetryingAccessVersionTransaction(
 			db,
 			func(tx *gorm.DB) (int, error) {
-				return repository.EnsureAndIncrement(tx, user.ID)
+				return NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 			},
 		)
 		incrementResult <- versionResult{version: version, err: err}
@@ -599,9 +597,8 @@ func TestMySQLAccessVersionRepositoryPrimaryWriteFailureRollsBackVersion(
 		t.Fatalf("create forced primary-write failure constraint: %v", err)
 	}
 
-	repository := NewAccessVersionRepository(db)
 	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := repository.EnsureAndIncrement(tx, user.ID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(user.ID)
 		return err
 	})
 	if err == nil {

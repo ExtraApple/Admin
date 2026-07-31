@@ -17,9 +17,18 @@ import (
 )
 
 type JWTConfig struct {
-	Secret            string
-	ExpireMins        int
-	RefreshExpireMins int
+	Secret                  string
+	ExpireMins              int
+	RefreshExpireMins       int
+	LegacyAccessExpireMins  int
+	LegacyRefreshExpireMins int
+}
+
+func (c JWTConfig) LegacyTokenPurposeConfig() utils.LegacyTokenPurposeConfig {
+	return utils.LegacyTokenPurposeConfig{
+		AccessExpireMins:  c.LegacyAccessExpireMins,
+		RefreshExpireMins: c.LegacyRefreshExpireMins,
+	}
 }
 
 var (
@@ -139,7 +148,7 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 	if err != nil {
 		return nil, errors.New("生成 Token 失败: " + err.Error())
 	}
-	accessVersionRepository.recordSuccessfulTokenIssuance(user.ID)
+	accessVersionRepository.recordTokenIssuanceMissingVersion(user.ID)
 
 	return &dto.LoginResp{
 		AccessToken:  accessToken,
@@ -154,7 +163,10 @@ func RefreshTokens(
 	cfg JWTConfig,
 ) (*dto.RefreshTokenResp, error) {
 	claims, err := utils.ParseToken(req.RefreshToken, cfg.Secret)
-	if err != nil {
+	if err != nil || !claims.HasPurpose(
+		utils.TokenPurposeRefresh,
+		cfg.LegacyTokenPurposeConfig(),
+	) {
 		return nil, ErrRefreshTokenInvalid
 	}
 
@@ -188,7 +200,7 @@ func RefreshTokens(
 		return nil, fmt.Errorf("生成 Token 失败: %w", err)
 	}
 	NewAccessVersionRepository(global.DB).
-		recordSuccessfulTokenIssuance(claims.UserID)
+		recordTokenIssuanceMissingVersion(claims.UserID)
 	return &dto.RefreshTokenResp{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -298,8 +310,7 @@ func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 		if err := tx.Model(&user).Update("password", string(hashed)).Error; err != nil {
 			return err
 		}
-		_, err := NewAccessVersionRepository(tx).
-			EnsureAndIncrement(tx, userID)
+		_, err := NewAccessVersionRepository(tx).EnsureAndIncrement(userID)
 		return err
 	})
 }

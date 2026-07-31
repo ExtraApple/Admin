@@ -20,8 +20,8 @@
   和原子回滚故障注入，替代原完整发布周期和连续 7 个自然日观察门槛。
 - 退出时先发布完全移除运行时读写、GORM Model 字段和 AutoMigrate 列声明的版本，验证后再通过独立 DDL 删除 `users.token_version`。
 - `restructure-layered-monolith` 可在本 Change 达到切换里程碑后开始，不需要等待旧字段观察期结束。
-- 除新增 `POST /api/refresh` 外，保持 JWT Claim 名称、现有 HTTP 路由与请求/响应、Redis 黑名单 key、Permission Code、MinIO bucket 和现有认证授权语义不变。
-- 非目标：零停机滚动切换、长期双读/双写、引入正式 SQL migration 工具、让 Seed 承担历史回填、修改 JWT 格式或重构全项目目录。
+- 除新增 `POST /api/refresh` 外，保持现有 JWT Claim 和 `token_version` 语义、既有业务 HTTP 路由与请求/响应、Redis 黑名单 key、Permission Code、MinIO bucket 和现有认证授权语义不变；新增 `token_type` 用于区分 Access Token 与 Refresh Token，并兼容无该标记的存量 Token；路由同步会纠正该公开接口可能遗留的错误 `need_auth` 和 `permission_code` 元数据。
+- 非目标：零停机滚动切换、长期双读/双写、引入正式 SQL migration 工具、让 Seed 承担历史回填或修改 `token_version` 语义，或重构全项目目录。
 
 ## Capabilities
 
@@ -40,5 +40,5 @@
 - 影响登录、JWT 中间件、Refresh Token、管理员用户状态、软删除/恢复、Kick 和所有授权关系变化后的会话失效。
 - 影响 AutoMigrate 启动顺序、迁移失败策略、部署/回滚流程、指标和一致性扫描。
 - 迁移期间需要短暂停止旧实例和写流量；不支持新旧服务实例混合运行。
-- 新增公开的 `POST /api/refresh`；除此之外不新增或修改 HTTP 路由，不修改 Redis key、MinIO、现有 API 元数据和权限码。
+- 新增公开的 `POST /api/refresh`；除此之外不新增或修改 HTTP 路由，不修改 Redis key、MinIO 或其他现有 API 元数据和权限码；路由同步仅纠正该公开接口可能遗留的错误认证元数据。
 - 本 Change 的切换里程碑是 `restructure-layered-monolith` 的实施前置条件；旧字段退出里程碑可以与目录重构并行推进。

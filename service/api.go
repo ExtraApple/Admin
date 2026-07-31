@@ -279,12 +279,19 @@ func SyncAPIs(routes []dto.SyncAPIItem) ([]dto.APIInfo, error) {
 		var existing model.API
 		err = global.DB.Unscoped().Where("method = ? AND path = ?", method, path).First(&existing).Error
 		if err == nil {
+			updates := map[string]any{}
 			if existing.DeletedAt.Valid {
-				if err := global.DB.Unscoped().Model(&existing).Updates(map[string]any{
-					"deleted_at": nil,
-					"status":     1,
-				}).Error; err != nil {
-					return created, errors.New("恢复API失败: " + err.Error())
+				updates["deleted_at"] = nil
+				updates["status"] = 1
+			}
+			if method == "POST" && path == "/api/refresh" {
+				updates["need_auth"] = 0
+				updates["permission_code"] = ""
+			}
+			if len(updates) > 0 {
+				if err := global.DB.Unscoped().Model(&existing).
+					Updates(updates).Error; err != nil {
+					return created, errors.New("同步API公开配置失败: " + err.Error())
 				}
 			}
 			continue

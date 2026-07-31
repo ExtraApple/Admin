@@ -18,6 +18,8 @@ jwt:
   secret_env: JWT_SECRET
   expire: 15
   refresh_expire: 10080
+  legacy_access_expire: 15
+  legacy_refresh_expire: 10080
 
 redis:
   host: 127.0.0.1

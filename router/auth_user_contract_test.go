@@ -257,6 +257,83 @@ func TestRefreshTokenHTTPContractReturnsNewTokenPair(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenHTTPContractRejectsAccessToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r, admin := setupAuthUserContractRouter(t)
+	accessToken, _, err := utils.GenerateToken(
+		admin.ID,
+		admin.TokenVersion,
+		[]string{"admin"},
+		nil,
+		authUserContractSecret,
+		15,
+		60,
+	)
+	if err != nil {
+		t.Fatalf("generate access token: %v", err)
+	}
+
+	requestBody, err := json.Marshal(map[string]any{
+		"refresh_token": accessToken,
+	})
+	if err != nil {
+		t.Fatalf("marshal access-token refresh request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/refresh", bytes.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	waitForAuditLogCount(t, 1)
+
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode access-token refresh response: %v", err)
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("POST /api/refresh status = %d, want 401", w.Code)
+	}
+	assertAuthUserContractCode(t, response, http.StatusUnauthorized)
+	if response["msg"] != service.ErrRefreshTokenInvalid.Error() {
+		t.Fatalf(
+			"access-token refresh msg = %v, want %s",
+			response["msg"],
+			service.ErrRefreshTokenInvalid,
+		)
+	}
+	if _, ok := response["data"]; ok {
+		t.Fatalf("access-token refresh must not return token data: %#v", response)
+	}
+}
+
+func TestJWTAuthRejectsRefreshToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r, admin := setupAuthUserContractRouter(t)
+	_, refreshToken, err := utils.GenerateToken(
+		admin.ID,
+		admin.TokenVersion,
+		[]string{"admin"},
+		nil,
+		authUserContractSecret,
+		15,
+		60,
+	)
+	if err != nil {
+		t.Fatalf("generate refresh token: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/user/info", nil)
+	req.Header.Set("Authorization", "Bearer "+refreshToken)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	waitForAuditLogCount(t, 1)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("refresh-token protected request status = %d, want 401", w.Code)
+	}
+}
+
 func TestRefreshTokenHTTPContractReturnsStableUnauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

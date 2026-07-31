@@ -1,6 +1,6 @@
 ## Context
 
-系统当前把授权版本保存在 `users.token_version`。JWT 中携带该版本，认证中间件通过版本比较使权限、角色、菜单、数据范围或账号状态变化后的旧 Token 失效。登录会签发 Refresh Token，但仓库当前没有 Refresh Token 换取新 Token 的 HTTP 入口。
+系统当前把授权版本保存在 `users.token_version`。JWT 中携带该版本，认证中间件通过版本比较使权限、角色、菜单、数据范围或用户状态变化后的旧 Token 失效。登录会签发 Refresh Token，但仓库当前没有 Refresh Token 换取新 Token 的 HTTP 入口。
 
 该字段位于 Identity 所有的用户记录中，但版本变化主要由 Authorization 规则驱动。继续使用该字段会使用户生命周期、授权关系和 Token 失效逻辑共同依赖 `users` 表，也会阻塞后续 `restructure-layered-monolith` 对 Identity 与 Authorization 所有权的拆分。
 
@@ -9,8 +9,8 @@
 约束：
 
 - 数据库为 MySQL。
-- Access Token 和 Refresh Token 的 `token_version` Claim 格式不变。
-- Redis 黑名单、既有 HTTP API、Permission Code 和用户状态规则不变；本 Change 补齐 `POST /api/refresh`。
+- Access Token 和 Refresh Token 保留 `token_version` Claim，并增加 `token_type` 用途标记；无用途标记的存量 Token 仅按切换时固定的旧 Access/Refresh 签发有效期兼容识别，不使用可变的当前配置，缺少或歧义配置时拒绝该 Token。
+- Redis 黑名单、既有业务 HTTP API、Permission Code 和用户状态规则不变；本 Change 补齐 `POST /api/refresh`，并在同步路由时纠正该公开接口可能遗留的错误认证元数据。
 - 不支持旧代码只写旧字段、新代码只读新表的混合实例部署。
 - `restructure-layered-monolith` 只需等待本 Change 达到切换里程碑，不等待旧字段退出。
 
@@ -33,7 +33,7 @@
 - 不实现零停机滚动切换。
 - 不允许长期双读、取最大值或缺行时回退旧字段。
 - 不把镜像写发展为长期双写架构。
-- 不修改 JWT Claim、Token 有效期、Redis 黑名单 key 或既有 HTTP 契约；仅新增缺失的 Refresh Token 入口。
+- 不修改 `token_version` 或其他既有 JWT Claim 的名称与语义、Token 有效期、Redis 黑名单 key 或既有 HTTP 契约；仅新增 `token_type` 用途标记和缺失的 Refresh Token 入口。
 - 不让 Seed 扫描用户或承担历史回填。
 - 不在本 Change 中执行项目目录重构。
 - 不引入 goose、golang-migrate 或其他正式 migration 工具。
@@ -70,7 +70,7 @@ Identity 解析 Token
 → 比较 Token 版本
 ```
 
-Access Token 和 Refresh Token 都使用同一授权版本来源。Authorization 不重复拥有用户状态规则。
+Access Token 和 Refresh Token 都使用同一授权版本来源，并分别携带 `token_type=access` 或 `token_type=refresh`。Authorization 不重复拥有用户状态规则。
 
 新表记录缺失不能被解释为“跳过版本检查”。除登录初始化流程外，认证时缺行属于错误并拒绝 Token。
 
@@ -83,7 +83,7 @@ success:  {"code":200,"msg":"刷新成功","data":{"access_token":"<jwt>","refre
 failure:  HTTP 401，稳定 code=401
 ```
 
-Refresh Token 流程不重新校验密码或验证码。Identity 解析并校验 Refresh Token 的签名、有效期和用户存在/启用状态，Authorization 只读取 `user_access_versions` 比较版本；校验成功后签发使用当前版本的新 Access Token 和 Refresh Token。旧 Refresh Token 的一次性消费或重放检测不在本 Change 范围内。
+Refresh Token 流程不重新校验密码或验证码。Identity 解析并校验 Refresh Token 的签名、用途、有效期和用户存在/启用状态，Authorization 只读取 `user_access_versions` 比较版本；校验成功后签发使用当前版本的新 Access Token 和 Refresh Token。对未携带用途标记的存量 Token，仅按切换时固定的旧 Access/Refresh 签发有效期兼容识别，不使用可变的当前配置，缺少或歧义配置时拒绝；旧 Refresh Token 的一次性消费或重放检测不在本 Change 范围内。
 
 ### 3. 存量用户按原版本幂等回填
 
