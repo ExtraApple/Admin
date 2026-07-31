@@ -20,6 +20,10 @@ type LoginReq struct {
 	CaptchaCode string `json:"captcha_code" binding:"required,len=6"`
 }
 
+type RefreshTokenReq struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
 // ========== 响应 ==========
 
 type UserInfo struct {
@@ -36,6 +40,11 @@ type LoginResp struct {
 	AccessToken  string   `json:"access_token"`
 	RefreshToken string   `json:"refresh_token"`
 	User         UserInfo `json:"user"`
+}
+
+type RefreshTokenResp struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // ========== 用户自改 ==========

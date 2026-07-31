@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 
+	"gorm.io/gorm"
+
 	"admin/dto"
 	"admin/global"
 	"admin/model"
@@ -55,7 +57,14 @@ func DeleteUserByAdmin(operatorID, targetID uint) error {
 	if isAdminUser(user) {
 		return errors.New("不能删除其他管理员")
 	}
-	return global.DB.Delete(&user).Error
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Delete(&user).Error; err != nil {
+			return err
+		}
+		_, err := NewAccessVersionRepository(tx).
+			EnsureAndIncrement(tx, targetID)
+		return err
+	})
 }
 
 // --- 管理员修改用户 ---
@@ -95,12 +104,20 @@ func UpdateUserByAdmin(operatorID, targetID uint, req dto.AdminUpdateUserReq) (*
 	if len(updates) == 0 {
 		return nil, errors.New("无修改内容")
 	}
-	if err := global.DB.Model(&target).Updates(updates).Error; err != nil {
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&target).Updates(updates).Error; err != nil {
+			return err
+		}
+		_, err := NewAccessVersionRepository(tx).
+			EnsureAndIncrement(tx, targetID)
+		return err
+	}); err != nil {
 		return nil, errors.New("修改失败")
 	}
-	revokeTokensForUsers(targetID)
 	// 刷新返回最新数据
-	global.DB.First(&target, targetID)
+	if err := global.DB.First(&target, targetID).Error; err != nil {
+		return nil, errors.New("查询用户失败")
+	}
 	info := UserInfoFromModel(target)
 	return &info, nil
 }
@@ -124,10 +141,16 @@ func ToggleUserStatus(operatorID, targetID uint) (int, error) {
 	if user.Status == 1 {
 		newStatus = 0
 	}
-	if err := global.DB.Model(&user).Update("status", newStatus).Error; err != nil {
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Update("status", newStatus).Error; err != nil {
+			return err
+		}
+		_, err := NewAccessVersionRepository(tx).
+			EnsureAndIncrement(tx, targetID)
+		return err
+	}); err != nil {
 		return 0, errors.New("操作失败")
 	}
-	revokeTokensForUsers(targetID)
 	return newStatus, nil
 }
 
@@ -148,6 +171,9 @@ func KickUserByAdmin(operatorID, targetID uint) error {
 		return errors.New("不能强制下线其他管理员")
 	}
 
-	revokeTokensForUsers(targetID)
-	return nil
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		_, err := NewAccessVersionRepository(tx).
+			EnsureAndIncrement(tx, targetID)
+		return err
+	})
 }

@@ -1,0 +1,3 @@
+
+2026/07/30 20:07:16 [31;1mD:/work/go/admin/service/access_version.go:176 [35;1mError 3819 (HY000): Check constraint 'avq_mirror_348dbfe137e42ec0' is violated.
+[0m[33m[0.512ms] [34;1m[rows:0][0m UPDATE `users` SET `token_version`=1500003000 WHERE id = 7

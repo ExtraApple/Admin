@@ -91,14 +91,22 @@ func DeletePermission(permID uint) error {
 		}
 		return errors.New("查询权限失败")
 	}
-	var roleIDs []uint
-	global.DB.Model(&model.RolePermission{}).Where("permission_id = ?", permID).Pluck("role_id", &roleIDs)
-	global.DB.Where("permission_id = ?", permID).Delete(&model.RolePermission{})
-	if err := global.DB.Unscoped().Delete(&p).Error; err != nil {
-		return err
-	}
-	revokeTokensForRoles(roleIDs)
-	return nil
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var roleIDs []uint
+		if err := tx.Model(&model.RolePermission{}).
+			Where("permission_id = ?", permID).
+			Pluck("role_id", &roleIDs).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("permission_id = ?", permID).
+			Delete(&model.RolePermission{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&p).Error; err != nil {
+			return err
+		}
+		return incrementAccessVersionsForRoles(tx, roleIDs)
+	})
 }
 
 // AssignPermissionsToRole 为角色全量替换权限集合。
@@ -107,19 +115,27 @@ func AssignPermissionsToRole(roleID uint, permIDs []uint) error {
 	if err := global.DB.First(&role, roleID).Error; err != nil {
 		return errors.New("角色不存在")
 	}
-	global.DB.Where("role_id = ?", roleID).Delete(&model.RolePermission{})
 
-	var records []model.RolePermission
-	for _, pid := range permIDs {
-		records = append(records, model.RolePermission{RoleID: roleID, PermissionID: pid})
-	}
-	if len(records) > 0 {
-		if err := global.DB.Create(&records).Error; err != nil {
-			return errors.New("分配权限失败: " + err.Error())
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("role_id = ?", roleID).
+			Delete(&model.RolePermission{}).Error; err != nil {
+			return err
 		}
-	}
-	revokeTokensForRole(roleID)
-	return nil
+
+		var records []model.RolePermission
+		for _, pid := range permIDs {
+			records = append(
+				records,
+				model.RolePermission{RoleID: roleID, PermissionID: pid},
+			)
+		}
+		if len(records) > 0 {
+			if err := tx.Create(&records).Error; err != nil {
+				return errors.New("分配权限失败: " + err.Error())
+			}
+		}
+		return incrementAccessVersionsForRole(tx, roleID)
+	})
 }
 
 // GetRolePermissions 查询角色已分配的权限列表。

@@ -1,0 +1,22 @@
+Scanned runtime files:
+initialize/mysql.go
+initialize/admin.go
+middleware/jwt.go
+router/router.go
+seed/seed.go
+model/user.go
+model/model.go
+service/access_version.go
+service/token_version.go
+service/user.go
+service/admin_user.go
+service/role.go
+service/permission.go
+service/menu.go
+service/menu_api.go
+service/data_scope.go
+service/organization.go
+service/api.go
+
+Forbidden database-column references:
+none

@@ -1,0 +1,159 @@
+{
+  "run_id": "qualification-20260730T121335Z",
+  "qualified": true,
+  "started_at": "2026-07-30T12:13:37.2279568Z",
+  "completed_at": "2026-07-30T15:13:39.6389092Z",
+  "operations": 125000,
+  "concurrency": 8,
+  "restarts": 3,
+  "scans": [
+    {
+      "sequence": 1,
+      "performed_at": "2026-07-30T12:13:37.2355855Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "initial"
+    },
+    {
+      "sequence": 2,
+      "performed_at": "2026-07-30T12:28:37.229559Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 3,
+      "performed_at": "2026-07-30T12:43:37.2300667Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 4,
+      "performed_at": "2026-07-30T12:58:37.2308978Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 5,
+      "performed_at": "2026-07-30T12:58:37.8167762Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 6,
+      "performed_at": "2026-07-30T13:13:37.2291566Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 7,
+      "performed_at": "2026-07-30T13:28:37.2294284Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 8,
+      "performed_at": "2026-07-30T13:43:37.2300114Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 9,
+      "performed_at": "2026-07-30T13:43:38.4078295Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 10,
+      "performed_at": "2026-07-30T13:58:37.2291622Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 11,
+      "performed_at": "2026-07-30T14:13:37.2295266Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 12,
+      "performed_at": "2026-07-30T14:28:37.22956Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 13,
+      "performed_at": "2026-07-30T14:28:39.0719255Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 14,
+      "performed_at": "2026-07-30T14:43:37.2307741Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 15,
+      "performed_at": "2026-07-30T14:58:37.2295755Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 16,
+      "performed_at": "2026-07-30T15:13:37.229122Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 17,
+      "performed_at": "2026-07-30T15:13:39.6389092Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "final"
+    }
+  ],
+  "operation_mix": {
+    "access_validations": 25001,
+    "refreshes": 25002,
+    "blacklist_checks": 25001,
+    "invalidations": 24999,
+    "logins": 24997
+  },
+  "unexpected_operation_failures": 0,
+  "unexpected_mirror_write_failures": 0,
+  "token_issuance_missing": 0,
+  "post_increment_missing": 0,
+  "successful_fault_injections": 4
+}

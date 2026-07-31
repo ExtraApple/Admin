@@ -1,0 +1,6 @@
+﻿target=127.0.0.1:23306/admin_rehearsal
+current_user=admin_rehearsal
+migration_state_table_count=1
+migration_state_row_count=1
+user_access_versions_table_count=1
+legacy_token_version_column_count=0

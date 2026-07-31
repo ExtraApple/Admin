@@ -1,0 +1,111 @@
+{
+  "run_id": "smoke-20260730T120659Z",
+  "qualified": true,
+  "started_at": "2026-07-30T12:06:59.8909509Z",
+  "completed_at": "2026-07-30T12:07:32.1164469Z",
+  "operations": 100,
+  "concurrency": 8,
+  "restarts": 3,
+  "scans": [
+    {
+      "sequence": 1,
+      "performed_at": "2026-07-30T12:06:59.8999633Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "initial"
+    },
+    {
+      "sequence": 2,
+      "performed_at": "2026-07-30T12:07:04.891998Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 3,
+      "performed_at": "2026-07-30T12:07:07.9755488Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 4,
+      "performed_at": "2026-07-30T12:07:09.8921504Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 5,
+      "performed_at": "2026-07-30T12:07:14.8920187Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 6,
+      "performed_at": "2026-07-30T12:07:16.0207668Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 7,
+      "performed_at": "2026-07-30T12:07:19.8923537Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 8,
+      "performed_at": "2026-07-30T12:07:24.0743509Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "restart"
+    },
+    {
+      "sequence": 9,
+      "performed_at": "2026-07-30T12:07:24.892217Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 10,
+      "performed_at": "2026-07-30T12:07:29.8924478Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "interval"
+    },
+    {
+      "sequence": 11,
+      "performed_at": "2026-07-30T12:07:32.1164469Z",
+      "cutoff_user_id": 1,
+      "differences": 0,
+      "legal_post_cutoff_missing": 0,
+      "reason": "final"
+    }
+  ],
+  "operation_mix": {
+    "access_validations": 18,
+    "refreshes": 20,
+    "blacklist_checks": 24,
+    "invalidations": 21,
+    "logins": 17
+  },
+  "unexpected_operation_failures": 0,
+  "unexpected_mirror_write_failures": 0,
+  "token_issuance_missing": 0,
+  "post_increment_missing": 0,
+  "successful_fault_injections": 4
+}

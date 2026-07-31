@@ -1,0 +1,7 @@
+﻿=== RUN   TestMySQLExitVersionStartupAfterLegacyColumnDropDoesNotRecreateColumn
+    access_version_post_drop_mysql_integration_test.go:94: legacy_column_count_before=0
+    access_version_post_drop_mysql_integration_test.go:104: legacy_column_count_after=0
+    access_version_post_drop_mysql_integration_test.go:124: startup_target=127.0.0.1:23306/admin_rehearsal access_version_table_count=1
+--- PASS: TestMySQLExitVersionStartupAfterLegacyColumnDropDoesNotRecreateColumn (0.12s)
+PASS
+ok  	admin/initialize	1.668s

@@ -86,6 +86,29 @@ func (h *UserHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "登录成功", "data": resp})
 }
 
+// Refresh 使用 Refresh Token 换取新的 Token 对。
+func (h *UserHandler) Refresh(c *gin.Context) {
+	var req dto.RefreshTokenReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 401,
+			"msg":  service.ErrRefreshTokenInvalid.Error(),
+		})
+		return
+	}
+
+	resp, err := service.RefreshTokens(req, h.JwtCfg)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code": 401,
+			"msg":  service.ErrRefreshTokenInvalid.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "刷新成功", "data": resp})
+}
+
 // UpdateSelf 修改自己的基础信息
 func (h *UserHandler) UpdateSelf(c *gin.Context) {
 	var req dto.UpdateSelfReq

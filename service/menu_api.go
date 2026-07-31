@@ -57,12 +57,11 @@ func AssignAPIsToMenu(menuID uint, req dto.AssignAPIsToMenuReq) error {
 		if err := tx.Create(&records).Error; err != nil {
 			return errors.New("绑定菜单API失败: " + err.Error())
 		}
-		return nil
+		return incrementAllAccessVersions(tx)
 	}); err != nil {
 		return err
 	}
 
-	revokeAllUserTokens()
 	return nil
 }
 
@@ -148,19 +147,20 @@ func CreateMenuButtonFromAPI(apiID uint, req dto.GenerateMenuButtonFromAPIReq) (
 		if err := tx.Create(&model.MenuAPI{MenuID: menu.ID, APIID: api.ID}).Error; err != nil {
 			return errors.New("绑定按钮菜单API失败: " + err.Error())
 		}
-		return nil
+		return incrementAllAccessVersions(tx)
 	}); err != nil {
 		return nil, err
 	}
 
-	revokeAllUserTokens()
 	return toMenuDetail(menu), nil
 }
 
 // syncLinkedMenusByAPI 在 API 权限码变化后同步所有关联菜单。
-func syncLinkedMenusByAPI(api model.API) error {
+func syncLinkedMenusByAPI(tx *gorm.DB, api model.API) error {
 	var menuIDs []uint
-	if err := global.DB.Model(&model.MenuAPI{}).Where("api_id = ?", api.ID).Pluck("menu_id", &menuIDs).Error; err != nil {
+	if err := tx.Model(&model.MenuAPI{}).
+		Where("api_id = ?", api.ID).
+		Pluck("menu_id", &menuIDs).Error; err != nil {
 		return errors.New("查询菜单API关联失败")
 	}
 	menuIDs = uniqueUintIDs(menuIDs)
@@ -176,31 +176,36 @@ func syncLinkedMenusByAPI(api model.API) error {
 		permissionCode = deriveAPIPermissionCode(api.Method, api.Path)
 	}
 
-	if err := global.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&model.Menu{}).Where("id IN ?", menuIDs).Update("permission_code", permissionCode).Error; err != nil {
-			return errors.New("同步菜单权限码失败")
-		}
-
-		var linkedAPIIDs []uint
-		if err := tx.Model(&model.MenuAPI{}).Where("menu_id IN ?", menuIDs).Pluck("api_id", &linkedAPIIDs).Error; err != nil {
-			return errors.New("查询关联API失败")
-		}
-		linkedAPIIDs = uniqueUintIDs(linkedAPIIDs)
-		if len(linkedAPIIDs) > 0 {
-			if err := tx.Model(&model.API{}).Where("id IN ?", linkedAPIIDs).Update("permission_code", permissionCode).Error; err != nil {
-				return errors.New("同步API权限码失败")
-			}
-		}
-		if err := ensurePermissionByCode(tx, permissionCode, api.Name, api.Group, api.Sort); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return err
+	if err := tx.Model(&model.Menu{}).
+		Where("id IN ?", menuIDs).
+		Update("permission_code", permissionCode).Error; err != nil {
+		return errors.New("同步菜单权限码失败")
 	}
 
-	revokeAllUserTokens()
-	return nil
+	var linkedAPIIDs []uint
+	if err := tx.Model(&model.MenuAPI{}).
+		Where("menu_id IN ?", menuIDs).
+		Pluck("api_id", &linkedAPIIDs).Error; err != nil {
+		return errors.New("查询关联API失败")
+	}
+	linkedAPIIDs = uniqueUintIDs(linkedAPIIDs)
+	if len(linkedAPIIDs) > 0 {
+		if err := tx.Model(&model.API{}).
+			Where("id IN ?", linkedAPIIDs).
+			Update("permission_code", permissionCode).Error; err != nil {
+			return errors.New("同步API权限码失败")
+		}
+	}
+	if err := ensurePermissionByCode(
+		tx,
+		permissionCode,
+		api.Name,
+		api.Group,
+		api.Sort,
+	); err != nil {
+		return err
+	}
+	return incrementAllAccessVersions(tx)
 }
 
 // getEnabledAuthAPIs 查询可绑定菜单权限的启用鉴权 API。

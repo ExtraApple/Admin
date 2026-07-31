@@ -1,0 +1,51 @@
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[1.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w0' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.553ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 15 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[1.007ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w1' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 16 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.528ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w2' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 17 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w3' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 18 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w4' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 19 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w5' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 20 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w6' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 21 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/internal/accessversionqualification/application_worker.go:94 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `users` WHERE username = 'avq_fe04bde553bc0fc4_w7' ORDER BY `users`.`id` LIMIT 1
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:69 [35;1mrecord not found
+[0m[33m[0.000ms] [34;1m[rows:0][0m SELECT * FROM `user_access_versions` WHERE user_id = 22 ORDER BY `user_access_versions`.`user_id` LIMIT 1 FOR UPDATE
+
+2026/07/30 20:13:37 [31;1mD:/work/go/admin/service/access_version.go:176 [35;1mError 3819 (HY000): Check constraint 'avq_mirror_c7f9ebc98cfcff72' is violated.
+[0m[33m[0.000ms] [34;1m[rows:0][0m UPDATE `users` SET `token_version`=1500001000 WHERE id = 15

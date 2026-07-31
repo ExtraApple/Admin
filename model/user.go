@@ -19,6 +19,5 @@ type User struct {
 	AvatarValidatedAt      *time.Time `gorm:"comment:头像验证完成时间"`
 	Role                   string     `gorm:"type:varchar(50);default:user;comment:角色"`
 	Status                 int        `gorm:"type:tinyint;default:1;comment:状态 1启用 0禁用"`
-	TokenVersion           int        `gorm:"type:int;default:1;comment:Token版本"`
 	Email                  string     `gorm:"type:varchar(100);not null;uniqueIndex;comment:邮箱"`
 }

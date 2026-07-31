@@ -1,0 +1,18 @@
+{
+  "phase": 3,
+  "started_at": "2026-07-30T13:43:38.5629751Z",
+  "completed_at": "2026-07-30T14:28:39.0508482Z",
+  "operations": 31250,
+  "operation_mix": {
+    "access_validations": 6250,
+    "refreshes": 6250,
+    "blacklist_checks": 6250,
+    "invalidations": 6250,
+    "logins": 6250
+  },
+  "unexpected_operation_failures": 0,
+  "unexpected_mirror_write_failures": 0,
+  "token_issuance_missing": 0,
+  "post_increment_missing": 0,
+  "successful_fault_injections": 1
+}

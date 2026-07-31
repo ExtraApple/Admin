@@ -1,0 +1,22 @@
+-- Emergency restoration only; not a normal application rollback.
+ALTER TABLE `users` ADD COLUMN `token_version` bigint DEFAULT '1' COMMENT 'Token版本';
+UPDATE `users` SET `token_version` = 1 WHERE `id` = 1;
+UPDATE `users` SET `token_version` = 2 WHERE `id` = 4;
+UPDATE `users` SET `token_version` = 1500000999 WHERE `id` = 5;
+UPDATE `users` SET `token_version` = 1500000999 WHERE `id` = 6;
+UPDATE `users` SET `token_version` = 1500003999 WHERE `id` = 7;
+UPDATE `users` SET `token_version` = 5 WHERE `id` = 8;
+UPDATE `users` SET `token_version` = 5 WHERE `id` = 9;
+UPDATE `users` SET `token_version` = 5 WHERE `id` = 10;
+UPDATE `users` SET `token_version` = 1 WHERE `id` = 11;
+UPDATE `users` SET `token_version` = 1 WHERE `id` = 12;
+UPDATE `users` SET `token_version` = 5 WHERE `id` = 13;
+UPDATE `users` SET `token_version` = 5 WHERE `id` = 14;
+UPDATE `users` SET `token_version` = 1500004780 WHERE `id` = 15;
+UPDATE `users` SET `token_version` = 3125 WHERE `id` = 16;
+UPDATE `users` SET `token_version` = 3126 WHERE `id` = 17;
+UPDATE `users` SET `token_version` = 3129 WHERE `id` = 18;
+UPDATE `users` SET `token_version` = 3124 WHERE `id` = 19;
+UPDATE `users` SET `token_version` = 3124 WHERE `id` = 20;
+UPDATE `users` SET `token_version` = 3126 WHERE `id` = 21;
+UPDATE `users` SET `token_version` = 3128 WHERE `id` = 22;

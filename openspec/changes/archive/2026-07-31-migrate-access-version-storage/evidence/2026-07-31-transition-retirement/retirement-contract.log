@@ -1,0 +1,6 @@
+=== RUN   TestAccessVersionTransitionComponentsAreRetired
+=== PAUSE TestAccessVersionTransitionComponentsAreRetired
+=== CONT  TestAccessVersionTransitionComponentsAreRetired
+--- PASS: TestAccessVersionTransitionComponentsAreRetired (0.00s)
+PASS
+ok  	admin/initialize	0.203s

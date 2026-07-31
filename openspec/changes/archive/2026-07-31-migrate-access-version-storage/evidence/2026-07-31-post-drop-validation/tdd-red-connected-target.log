@@ -1,0 +1,6 @@
+﻿=== RUN   TestMySQLExitVersionStartupAfterLegacyColumnDropDoesNotRecreateColumn
+    access_version_post_drop_mysql_integration_test.go:70: connected post-drop target = port 23306 database "" current_user ""
+--- FAIL: TestMySQLExitVersionStartupAfterLegacyColumnDropDoesNotRecreateColumn (0.00s)
+FAIL
+FAIL	admin/initialize	1.314s
+FAIL

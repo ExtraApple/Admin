@@ -1,0 +1,4 @@
+﻿legacy-token-version-values.tsv sha256=verified
+pre-users-show-create.sql sha256=verified
+restore-token-version.sql sha256=verified
+target.txt sha256=verified

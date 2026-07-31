@@ -176,10 +176,19 @@ func DeleteOrganization(operatorID, orgID uint) error {
 	}
 
 	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var memberUserIDs []uint
+		if err := tx.Model(&model.UserOrganization{}).
+			Where("organization_id = ?", orgID).
+			Pluck("user_id", &memberUserIDs).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("organization_id = ?", orgID).Delete(&model.UserOrganization{}).Error; err != nil {
 			return err
 		}
-		return tx.Unscoped().Delete(&organization).Error
+		if err := tx.Unscoped().Delete(&organization).Error; err != nil {
+			return err
+		}
+		return incrementAccessVersionsForUsers(tx, memberUserIDs...)
 	})
 }
 
@@ -201,10 +210,13 @@ func SetOrganizationUsers(operatorID, orgID uint, userIDs []uint) error {
 		}
 	}
 
-	var oldUserIDs []uint
-	global.DB.Model(&model.UserOrganization{}).Where("organization_id = ?", orgID).Pluck("user_id", &oldUserIDs)
-
-	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var oldUserIDs []uint
+		if err := tx.Model(&model.UserOrganization{}).
+			Where("organization_id = ?", orgID).
+			Pluck("user_id", &oldUserIDs).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("organization_id = ?", orgID).Delete(&model.UserOrganization{}).Error; err != nil {
 			return err
 		}
@@ -216,17 +228,14 @@ func SetOrganizationUsers(operatorID, orgID uint, userIDs []uint) error {
 				OrganizationID: orgID,
 			})
 		}
-		if len(records) == 0 {
-			return nil
+		if len(records) > 0 {
+			if err := tx.Create(&records).Error; err != nil {
+				return err
+			}
 		}
-		return tx.Create(&records).Error
-	}); err != nil {
-		return err
-	}
-
-	affectedUserIDs := append(oldUserIDs, userIDs...)
-	revokeTokensForUsers(affectedUserIDs...)
-	return nil
+		affectedUserIDs := append(oldUserIDs, userIDs...)
+		return incrementAccessVersionsForUsers(tx, affectedUserIDs...)
+	})
 }
 
 // GetOrganizationUsers 查询指定组织下的成员列表。

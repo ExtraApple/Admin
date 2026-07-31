@@ -1,0 +1,18 @@
+﻿=== RUN   TestMySQLAccessVersionRepositoryConcurrentEnsureVersionCreatesOneRow
+--- PASS: TestMySQLAccessVersionRepositoryConcurrentEnsureVersionCreatesOneRow (0.07s)
+=== RUN   TestMySQLAccessVersionRepositoryConcurrentIncrementsSerializeWithoutLosingVersions
+--- PASS: TestMySQLAccessVersionRepositoryConcurrentIncrementsSerializeWithoutLosingVersions (0.08s)
+=== RUN   TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow
+--- PASS: TestMySQLAccessVersionRepositoryIncrementWaitsForLockedVersionRow (0.21s)
+=== RUN   TestMySQLAccessVersionRepositoryConcurrentEnsureAndIncrementNeverRegressesVersion
+--- PASS: TestMySQLAccessVersionRepositoryConcurrentEnsureAndIncrementNeverRegressesVersion (0.07s)
+=== RUN   TestMySQLAccessVersionRepositoryEnsureVersionRetriesAfterRealDeadlock
+--- PASS: TestMySQLAccessVersionRepositoryEnsureVersionRetriesAfterRealDeadlock (0.09s)
+=== RUN   TestMySQLAccessVersionRepositoryPrimaryWriteFailureRollsBackVersion
+--- PASS: TestMySQLAccessVersionRepositoryPrimaryWriteFailureRollsBackVersion (0.08s)
+=== RUN   TestMySQLDeletingUserSoftDeletesAndIncrementsAccessVersionInOneTransaction
+--- PASS: TestMySQLDeletingUserSoftDeletesAndIncrementsAccessVersionInOneTransaction (0.12s)
+=== RUN   TestMySQLDeletingUserRollsBackWhenAccessVersionIncrementFails
+--- PASS: TestMySQLDeletingUserRollsBackWhenAccessVersionIncrementFails (0.13s)
+PASS
+ok  	admin/service	1.051s

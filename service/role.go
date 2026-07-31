@@ -131,12 +131,18 @@ func UpdateRole(roleID uint, req dto.UpdateRoleReq) (*dto.RoleInfo, error) {
 		}
 	}
 
-	if err := global.DB.Model(&role).Updates(updates).Error; err != nil {
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&role).Updates(updates).Error; err != nil {
+			return err
+		}
+		return incrementAccessVersionsForRole(tx, roleID)
+	}); err != nil {
 		return nil, errors.New("修改角色失败")
 	}
-	revokeTokensForRole(roleID)
 
-	global.DB.First(&role, roleID)
+	if err := global.DB.First(&role, roleID).Error; err != nil {
+		return nil, errors.New("查询角色失败")
+	}
 	return &dto.RoleInfo{
 		ID: role.ID, Name: role.Name, Code: role.Code,
 		Description: role.Description, Sort: role.Sort, Status: role.Status, DataScope: role.DataScope,
@@ -156,17 +162,26 @@ func DeleteRole(roleID uint) error {
 		return errors.New("不能删除超级管理员角色")
 	}
 
-	var oldUserIDs []uint
-	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &oldUserIDs)
-	// 删除关联
-	global.DB.Where("role_id = ?", roleID).Delete(&model.UserRole{})
-	global.DB.Where("role_id = ?", roleID).Delete(&model.RoleDataScope{})
-	// 硬删除角色
-	if err := global.DB.Unscoped().Delete(&role).Error; err != nil {
-		return err
-	}
-	revokeTokensForUsers(oldUserIDs...)
-	return nil
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var oldUserIDs []uint
+		if err := tx.Model(&model.UserRole{}).
+			Where("role_id = ?", roleID).
+			Pluck("user_id", &oldUserIDs).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("role_id = ?", roleID).
+			Delete(&model.UserRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("role_id = ?", roleID).
+			Delete(&model.RoleDataScope{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&role).Error; err != nil {
+			return err
+		}
+		return incrementAccessVersionsForUsers(tx, oldUserIDs...)
+	})
 }
 
 // AssignUsersToRole 将用户分配到角色
@@ -176,25 +191,37 @@ func AssignUsersToRole(roleID uint, userIDs []uint) error {
 		return errors.New("角色不存在")
 	}
 
-	var oldUserIDs []uint
-	global.DB.Model(&model.UserRole{}).Where("role_id = ?", roleID).Pluck("user_id", &oldUserIDs)
-
-	// 先清除该角色所有旧关联
-	global.DB.Where("role_id = ?", roleID).Delete(&model.UserRole{})
-
-	// 批量插入新关联
-	var records []model.UserRole
-	for _, uid := range userIDs {
-		records = append(records, model.UserRole{UserID: uid, RoleID: roleID})
-	}
-	if len(records) > 0 {
-		if err := global.DB.Create(&records).Error; err != nil {
-			return errors.New("分配用户失败: " + err.Error())
+	userIDs = uniqueUintIDs(userIDs)
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		var oldUserIDs []uint
+		if err := tx.Model(&model.UserRole{}).
+			Where("role_id = ?", roleID).
+			Pluck("user_id", &oldUserIDs).Error; err != nil {
+			return err
 		}
-	}
-	affectedUserIDs := append(oldUserIDs, userIDs...)
-	revokeTokensForUsers(affectedUserIDs...)
-	return nil
+
+		// 先清除该角色所有旧关联
+		if err := tx.Where("role_id = ?", roleID).
+			Delete(&model.UserRole{}).Error; err != nil {
+			return err
+		}
+
+		// 批量插入新关联
+		var records []model.UserRole
+		for _, uid := range userIDs {
+			records = append(
+				records,
+				model.UserRole{UserID: uid, RoleID: roleID},
+			)
+		}
+		if len(records) > 0 {
+			if err := tx.Create(&records).Error; err != nil {
+				return errors.New("分配用户失败: " + err.Error())
+			}
+		}
+		affectedUserIDs := append(oldUserIDs, userIDs...)
+		return incrementAccessVersionsForUsers(tx, affectedUserIDs...)
+	})
 }
 
 // GetRoleUsers 获取角色下的所有用户
@@ -257,23 +284,22 @@ func AssignRoleDataScope(roleID uint, req dto.AssignRoleDataScopeReq) error {
 		if err := tx.Where("role_id = ?", roleID).Delete(&model.RoleDataScope{}).Error; err != nil {
 			return err
 		}
-		if dataScope != model.DataScopeCustom {
-			return nil
+		if dataScope == model.DataScopeCustom {
+			records := make([]model.RoleDataScope, 0, len(organizationIDs))
+			for _, orgID := range organizationIDs {
+				records = append(records, model.RoleDataScope{
+					RoleID:         roleID,
+					OrganizationID: orgID,
+				})
+			}
+			if err := tx.Create(&records).Error; err != nil {
+				return err
+			}
 		}
-
-		records := make([]model.RoleDataScope, 0, len(organizationIDs))
-		for _, orgID := range organizationIDs {
-			records = append(records, model.RoleDataScope{
-				RoleID:         roleID,
-				OrganizationID: orgID,
-			})
-		}
-		return tx.Create(&records).Error
+		return incrementAccessVersionsForRole(tx, roleID)
 	}); err != nil {
 		return errors.New("配置角色数据权限失败: " + err.Error())
 	}
-
-	revokeTokensForRole(roleID)
 	return nil
 }
 

@@ -56,6 +56,97 @@ func TestRunIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestRunDoesNotMaintainUserAccessVersions(t *testing.T) {
+	db := setupSeedTestDB(t)
+	conf := seedTestConfig()
+
+	if err := Run(&conf, seedTestRoutes()); err != nil {
+		t.Fatalf("initial seed run failed: %v", err)
+	}
+	adminUser := findUserByUsername(t, db, conf.Admin.Username)
+	assertCount(
+		t,
+		db.Model(&model.UserAccessVersion{}).
+			Where("user_id = ?", adminUser.ID),
+		0,
+		"seed admin access versions",
+	)
+
+	if err := db.Model(&adminUser).Update("status", 0).Error; err != nil {
+		t.Fatalf("prepare disabled seed admin: %v", err)
+	}
+	if err := db.Create(&model.UserAccessVersion{
+		UserID:  adminUser.ID,
+		Version: 7,
+	}).Error; err != nil {
+		t.Fatalf("create seed admin access version sentinel: %v", err)
+	}
+	if err := db.Delete(&adminUser).Error; err != nil {
+		t.Fatalf("soft delete seed admin: %v", err)
+	}
+
+	unrelatedUser := model.User{
+		Username: "seed-unrelated-user",
+		Password: "not-used",
+		Email:    "seed-unrelated-user@test.local",
+		Status:   1,
+	}
+	if err := db.Create(&unrelatedUser).Error; err != nil {
+		t.Fatalf("create unrelated user: %v", err)
+	}
+	if err := db.Create(&model.UserAccessVersion{
+		UserID:  unrelatedUser.ID,
+		Version: 13,
+	}).Error; err != nil {
+		t.Fatalf("create unrelated access version sentinel: %v", err)
+	}
+
+	if err := Run(&conf, seedTestRoutes()); err != nil {
+		t.Fatalf("seed restore run failed: %v", err)
+	}
+
+	var restoredAdmin model.User
+	if err := db.First(&restoredAdmin, adminUser.ID).Error; err != nil {
+		t.Fatalf("reload restored seed admin: %v", err)
+	}
+	if restoredAdmin.Status != 1 || restoredAdmin.DeletedAt.Valid {
+		t.Fatalf(
+			"restored seed admin status/deleted = %d/%v, want 1/false",
+			restoredAdmin.Status,
+			restoredAdmin.DeletedAt.Valid,
+		)
+	}
+	var adminAccessVersion model.UserAccessVersion
+	if err := db.First(
+		&adminAccessVersion,
+		"user_id = ?",
+		adminUser.ID,
+	).Error; err != nil {
+		t.Fatalf("reload seed admin access version sentinel: %v", err)
+	}
+	if adminAccessVersion.Version != 7 {
+		t.Fatalf(
+			"seed changed admin access version = %d, want unchanged 7",
+			adminAccessVersion.Version,
+		)
+	}
+
+	var unrelatedAccessVersion model.UserAccessVersion
+	if err := db.First(
+		&unrelatedAccessVersion,
+		"user_id = ?",
+		unrelatedUser.ID,
+	).Error; err != nil {
+		t.Fatalf("reload unrelated access version sentinel: %v", err)
+	}
+	if unrelatedAccessVersion.Version != 13 {
+		t.Fatalf(
+			"seed repaired unrelated access version = %d, want unchanged 13",
+			unrelatedAccessVersion.Version,
+		)
+	}
+}
+
 func TestRunRestoresMissingAndSoftDeletedData(t *testing.T) {
 	db := setupSeedTestDB(t)
 	conf := seedTestConfig()
@@ -175,7 +266,7 @@ type seedCounts struct {
 	RolePermissions  int64
 	RoleMenus        int64
 	Users            int64
-	UserRoles         int64
+	UserRoles        int64
 }
 
 func seedTableCounts(t *testing.T, db *gorm.DB) seedCounts {
@@ -191,7 +282,7 @@ func seedTableCounts(t *testing.T, db *gorm.DB) seedCounts {
 		RolePermissions:  countRows(t, db.Model(&model.RolePermission{})),
 		RoleMenus:        countRows(t, db.Model(&model.RoleMenu{})),
 		Users:            countRows(t, db.Model(&model.User{})),
-		UserRoles:         countRows(t, db.Model(&model.UserRole{})),
+		UserRoles:        countRows(t, db.Model(&model.UserRole{})),
 	}
 }
 

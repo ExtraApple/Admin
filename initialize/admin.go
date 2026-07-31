@@ -100,13 +100,12 @@ func ensureAdminUser(conf *Config, roleID uint) model.User {
 	}
 
 	user = model.User{
-		Username:     conf.Admin.Username,
-		Password:     string(hashed),
-		Email:        conf.Admin.Email,
-		Nickname:     conf.Admin.Nickname,
-		Role:         "user",
-		Status:       1,
-		TokenVersion: 1,
+		Username: conf.Admin.Username,
+		Password: string(hashed),
+		Email:    conf.Admin.Email,
+		Nickname: conf.Admin.Nickname,
+		Role:     "user",
+		Status:   1,
 	}
 	if err := global.DB.Create(&user).Error; err != nil {
 		global.Logger.Fatal("create admin user failed", zap.Error(err))
@@ -122,10 +121,9 @@ func restoreAdminUser(user model.User, password string) {
 	}
 
 	updates := map[string]any{
-		"password":      string(hashed),
-		"status":        1,
-		"deleted_at":    nil,
-		"token_version": gorm.Expr("COALESCE(token_version, 0) + ?", 1),
+		"password":   string(hashed),
+		"status":     1,
+		"deleted_at": nil,
 	}
 	if err := global.DB.Unscoped().Model(&user).Updates(updates).Error; err != nil {
 		global.Logger.Fatal("restore admin user failed", zap.Error(err))

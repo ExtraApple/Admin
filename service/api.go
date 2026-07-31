@@ -221,14 +221,19 @@ func UpdateAPI(apiID uint, req dto.UpdateAPIReq) (*dto.APIInfo, error) {
 		return nil, errors.New("无修改内容")
 	}
 
-	if err := global.DB.Model(&api).Updates(updates).Error; err != nil {
-		return nil, errors.New("修改API失败")
-	}
-	global.DB.First(&api, apiID)
-	if req.PermissionCode != nil {
-		if err := syncLinkedMenusByAPI(api); err != nil {
-			return nil, err
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&api).Updates(updates).Error; err != nil {
+			return errors.New("修改API失败")
 		}
+		if err := tx.First(&api, apiID).Error; err != nil {
+			return errors.New("查询API失败")
+		}
+		if req.PermissionCode != nil {
+			return syncLinkedMenusByAPI(tx, api)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return toAPIInfo(api), nil
 }

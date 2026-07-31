@@ -48,6 +48,31 @@ RunServer
 
 当前仍保留 GORM `AutoMigrate` 负责表结构自动迁移，暂未引入正式 SQL migration 工具。
 
+## 授权版本存储（永久状态）
+
+`migrate-access-version-storage` 已完成退出里程碑。Authorization 拥有的
+`user_access_versions` 是 Access Token 和 Refresh Token 授权版本的唯一持久化事实来源。
+
+当前启动流程只通过 GORM AutoMigrate 声明长期模型：
+
+- 创建或校正 `user_access_versions`；
+- 不声明、读取或重建已经删除的 `users.token_version`；
+- 不创建已经退役的 `access_version_migration_states`；
+- 不再运行旧字段回填、数据库级迁移锁、一致性观察或旧版本回滚预检。
+
+`user_access_versions` 的长期行为：
+
+- 新用户首次登录通过 `EnsureVersion` 幂等初始化为版本 1；
+- 用户禁用、软删除、Kick、密码或授权关系变化通过
+  `EnsureAndIncrement` 创建或提升版本；
+- 用户软删除后版本记录保留，恢复用户不会使删除前 Token 重新生效；
+- 登录、Refresh Token 和 JWT 校验均只读取该表，缺行时拒绝 Token，
+  不回退到 Identity 的用户记录。
+
+Seed 不创建、扫描或修复 `user_access_versions`。历史停机切换、旧字段镜像、
+三小时资格验收、删列 DDL 和迁移状态清理证据保留在
+`openspec/changes/migrate-access-version-storage/evidence/`；它们不再是当前启动能力。
+
 ## 当前问题
 
 当前项目已有这些基础能力：
@@ -95,8 +120,8 @@ RunServer
 migrations/
   000001_init_schema.up.sql
   000001_init_schema.down.sql
-  000002_add_token_version.up.sql
-  000002_add_token_version.down.sql
+  000002_create_user_access_versions.up.sql
+  000002_create_user_access_versions.down.sql
 
 seed/
   seed.go          # seed.Run 总入口和执行流程
@@ -509,7 +534,7 @@ apis.permission_code
 permissions.code
 menus.permission_code
 role_permissions
-用户 token_version
+调用 Authorization 的 EnsureAndIncrement 使受影响用户旧 Token 失效
 ```
 
 ### 4. 迁移失败要停止启动

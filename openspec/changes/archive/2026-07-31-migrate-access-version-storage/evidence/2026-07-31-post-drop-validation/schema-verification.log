@@ -1,0 +1,5 @@
+﻿port=23306
+database_name=admin_rehearsal
+current_user=admin_rehearsal@%
+legacy_column_count=0
+access_version_table_count=1

@@ -248,6 +248,7 @@ func TestUpdateUserByAdminUsesControlledAvatarURL(t *testing.T) {
 	}
 	if err := db.AutoMigrate(
 		&model.User{},
+		&model.UserAccessVersion{},
 		&model.Role{},
 		&model.UserRole{},
 		&model.UserOrganization{},
@@ -275,6 +276,12 @@ func TestUpdateUserByAdminUsesControlledAvatarURL(t *testing.T) {
 	}
 	if err := db.Create(&target).Error; err != nil {
 		t.Fatalf("create target: %v", err)
+	}
+	if err := db.Create(&model.UserAccessVersion{
+		UserID:  target.ID,
+		Version: 1,
+	}).Error; err != nil {
+		t.Fatalf("create target access version: %v", err)
 	}
 	allDataRole := model.Role{
 		Name:      "All data",

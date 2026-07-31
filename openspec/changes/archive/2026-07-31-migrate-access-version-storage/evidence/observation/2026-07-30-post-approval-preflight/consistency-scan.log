@@ -1,0 +1,5 @@
+﻿=== RUN   TestMySQLAccessVersionRollbackPreflightConsistencyScan
+    access_version_rollback_preflight_mysql_integration_test.go:74: rollback preflight passed: cutoff_user_id=1 consistency_differences=0 legal_post_cutoff_missing=0
+--- PASS: TestMySQLAccessVersionRollbackPreflightConsistencyScan (0.01s)
+PASS
+ok  	admin/service	0.225s

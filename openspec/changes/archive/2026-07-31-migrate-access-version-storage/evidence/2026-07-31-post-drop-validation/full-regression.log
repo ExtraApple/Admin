@@ -1,0 +1,18 @@
+﻿?   	admin	[no test files]
+ok  	admin/cmd/access-version-drop-legacy-column	0.817s
+ok  	admin/cmd/access-version-qualification	2.989s
+ok  	admin/dto	0.739s
+?   	admin/global	[no test files]
+ok  	admin/handler	0.216s
+ok  	admin/initialize	0.531s
+ok  	admin/initialize/testutil	1.498s
+ok  	admin/internal/accessversionqualification	0.453s
+ok  	admin/middleware	0.453s
+ok  	admin/model	1.705s
+ok  	admin/router	1.357s
+ok  	admin/seed	0.555s
+ok  	admin/service	4.597s
+ok  	admin/service/fileaccess	0.672s
+ok  	admin/service/objectstorage	1.597s
+ok  	admin/service/uploadsecurity	1.257s
+?   	admin/utils	[no test files]

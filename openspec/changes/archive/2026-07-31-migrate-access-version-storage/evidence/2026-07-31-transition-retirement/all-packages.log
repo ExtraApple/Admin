@@ -1,0 +1,15 @@
+?   	admin	[no test files]
+ok  	admin/dto	0.694s
+?   	admin/global	[no test files]
+ok  	admin/handler	0.304s
+ok  	admin/initialize	0.611s
+ok  	admin/initialize/testutil	1.505s
+ok  	admin/middleware	0.436s
+ok  	admin/model	1.689s
+ok  	admin/router	1.215s
+ok  	admin/seed	0.530s
+ok  	admin/service	4.550s
+ok  	admin/service/fileaccess	0.729s
+ok  	admin/service/objectstorage	1.648s
+ok  	admin/service/uploadsecurity	1.214s
+?   	admin/utils	[no test files]

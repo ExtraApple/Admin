@@ -1,0 +1,70 @@
+﻿# Final validation for migrate-access-version-storage
+date=2026-07-31
+archive_path=openspec/changes/archive/2026-07-31-migrate-access-version-storage
+archive_tasks=79/79
+mysql_target=127.0.0.1:23306/admin_rehearsal
+mysql_target_guard=PASS
+
+## First validation run
+
+archive_path=openspec\changes\archive\2026-07-31-migrate-access-version-storage
+archive_tasks=79/79
+mysql_target=127.0.0.1:23306/admin_rehearsal
+mysql_current_user=admin_rehearsal@%
+=== Go full regression ===
+?   	admin	[no test files]
+ok  	admin/dto	0.723s
+?   	admin/global	[no test files]
+ok  	admin/handler	0.292s
+ok  	admin/initialize	1.236s
+ok  	admin/initialize/testutil	1.521s
+ok  	admin/middleware	0.678s
+ok  	admin/model	2.344s
+ok  	admin/router	3.825s
+ok  	admin/seed	0.508s
+ok  	admin/service	14.151s
+ok  	admin/service/fileaccess	0.670s
+ok  	admin/service/objectstorage	1.633s
+ok  	admin/service/uploadsecurity	1.206s
+?   	admin/utils	[no test files]
+=== Go full regression PASS ===
+=== Real MySQL integration regression ===
+?   	admin	[no test files]
+ok  	admin/dto	0.731s
+?   	admin/global	[no test files]
+ok  	admin/handler	0.223s
+ok  	admin/initialize	2.795s
+ok  	admin/initialize/testutil	0.237s
+ok  	admin/middleware	0.713s
+ok  	admin/model	1.271s
+ok  	admin/router	4.127s
+ok  	admin/seed	0.604s
+ok  	admin/service	17.352s
+ok  	admin/service/fileaccess	0.711s
+ok  	admin/service/objectstorage	1.858s
+ok  	admin/service/uploadsecurity	1.228s
+?   	admin/utils	[no test files]
+=== Real MySQL integration regression PASS ===
+=== Docker Redis integration regression ===
+ok  	admin/middleware	0.611s
+=== Docker Redis integration regression PASS ===
+=== OpenSpec strict validation ===
+
+## OpenSpec strict validation standalone retry
+
+- Validating...
+✓ spec/access-version-storage
+✓ spec/api-management
+✓ spec/auth
+✓ spec/dict-management
+✓ spec/file-management
+✓ spec/logging
+✓ spec/menu-management
+✓ spec/organization-management
+✓ spec/rbac
+✓ change/restructure-layered-monolith
+✓ spec/user-management
+Totals: 11 passed, 0 failed (11 items)
+
+note=The first wrapper treated OpenSpec progress written to native stderr as a terminating PowerShell error; the standalone command exited 0.
+FINAL_VALIDATION=PASS

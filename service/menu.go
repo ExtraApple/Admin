@@ -47,10 +47,14 @@ func CreateMenu(req dto.CreateMenuReq) (*dto.MenuDetail, error) {
 		Type:           defaultMenuType(req.Type),
 		Status:         status,
 	}
-	if err := global.DB.Create(&menu).Error; err != nil {
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&menu).Error; err != nil {
+			return err
+		}
+		return incrementAllAccessVersions(tx)
+	}); err != nil {
 		return nil, errors.New("创建菜单失败: " + err.Error())
 	}
-	revokeAllUserTokens()
 	return toMenuDetail(menu), nil
 }
 
@@ -105,11 +109,17 @@ func UpdateMenu(menuID uint, req dto.UpdateMenuReq) (*dto.MenuDetail, error) {
 		return nil, errors.New("无修改内容")
 	}
 
-	if err := global.DB.Model(&menu).Updates(updates).Error; err != nil {
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&menu).Updates(updates).Error; err != nil {
+			return err
+		}
+		return incrementAllAccessVersions(tx)
+	}); err != nil {
 		return nil, errors.New("修改菜单失败")
 	}
-	revokeAllUserTokens()
-	global.DB.First(&menu, menuID)
+	if err := global.DB.First(&menu, menuID).Error; err != nil {
+		return nil, errors.New("查询菜单失败")
+	}
 	return toMenuDetail(menu), nil
 }
 
@@ -139,12 +149,10 @@ func DeleteMenu(menuID uint) error {
 		if err := tx.Unscoped().Delete(&menu).Error; err != nil {
 			return err
 		}
-		return nil
+		return incrementAllAccessVersions(tx)
 	}); err != nil {
 		return err
 	}
-
-	revokeAllUserTokens()
 	return nil
 }
 
@@ -155,21 +163,27 @@ func AssignMenusToRole(roleID uint, menuIDs []uint) error {
 		return errors.New("角色不存在")
 	}
 
-	global.DB.Where("role_id = ?", roleID).Delete(&model.RoleMenu{})
+	menuIDs = uniqueUintIDs(menuIDs)
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("role_id = ?", roleID).
+			Delete(&model.RoleMenu{}).Error; err != nil {
+			return err
+		}
 
-	records := make([]model.RoleMenu, 0, len(menuIDs))
-	for _, menuID := range menuIDs {
-		records = append(records, model.RoleMenu{RoleID: roleID, MenuID: menuID})
-	}
-	if len(records) == 0 {
-		revokeTokensForRole(roleID)
-		return nil
-	}
-	if err := global.DB.Create(&records).Error; err != nil {
-		return errors.New("分配菜单失败: " + err.Error())
-	}
-	revokeTokensForRole(roleID)
-	return nil
+		records := make([]model.RoleMenu, 0, len(menuIDs))
+		for _, menuID := range menuIDs {
+			records = append(records, model.RoleMenu{
+				RoleID: roleID,
+				MenuID: menuID,
+			})
+		}
+		if len(records) > 0 {
+			if err := tx.Create(&records).Error; err != nil {
+				return errors.New("分配菜单失败: " + err.Error())
+			}
+		}
+		return incrementAccessVersionsForRole(tx, roleID)
+	})
 }
 
 // GetRoleMenus 查询角色已授权且启用的菜单树。
@@ -298,44 +312,56 @@ func filterMenusByPermissions(menus []model.Menu, permissions []string) []model.
 // SyncMenus 根据前端路由元数据创建缺失的菜单记录。
 func SyncMenus(routes []dto.SyncMenuItem) (int, error) {
 	created := 0
-	for _, route := range routes {
-		path := normalizeMenuPath(route.Path)
-		if path == nil {
-			continue
-		}
-
-		var exist int64
-		global.DB.Model(&model.Menu{}).Where("path = ?", *path).Count(&exist)
-		if exist > 0 {
-			continue
-		}
-
-		parentID := uint(0)
-		if route.ParentPath != "" {
-			var parent model.Menu
-			if err := global.DB.Where("path = ?", route.ParentPath).First(&parent).Error; err == nil {
-				parentID = parent.ID
+	if err := global.DB.Transaction(func(tx *gorm.DB) error {
+		for _, route := range routes {
+			path := normalizeMenuPath(route.Path)
+			if path == nil {
+				continue
 			}
-		}
 
-		menu := model.Menu{
-			ParentID:       parentID,
-			Name:           route.Name,
-			Path:           path,
-			Component:      route.Component,
-			Icon:           route.Icon,
-			PermissionCode: strings.TrimSpace(route.PermissionCode),
-			Sort:           route.Sort,
-			Type:           defaultMenuType(route.Type),
-			Status:         1,
+			var exist int64
+			if err := tx.Model(&model.Menu{}).
+				Where("path = ?", *path).
+				Count(&exist).Error; err != nil {
+				return err
+			}
+			if exist > 0 {
+				continue
+			}
+
+			parentID := uint(0)
+			if route.ParentPath != "" {
+				var parent model.Menu
+				if err := tx.Where("path = ?", route.ParentPath).
+					First(&parent).Error; err == nil {
+					parentID = parent.ID
+				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+					return err
+				}
+			}
+
+			menu := model.Menu{
+				ParentID:       parentID,
+				Name:           route.Name,
+				Path:           path,
+				Component:      route.Component,
+				Icon:           route.Icon,
+				PermissionCode: strings.TrimSpace(route.PermissionCode),
+				Sort:           route.Sort,
+				Type:           defaultMenuType(route.Type),
+				Status:         1,
+			}
+			if err := tx.Create(&menu).Error; err != nil {
+				return err
+			}
+			created++
 		}
-		if err := global.DB.Create(&menu).Error; err != nil {
-			return created, errors.New("同步菜单失败: " + err.Error())
+		if created == 0 {
+			return nil
 		}
-		created++
-	}
-	if created > 0 {
-		revokeAllUserTokens()
+		return incrementAllAccessVersions(tx)
+	}); err != nil {
+		return 0, errors.New("同步菜单失败: " + err.Error())
 	}
 	return created, nil
 }

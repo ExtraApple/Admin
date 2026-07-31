@@ -387,13 +387,12 @@ func seedAdminUser(tx *gorm.DB, conf *initialize.Config) error {
 	}
 
 	user = model.User{
-		Username:     conf.Admin.Username,
-		Password:     string(hashed),
-		Email:        conf.Admin.Email,
-		Nickname:     conf.Admin.Nickname,
-		Role:         "user",
-		Status:       1,
-		TokenVersion: 1,
+		Username: conf.Admin.Username,
+		Password: string(hashed),
+		Email:    conf.Admin.Email,
+		Nickname: conf.Admin.Nickname,
+		Role:     "user",
+		Status:   1,
 	}
 	if err := tx.Create(&user).Error; err != nil {
 		return err
@@ -410,10 +409,9 @@ func restoreSeedAdminUser(tx *gorm.DB, user model.User, password string) error {
 		return err
 	}
 	return tx.Unscoped().Model(&user).Updates(map[string]any{
-		"password":      string(hashed),
-		"status":        1,
-		"deleted_at":    nil,
-		"token_version": gorm.Expr("COALESCE(token_version, 0) + ?", 1),
+		"password":   string(hashed),
+		"status":     1,
+		"deleted_at": nil,
 	}).Error
 }
 

@@ -1,0 +1,8 @@
+﻿
+
+Algorithm : SHA256
+Hash      : 256CCA7F43158BEAF4513F07C6B1CB94604E249FA08247ADF45E8776B94FFD98
+Path      : C:\Users\Rog\AppData\Local\Temp\admin-access-version-drop-legacy-column-20260731.exe
+
+
+

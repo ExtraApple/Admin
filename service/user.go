@@ -22,7 +22,10 @@ type JWTConfig struct {
 	RefreshExpireMins int
 }
 
-var ErrAvatarFieldNotWritable = errors.New("头像只能通过专用接口修改")
+var (
+	ErrAvatarFieldNotWritable = errors.New("头像只能通过专用接口修改")
+	ErrRefreshTokenInvalid    = errors.New("Refresh Token 无效或已过期")
+)
 
 const maxFailures = 5
 
@@ -101,6 +104,12 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 		return nil, fmt.Errorf("用户名或密码错误（剩余尝试: %d 次）", maxFailures-count)
 	}
 
+	accessVersionRepository := NewAccessVersionRepository(global.DB)
+	tokenVersion, err := accessVersionRepository.EnsureVersion(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("初始化用户授权版本失败: %w", err)
+	}
+
 	// 登录成功，清除失败记录
 	global.Redis.Del(context.Background(), "fail:"+req.Username, "lock:"+req.Username)
 
@@ -122,11 +131,6 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 
 	// 查询用户关联的权限码
 	permissions := GetUserPermissions(user.ID)
-	tokenVersion := user.TokenVersion
-	if tokenVersion <= 0 {
-		tokenVersion = 1
-		global.DB.Model(&user).Update("token_version", tokenVersion)
-	}
 
 	accessToken, refreshToken, err := utils.GenerateToken(
 		user.ID, tokenVersion, roles, permissions,
@@ -135,11 +139,59 @@ func Login(req dto.LoginReq, cfg JWTConfig) (*dto.LoginResp, error) {
 	if err != nil {
 		return nil, errors.New("生成 Token 失败: " + err.Error())
 	}
+	accessVersionRepository.recordSuccessfulTokenIssuance(user.ID)
 
 	return &dto.LoginResp{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		User:         UserInfoFromModel(user),
+	}, nil
+}
+
+// RefreshTokens 使用有效 Refresh Token 签发新的 Access Token 和 Refresh Token。
+func RefreshTokens(
+	req dto.RefreshTokenReq,
+	cfg JWTConfig,
+) (*dto.RefreshTokenResp, error) {
+	claims, err := utils.ParseToken(req.RefreshToken, cfg.Secret)
+	if err != nil {
+		return nil, ErrRefreshTokenInvalid
+	}
+
+	if global.Redis != nil {
+		blacklisted, err := global.Redis.Exists(
+			context.Background(),
+			"blacklist:"+req.RefreshToken,
+		).Result()
+		if err != nil || blacklisted > 0 {
+			return nil, ErrRefreshTokenInvalid
+		}
+	}
+
+	currentVersion, err := currentUserTokenVersion(claims.UserID)
+	if err != nil ||
+		claims.TokenVersion <= 0 ||
+		claims.TokenVersion != currentVersion {
+		return nil, ErrRefreshTokenInvalid
+	}
+
+	accessToken, refreshToken, err := utils.GenerateToken(
+		claims.UserID,
+		currentVersion,
+		claims.Roles,
+		claims.Permissions,
+		cfg.Secret,
+		cfg.ExpireMins,
+		cfg.RefreshExpireMins,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("生成 Token 失败: %w", err)
+	}
+	NewAccessVersionRepository(global.DB).
+		recordSuccessfulTokenIssuance(claims.UserID)
+	return &dto.RefreshTokenResp{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 
@@ -242,11 +294,14 @@ func ChangePassword(userID uint, req dto.ChangePasswordReq) error {
 	if err != nil {
 		return errors.New("密码加密失败")
 	}
-	if err := global.DB.Model(&user).Update("password", string(hashed)).Error; err != nil {
+	return global.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&user).Update("password", string(hashed)).Error; err != nil {
+			return err
+		}
+		_, err := NewAccessVersionRepository(tx).
+			EnsureAndIncrement(tx, userID)
 		return err
-	}
-	revokeTokensForUsers(userID)
-	return nil
+	})
 }
 
 // GetUserInfo 通过 ID 查询用户（脱敏）

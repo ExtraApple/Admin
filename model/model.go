@@ -2,6 +2,7 @@ package model
 
 var Models = []interface{}{
 	User{},
+	UserAccessVersion{},
 	Role{},
 	UserRole{},
 	RoleDataScope{},

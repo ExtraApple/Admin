@@ -1,0 +1,7 @@
+﻿build=passed
+startup_init_mysql=passed
+target=127.0.0.1:23306/admin_rehearsal
+migration_state_table_count_after_startup=0
+user_access_versions_table_count_after_startup=1
+legacy_token_version_column_count_after_startup=0
+temporary_runtime=C:\Users\Rog\AppData\Local\Temp\admin-access-version-retirement-startup-20260731-190418

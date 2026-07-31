@@ -1,0 +1,4 @@
+a7600d6ca8f37232f4274af0fc33c8bb57cafaaeb708d474c5e2827a650d374a  legacy-token-version-values.tsv
+f50a3783e27fa5ff843546ea527f82401047ef75985291d18cc4fefdd71aa8d7  pre-users-show-create.sql
+9419fe025f32be50015f9473f74d0519b2b573a043161f4c533f12874e8c1fe9  restore-token-version.sql
+efcb30706b478f6dd44e0e23ffd49f3500c3442addf4e19b0fe6ecd0710fa9cc  target.txt

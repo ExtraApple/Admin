@@ -1,0 +1,7 @@
+{
+  "result": "already_absent",
+  "target": "127.0.0.1:23306/admin_rehearsal",
+  "table": "users",
+  "column": "token_version",
+  "completed_at": "2026-07-31T18:18:57+08:00"
+}

@@ -1,0 +1,8 @@
+{
+  "Duration": 30000000000,
+  "MinimumOperations": 80,
+  "Concurrency": 8,
+  "RestartCount": 3,
+  "ScanInterval": 5000000000,
+  "AllowTestOverride": true
+}

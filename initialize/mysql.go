@@ -34,6 +34,10 @@ func InitMysql(conf *Config) {
 }
 
 func migrateDatabase(db *gorm.DB) error {
+	return migrateDatabaseWithoutMySQLLock(db)
+}
+
+func migrateDatabaseWithoutMySQLLock(db *gorm.DB) error {
 	if err := db.AutoMigrate(model.Models...); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

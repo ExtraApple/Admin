@@ -449,22 +449,29 @@ func setupAdminFileRouteTest(t *testing.T) (*gin.Engine, string) {
 	}
 	if err := db.AutoMigrate(
 		&model.User{},
+		&model.UserAccessVersion{},
 		&model.API{},
 		&model.AuditLog{},
 	); err != nil {
 		t.Fatalf("migrate router test database: %v", err)
 	}
 
+	const accessVersion = 1
 	user := model.User{
-		Username:     "router-user",
-		Password:     "not-used",
-		Email:        "router-user@example.com",
-		Role:         "user",
-		Status:       1,
-		TokenVersion: 1,
+		Username: "router-user",
+		Password: "not-used",
+		Email:    "router-user@example.com",
+		Role:     "user",
+		Status:   1,
 	}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatalf("create router test user: %v", err)
+	}
+	if err := db.Create(&model.UserAccessVersion{
+		UserID:  user.ID,
+		Version: accessVersion,
+	}).Error; err != nil {
+		t.Fatalf("create router test user access version: %v", err)
 	}
 
 	apis := []model.API{

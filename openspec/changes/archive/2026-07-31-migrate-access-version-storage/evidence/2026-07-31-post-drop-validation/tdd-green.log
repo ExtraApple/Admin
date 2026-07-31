@@ -1,0 +1,6 @@
+﻿=== RUN   TestAccessVersionPostDropEvidenceCoversStartupAndFullRegression
+=== PAUSE TestAccessVersionPostDropEvidenceCoversStartupAndFullRegression
+=== CONT  TestAccessVersionPostDropEvidenceCoversStartupAndFullRegression
+--- PASS: TestAccessVersionPostDropEvidenceCoversStartupAndFullRegression (0.09s)
+PASS
+ok  	admin/initialize	0.286s

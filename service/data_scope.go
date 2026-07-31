@@ -48,10 +48,19 @@ func getOperatorDataScope(operatorID uint) (bool, []uint, error) {
 		return false, nil, errors.New("用户身份无效")
 	}
 
+	var roleIDs []uint
+	if err := global.DB.Model(&model.UserRole{}).
+		Where("user_id = ?", operatorID).
+		Pluck("role_id", &roleIDs).Error; err != nil {
+		return false, nil, errors.New("查询用户角色失败")
+	}
+	if len(roleIDs) == 0 {
+		return false, []uint{}, nil
+	}
+
 	var roles []model.Role
 	if err := global.DB.Model(&model.Role{}).
-		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
-		Where("user_roles.user_id = ? AND roles.status = ?", operatorID, 1).
+		Where("id IN ? AND status = ?", roleIDs, 1).
 		Find(&roles).Error; err != nil {
 		return false, nil, errors.New("查询用户角色失败")
 	}

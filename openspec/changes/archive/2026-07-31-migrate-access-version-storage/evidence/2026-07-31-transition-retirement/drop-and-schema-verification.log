@@ -1,0 +1,6 @@
+﻿statement=DROP TABLE IF EXISTS access_version_migration_states
+target=127.0.0.1:23306/admin_rehearsal
+migration_state_table_count=0
+user_access_versions_table_count=1
+legacy_token_version_column_count=0
+completed_at=2026-07-31T19:02:35+08:00
