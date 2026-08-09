@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"admin/internal/identity/domain"
@@ -17,7 +16,7 @@ import (
 
 const (
 	AvatarBucket    = "image"
-	AvatarValidated = "validated"
+	AvatarValidated = domain.AvatarValidationStatusValidated
 
 	AvatarCodeStorageUnavailable = "STORAGE_UNAVAILABLE"
 	AvatarCodePersistenceFailed  = "PERSISTENCE_FAILED"
@@ -170,7 +169,7 @@ func (service *AvatarService) Upload(ctx context.Context, input UploadAvatarInpu
 	if err != nil {
 		return UploadAvatarResult{}, NewAvatarError(AvatarCodePersistenceFailed, err)
 	}
-	oldObjectName, hasOldObject := TrustedAvatarObjectName(previous, input.UserID)
+	oldObjectName, hasOldObject := domain.TrustedAvatarObjectName(previous, input.UserID)
 	objectName, err := newAvatarObjectName(input.UserID, validated.CanonicalExtension)
 	if err != nil {
 		return UploadAvatarResult{}, NewAvatarError(AvatarCodeInternalError, err)
@@ -202,7 +201,7 @@ func (service *AvatarService) RestoreDefault(ctx context.Context, userID uint) (
 	if err != nil {
 		return domain.User{}, NewAvatarError(AvatarCodePersistenceFailed, err)
 	}
-	oldObjectName, hasOldObject := TrustedAvatarObjectName(previous, userID)
+	oldObjectName, hasOldObject := domain.TrustedAvatarObjectName(previous, userID)
 	if !hasAvatarMetadata(previous) {
 		return previous, nil
 	}
@@ -228,7 +227,7 @@ func (service *AvatarService) Open(ctx context.Context, userID uint) AvatarConte
 	if err != nil {
 		return DefaultAvatarContent()
 	}
-	objectName, trusted := TrustedAvatarObjectName(user, userID)
+	objectName, trusted := domain.TrustedAvatarObjectName(user, userID)
 	if !trusted {
 		return DefaultAvatarContent()
 	}
@@ -251,36 +250,6 @@ func (service *AvatarService) Open(ctx context.Context, userID uint) AvatarConte
 		return DefaultAvatarContent()
 	}
 	return AvatarContent{ContentType: user.AvatarContentType, Reader: &prefetchedAvatarReader{Reader: io.MultiReader(bytes.NewReader(buffer[:count]), reader), closer: reader}}
-}
-
-func TrustedAvatarObjectName(user domain.User, userID uint) (string, bool) {
-	if userID == 0 || user.AvatarValidationStatus != AvatarValidated {
-		return "", false
-	}
-	prefix := fmt.Sprintf("avatars/%d/", userID)
-	if !strings.HasPrefix(user.AvatarObjectName, prefix) {
-		return "", false
-	}
-	fileName := strings.TrimPrefix(user.AvatarObjectName, prefix)
-	if fileName == "" || strings.ContainsAny(fileName, `/\\`) {
-		return "", false
-	}
-	extension := ""
-	expectedMIME := ""
-	switch {
-	case strings.HasSuffix(fileName, ".jpg"):
-		extension, expectedMIME = ".jpg", "image/jpeg"
-	case strings.HasSuffix(fileName, ".png"):
-		extension, expectedMIME = ".png", "image/png"
-	default:
-		return "", false
-	}
-	if user.AvatarContentType != expectedMIME {
-		return "", false
-	}
-	idText := strings.TrimSuffix(fileName, extension)
-	id, err := uuid.Parse(idText)
-	return user.AvatarObjectName, err == nil && id.String() == idText
 }
 
 func newAvatarObjectName(userID uint, extension string) (string, error) {

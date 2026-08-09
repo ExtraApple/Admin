@@ -20,16 +20,26 @@ import (
 	"admin/internal/routecatalog"
 )
 
-type identityComposition struct {
-	service   *identityapplication.Service
-	users     *identityapplication.UserService
-	context   *identityapplication.ContextService
-	avatars   *identityapplication.AvatarService
-	store     *identityredis.Store
-	directory identityapplication.UserRepository
+type identityCore struct {
+	repository *identitygorm.Repository
+	directory  *identityapplication.DirectoryService
 }
 
-func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader) identityComposition {
+func newIdentityCore(resources Resources) identityCore {
+	repository := identitygorm.NewRepository(resources.DB)
+	return identityCore{repository: repository, directory: identityapplication.NewDirectoryService(repository)}
+}
+
+type identityComposition struct {
+	service    *identityapplication.Service
+	users      *identityapplication.UserService
+	context    *identityapplication.ContextService
+	avatars    *identityapplication.AvatarService
+	store      *identityredis.Store
+	repository identityapplication.UserRepository
+}
+
+func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore) identityComposition {
 	store := identityredis.NewStore(resources.Redis)
 	tokens := identityjwt.NewService(identityjwt.Config{
 		Secret:                  config.Jwt.Secret,
@@ -38,10 +48,9 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 		LegacyAccessExpireMins:  config.Jwt.LegacyAccessExpire,
 		LegacyRefreshExpireMins: config.Jwt.LegacyRefreshExpire,
 	})
-	repository := identitygorm.NewRepository(resources.DB)
 	authorizationReader := identityAuthorization{authorization: authorization}
 	service := identityapplication.NewService(
-		repository,
+		core.repository,
 		store,
 		identitypassword.Bcrypt{},
 		store,
@@ -50,10 +59,10 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 		tokens,
 	)
 	access := &identityAccessManager{authorization: authorization, roles: authgorm.NewRepository(resources.DB), versions: authgorm.NewAccessVersions(resources.DB)}
-	users := identityapplication.NewUserService(repository, identitypassword.Bcrypt{}, platformdatabase.NewTransactionRunner(resources.DB), access)
-	contextService := identityapplication.NewContextService(repository, authorizationReader, navigation)
-	avatars := newAvatarService(resources, repository)
-	return identityComposition{service: service, users: users, context: contextService, avatars: avatars, store: store, directory: repository}
+	users := identityapplication.NewUserService(core.repository, identitypassword.Bcrypt{}, platformdatabase.NewTransactionRunner(resources.DB), access)
+	contextService := identityapplication.NewContextService(core.repository, authorizationReader, navigation)
+	avatars := newAvatarService(resources, core.repository)
+	return identityComposition{service: service, users: users, context: contextService, avatars: avatars, store: store, repository: core.repository}
 }
 
 func identityDescriptors(composition identityComposition, config platformconfig.Config) []routecatalog.Descriptor {

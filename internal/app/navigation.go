@@ -8,11 +8,9 @@ import (
 	apidomain "admin/internal/apimetadata/domain"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	authapplication "admin/internal/authorization/application"
-	"admin/internal/identity"
+	identityapplication "admin/internal/identity/application"
 	"admin/internal/navigation"
 	platformdatabase "admin/internal/platform/database"
-
-	"gorm.io/gorm"
 )
 
 type navigationComposition struct {
@@ -21,12 +19,12 @@ type navigationComposition struct {
 	APIService *apiapplication.Service
 }
 
-func newNavigationComposition(resources Resources, authorization *authapplication.Service, routeSource apiapplication.RouteSource) navigationComposition {
+func newNavigationComposition(resources Resources, authorization *authapplication.Service, routeSource apiapplication.RouteSource, users identityapplication.UserDirectory) navigationComposition {
 	authorizationRepository := authgorm.NewRepository(resources.DB)
 	versions := authgorm.NewAccessVersions(resources.DB)
 	authorizationCapability := navigationAuthorizationCapability{
 		authorization: authorization, repository: authorizationRepository,
-		versions: versions, db: resources.DB,
+		versions: versions, users: users,
 	}
 	apiCore := apiapplication.NewCore(apigorm.NewRepository(resources.DB))
 	transactions := platformdatabase.NewTransactionRunner(resources.DB)
@@ -86,7 +84,7 @@ type navigationAuthorizationCapability struct {
 	authorization *authapplication.Service
 	repository    *authgorm.Repository
 	versions      *authgorm.AccessVersions
-	db            *gorm.DB
+	users         identityapplication.UserDirectory
 }
 
 func (capability navigationAuthorizationCapability) RoleExists(ctx context.Context, roleID uint) (bool, error) {
@@ -119,9 +117,7 @@ func (capability navigationAuthorizationCapability) UserIDsByRoleIDs(ctx context
 	return capability.repository.UserIDsByRoleIDs(ctx, roleIDs)
 }
 func (capability navigationAuthorizationCapability) AllUserIDs(ctx context.Context) ([]uint, error) {
-	var ids []uint
-	err := platformdatabase.FromContext(ctx, capability.db).Model(&identity.User{}).Where("deleted_at IS NULL").Order("id asc").Pluck("id", &ids).Error
-	return ids, err
+	return capability.users.ListUserIDs(ctx)
 }
 func (capability navigationAuthorizationCapability) RoleIDsByPermissionCode(ctx context.Context, code string) ([]uint, error) {
 	return capability.repository.RoleIDsByPermissionCode(ctx, code)

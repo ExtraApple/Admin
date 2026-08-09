@@ -4,18 +4,19 @@ import (
 	"context"
 	"testing"
 
-	"admin/testsupport/testutil"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	"admin/internal/authorization/application"
 	"admin/internal/authorization/domain"
+	identitydomain "admin/internal/identity/domain"
 	"admin/internal/organization"
 	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
 )
 
 type emptyUserDirectory struct{}
 
-func (emptyUserDirectory) ListUsersByIDs(context.Context, []uint) ([]domain.UserSummary, error) {
-	return []domain.UserSummary{}, nil
+func (emptyUserDirectory) ListUsersByIDs(context.Context, []uint) ([]identitydomain.DirectoryUser, error) {
+	return []identitydomain.DirectoryUser{}, nil
 }
 
 type authorizationFixture struct {

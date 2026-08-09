@@ -5,9 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	"admin/testsupport/testutil"
+	apigorm "admin/internal/apimetadata/adapters/gorm"
+	apiapplication "admin/internal/apimetadata/application"
+	apidomain "admin/internal/apimetadata/domain"
 	"admin/internal/navigation"
 	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
+
+	"gorm.io/gorm"
 )
 
 func TestServiceCreatesAndReturnsOrderedMenuTree(t *testing.T) {
@@ -276,6 +281,173 @@ func TestServiceChangesLinkedAPIPermissionAndMergesRoleGrants(t *testing.T) {
 	invalidated := authorization.incremented[0]
 	if len(invalidated) != 2 || invalidated[0] != 42 || invalidated[1] != 84 {
 		t.Fatalf("invalidated users = %#v", invalidated)
+	}
+}
+func TestServiceDeleteAPIHardDeletesMetadataAndRollsBackLinkedWrites(t *testing.T) {
+	t.Run("commits relation cleanup and hard delete", func(t *testing.T) {
+		fixture := newAPIDeleteFixture(t)
+
+		err := fixture.service.DeleteAPI(fixture.ctx, fixture.apiID, func(transactionContext context.Context) error {
+			return fixture.apiCore.Delete(transactionContext, fixture.apiID)
+		})
+		if err != nil {
+			t.Fatalf("DeleteAPI() error = %v", err)
+		}
+		fixture.assertDeleted(t)
+		if len(fixture.authorization.incremented) != 1 || len(fixture.authorization.incremented[0]) != 1 || fixture.authorization.incremented[0][0] != 42 {
+			t.Fatalf("affected user invalidations = %#v, want [[42]]", fixture.authorization.incremented)
+		}
+	})
+
+	t.Run("rolls back relation cleanup when delete callback fails", func(t *testing.T) {
+		fixture := newAPIDeleteFixture(t)
+		deleteErr := errors.New("delete API failed")
+
+		err := fixture.service.DeleteAPI(fixture.ctx, fixture.apiID, func(context.Context) error {
+			return deleteErr
+		})
+		if !errors.Is(err, deleteErr) {
+			t.Fatalf("DeleteAPI() error = %v, want %v", err, deleteErr)
+		}
+		fixture.assertRetained(t)
+	})
+
+	t.Run("rolls back hard delete when access version update fails", func(t *testing.T) {
+		fixture := newAPIDeleteFixture(t)
+		versionErr := errors.New("access version update failed")
+		fixture.authorization.incrementErr = versionErr
+
+		err := fixture.service.DeleteAPI(fixture.ctx, fixture.apiID, func(transactionContext context.Context) error {
+			return fixture.apiCore.Delete(transactionContext, fixture.apiID)
+		})
+		if !errors.Is(err, versionErr) {
+			t.Fatalf("DeleteAPI() error = %v, want %v", err, versionErr)
+		}
+		fixture.assertRetained(t)
+	})
+}
+
+type apiDeleteFixture struct {
+	ctx           context.Context
+	db            *gorm.DB
+	service       *navigation.Service
+	apiCore       *apiapplication.Core
+	authorization *navigationAuthorizationFake
+	apiID         uint
+	menuID        uint
+}
+
+func newAPIDeleteFixture(t *testing.T) apiDeleteFixture {
+	t.Helper()
+	ctx := context.Background()
+	db := testutil.OpenIsolatedSQLite(t)
+	models := append(navigation.Models(), apigorm.Models()...)
+	if err := db.AutoMigrate(models...); err != nil {
+		t.Fatalf("migrate API delete fixture: %v", err)
+	}
+	authorization := &navigationAuthorizationFake{
+		allUsers: []uint{42}, access: make(map[uint]navigation.UserAccess),
+		roleUsers: map[uint][]uint{7: {42}}, roles: map[uint]bool{7: true},
+		permissions: make(map[string]navigation.PermissionRef), permissionRoles: make(map[uint][]uint),
+	}
+	apiCore := apiapplication.NewCore(apigorm.NewRepository(db))
+	api, err := apiCore.Create(ctx, apiapplication.CreateInput{Name: "Delete User", Method: "DELETE", Path: "/api/admin/users/:id"})
+	if err != nil {
+		t.Fatalf("create API metadata: %v", err)
+	}
+	service := navigation.NewService(
+		navigation.NewGORMRepository(db),
+		platformdatabase.NewTransactionRunner(db),
+		authorization,
+		navigationAPICoreStorage{core: apiCore},
+	)
+	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Delete User", Type: 3})
+	if err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+	if err := service.AssignRoleMenus(ctx, 7, []uint{menu.ID}); err != nil {
+		t.Fatalf("assign role menu: %v", err)
+	}
+	if err := service.AssignAPIs(ctx, menu.ID, []uint{api.ID}, "users.delete"); err != nil {
+		t.Fatalf("assign API: %v", err)
+	}
+	authorization.incremented = nil
+	return apiDeleteFixture{ctx: ctx, db: db, service: service, apiCore: apiCore, authorization: authorization, apiID: api.ID, menuID: menu.ID}
+}
+
+func (fixture apiDeleteFixture) assertDeleted(t *testing.T) {
+	t.Helper()
+	if _, err := fixture.apiCore.Get(fixture.ctx, fixture.apiID); err == nil {
+		t.Fatal("hard-deleted API remained queryable")
+	}
+	var count int64
+	if err := fixture.db.Unscoped().Table("apis").Where("id = ?", fixture.apiID).Count(&count).Error; err != nil {
+		t.Fatalf("count unscoped API rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("unscoped API rows = %d, want 0", count)
+	}
+	bound, err := fixture.service.MenuAPIs(fixture.ctx, fixture.menuID)
+	if err != nil || len(bound) != 0 {
+		t.Fatalf("menu API bindings after delete = %#v, error = %v", bound, err)
+	}
+}
+
+func (fixture apiDeleteFixture) assertRetained(t *testing.T) {
+	t.Helper()
+	if _, err := fixture.apiCore.Get(fixture.ctx, fixture.apiID); err != nil {
+		t.Fatalf("API metadata was not rolled back: %v", err)
+	}
+	bound, err := fixture.service.MenuAPIs(fixture.ctx, fixture.menuID)
+	if err != nil || len(bound) != 1 || bound[0].ID != fixture.apiID {
+		t.Fatalf("menu API bindings after rollback = %#v, error = %v", bound, err)
+	}
+}
+
+type navigationAPICoreStorage struct{ core *apiapplication.Core }
+
+func (storage navigationAPICoreStorage) ListByIDs(ctx context.Context, ids []uint) ([]navigation.APIRecord, error) {
+	apis, err := storage.core.ListByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]navigation.APIRecord, len(apis))
+	for index := range apis {
+		result[index] = navigationAPIRecord(apis[index])
+	}
+	return result, nil
+}
+
+func (storage navigationAPICoreStorage) Lock(ctx context.Context, id uint) (navigation.APIRecord, error) {
+	api, err := storage.core.Lock(ctx, id)
+	return navigationAPIRecord(api), err
+}
+
+func (storage navigationAPICoreStorage) LockMany(ctx context.Context, ids []uint) ([]navigation.APIRecord, error) {
+	apis, err := storage.core.LockMany(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]navigation.APIRecord, len(apis))
+	for index := range apis {
+		result[index] = navigationAPIRecord(apis[index])
+	}
+	return result, nil
+}
+
+func (storage navigationAPICoreStorage) SetPermissionCode(ctx context.Context, ids []uint, code string) error {
+	return storage.core.SetPermissionCode(ctx, ids, code)
+}
+
+func (storage navigationAPICoreStorage) CountPermissionCode(ctx context.Context, code string) (int64, error) {
+	return storage.core.CountPermissionCode(ctx, code)
+}
+
+func navigationAPIRecord(api apidomain.API) navigation.APIRecord {
+	return navigation.APIRecord{
+		ID: api.ID, Name: api.Name, Method: api.Method, Path: api.Path, Group: api.Group,
+		PermissionCode: api.PermissionCode, Sort: api.Sort, Status: api.Status,
+		NeedAuth: api.NeedAuth, NeedAudit: api.NeedAudit, Remark: api.Remark,
 	}
 }
 func TestServiceGeneratesButtonMenuFromAuthenticatedAPI(t *testing.T) {

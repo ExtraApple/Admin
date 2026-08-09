@@ -68,6 +68,43 @@ func fromDomain(user domain.User) UserModel {
 
 var _ application.UserRepository = (*Repository)(nil)
 
+func (repository *Repository) ListUsersByIDs(ctx context.Context, userIDs []uint) ([]application.DirectoryUserRecord, error) {
+	if len(userIDs) == 0 {
+		return []application.DirectoryUserRecord{}, nil
+	}
+	var users []UserModel
+	if err := repository.connection(ctx).
+		Select("id", "username", "nickname", "email", "role", "status", "avatar_object_name", "avatar_content_type", "avatar_validation_status").
+		Where("id IN ?", userIDs).
+		Order("id asc").
+		Find(&users).Error; err != nil {
+		return nil, err
+	}
+	records := make([]application.DirectoryUserRecord, len(users))
+	for index, user := range users {
+		_, avatarTrusted := domain.TrustedAvatarObjectName(toDomain(user), user.ID)
+		records[index] = application.DirectoryUserRecord{
+			ID: user.ID, Username: user.Username, Nickname: user.Nickname,
+			Email: user.Email, Role: user.Role, Status: user.Status,
+			AvatarTrusted: avatarTrusted,
+		}
+	}
+	return records, nil
+}
+
+func (repository *Repository) ListUserIDs(ctx context.Context) ([]uint, error) {
+	var userIDs []uint
+	if err := repository.connection(ctx).Model(&UserModel{}).Order("id asc").Pluck("id", &userIDs).Error; err != nil {
+		return nil, err
+	}
+	if userIDs == nil {
+		return []uint{}, nil
+	}
+	return userIDs, nil
+}
+
+var _ application.DirectoryRepository = (*Repository)(nil)
+
 func (repository *Repository) List(ctx context.Context, offset, limit int, scope domain.UserScope) ([]domain.User, int64, error) {
 	query := repository.connection(ctx).Model(&UserModel{})
 	if !scope.All {

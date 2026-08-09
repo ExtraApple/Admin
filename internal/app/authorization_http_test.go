@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
+	"admin/internal/identity"
+	identitydomain "admin/internal/identity/domain"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -77,6 +79,66 @@ func TestAuthorizationHTTPRoutesPreserveRBACContracts(t *testing.T) {
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("update role status = %d, body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAuthorizationRoleUsersUseIdentityDirectoryAvatars(t *testing.T) {
+	application, db := newAuthorizationApp(t)
+	trusted := identity.User{Username: "role-trusted", Password: "unused", Email: "role-trusted@test.local", Avatar: "https://legacy.example/trusted.png", Status: 1}
+	untrusted := identity.User{Username: "role-untrusted", Password: "unused", Email: "role-untrusted@test.local", Avatar: "https://legacy.example/untrusted.png", Status: 1}
+	invalidMetadata := identity.User{Username: "role-invalid-metadata", Password: "unused", Email: "role-invalid-metadata@test.local", Avatar: "https://legacy.example/invalid.png", Status: 1}
+	if err := db.Create(&[]*identity.User{&trusted, &untrusted, &invalidMetadata}).Error; err != nil {
+		t.Fatalf("create role users: %v", err)
+	}
+	trustedObject := "avatars/" + strconv.FormatUint(uint64(trusted.ID), 10) + "/00000000-0000-4000-8000-000000000007.png"
+	if err := db.Model(&trusted).Updates(map[string]any{
+		"avatar_object_name": trustedObject, "avatar_content_type": "image/png", "avatar_validation_status": identitydomain.AvatarValidationStatusValidated,
+	}).Error; err != nil {
+		t.Fatalf("trust role user avatar: %v", err)
+	}
+	invalidObject := "avatars/" + strconv.FormatUint(uint64(invalidMetadata.ID), 10) + "/00000000-0000-4000-8000-000000000010.png"
+	if err := db.Model(&invalidMetadata).Updates(map[string]any{
+		"avatar_object_name": invalidObject, "avatar_content_type": "image/jpeg", "avatar_validation_status": identitydomain.AvatarValidationStatusValidated,
+	}).Error; err != nil {
+		t.Fatalf("set invalid role user avatar metadata: %v", err)
+	}
+	role := authgorm.Role{Name: "Directory Role", Code: "directory-role", Status: 1}
+	emptyRole := authgorm.Role{Name: "Empty Directory Role", Code: "empty-directory-role", Status: 1}
+	if err := db.Create(&[]*authgorm.Role{&role, &emptyRole}).Error; err != nil {
+		t.Fatalf("create roles: %v", err)
+	}
+	if err := db.Create(&[]authgorm.UserRole{{UserID: trusted.ID, RoleID: role.ID}, {UserID: untrusted.ID, RoleID: role.ID}, {UserID: invalidMetadata.ID, RoleID: role.ID}}).Error; err != nil {
+		t.Fatalf("assign role users: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/admin/roles/"+strconv.FormatUint(uint64(role.ID), 10)+"/users", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("list role users status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Data []struct {
+			ID     uint   `json:"id"`
+			Avatar string `json:"avatar"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode role users: %v", err)
+	}
+	if len(payload.Data) != 3 || payload.Data[0].ID != trusted.ID || payload.Data[0].Avatar != "/api/avatars/"+strconv.FormatUint(uint64(trusted.ID), 10) || payload.Data[1].ID != untrusted.ID || payload.Data[1].Avatar != "/api/avatars/default" || payload.Data[2].ID != invalidMetadata.ID || payload.Data[2].Avatar != "/api/avatars/default" {
+		t.Fatalf("role users = %#v", payload.Data)
+	}
+
+	emptyResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(emptyResponse, httptest.NewRequest(http.MethodGet, "/api/admin/roles/"+strconv.FormatUint(uint64(emptyRole.ID), 10)+"/users", nil))
+	var emptyPayload struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(emptyResponse.Body.Bytes(), &emptyPayload); err != nil {
+		t.Fatalf("decode empty role users: %v", err)
+	}
+	if emptyResponse.Code != http.StatusOK || emptyPayload.Data == nil || len(emptyPayload.Data) != 0 {
+		t.Fatalf("empty role users status=%d data=%#v body=%s", emptyResponse.Code, emptyPayload.Data, emptyResponse.Body.String())
 	}
 }
 

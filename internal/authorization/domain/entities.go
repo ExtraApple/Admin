@@ -1,7 +1,5 @@
 package domain
 
-import "time"
-
 type Role struct {
 	ID          uint
 	Name        string
@@ -24,18 +22,6 @@ type PermissionGroup struct {
 	ID   uint
 	Name string
 	Sort int
-}
-
-type UserSummary struct {
-	ID          uint
-	Username    string
-	Nickname    string
-	Avatar      string
-	Email       string
-	Role        string
-	Status      int
-	LastLoginAt *time.Time
-	CreatedAt   time.Time
 }
 
 type RoleDataScope struct {

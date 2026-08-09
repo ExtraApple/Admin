@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"admin/internal/authorization/domain"
+	identitydomain "admin/internal/identity/domain"
 )
 
 // TransactionRunner is owned by the caller's application boundary. Implementations
@@ -23,7 +24,7 @@ type OrganizationScopeReader interface {
 
 // UserDirectory is the identity capability used for password-free role-user responses.
 type UserDirectory interface {
-	ListUsersByIDs(context.Context, []uint) ([]domain.UserSummary, error)
+	ListUsersByIDs(context.Context, []uint) ([]identitydomain.DirectoryUser, error)
 }
 
 // AccessVersionStore is the authorization-owned invalidation capability consumed

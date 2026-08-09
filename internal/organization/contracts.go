@@ -1,6 +1,10 @@
 package organization
 
-import "context"
+import (
+	"context"
+
+	identitydomain "admin/internal/identity/domain"
+)
 
 type OrganizationScope struct {
 	All             bool
@@ -12,8 +16,7 @@ type VisibilityProvider interface {
 }
 
 type UserDirectory interface {
-	ExistingUserIDs(context.Context, []uint) ([]uint, error)
-	ListUsersByIDs(context.Context, []uint) ([]MemberInfo, error)
+	ListUsersByIDs(context.Context, []uint) ([]identitydomain.DirectoryUser, error)
 }
 
 type AccessVersionInvalidator interface {

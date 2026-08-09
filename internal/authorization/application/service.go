@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"admin/internal/authorization/domain"
+	identitydomain "admin/internal/identity/domain"
 )
 
 var (
@@ -195,7 +196,7 @@ func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, user
 	})
 }
 
-func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]domain.UserSummary, error) {
+func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]identitydomain.DirectoryUser, error) {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
 		return nil, errors.New("角色不存在")
 	}
@@ -208,7 +209,7 @@ func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]domain.Us
 		return nil, err
 	}
 	if users == nil {
-		return []domain.UserSummary{}, nil
+		return []identitydomain.DirectoryUser{}, nil
 	}
 	return users, nil
 }

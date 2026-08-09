@@ -165,7 +165,11 @@ func (handler *httpHandler) users(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": users})
+	response := make([]MemberInfo, len(users))
+	for index, user := range users {
+		response[index] = MemberInfo{ID: user.ID, Username: user.Username, Nickname: user.Nickname, Avatar: user.Avatar, Email: user.Email, Role: user.Role, Status: user.Status}
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": response})
 }
 
 func parseOptionalInt(value string) *int {

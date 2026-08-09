@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sort"
+
+	identitydomain "admin/internal/identity/domain"
 )
 
 type Service struct {
@@ -225,9 +227,13 @@ func (service *Service) SetUsers(ctx context.Context, operatorID, unitID uint, u
 	}
 	userIDs = uniqueIDs(userIDs)
 	if len(userIDs) > 0 {
-		existingIDs, err := service.users.ExistingUserIDs(ctx, userIDs)
+		users, err := service.users.ListUsersByIDs(ctx, userIDs)
 		if err != nil {
 			return errors.New("查询用户失败")
+		}
+		existingIDs := make([]uint, len(users))
+		for index, user := range users {
+			existingIDs[index] = user.ID
 		}
 		if !sameIDs(existingIDs, userIDs) {
 			return errors.New("存在无效用户")
@@ -253,7 +259,7 @@ func (service *Service) SetUsers(ctx context.Context, operatorID, unitID uint, u
 	})
 }
 
-func (service *Service) Users(ctx context.Context, operatorID, unitID uint) ([]MemberInfo, error) {
+func (service *Service) Users(ctx context.Context, operatorID, unitID uint) ([]identitydomain.DirectoryUser, error) {
 	if _, err := service.repository.FindUnitByID(ctx, unitID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, errors.New("组织不存在")
@@ -268,7 +274,7 @@ func (service *Service) Users(ctx context.Context, operatorID, unitID uint) ([]M
 		return nil, errors.New("查询组织成员失败")
 	}
 	if len(userIDs) == 0 {
-		return []MemberInfo{}, nil
+		return []identitydomain.DirectoryUser{}, nil
 	}
 	users, err := service.users.ListUsersByIDs(ctx, userIDs)
 	if err != nil {

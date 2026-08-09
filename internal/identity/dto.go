@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"admin/internal/identity/application"
 	"admin/internal/identity/domain"
 )
 
@@ -119,7 +118,7 @@ type MenuDetail struct {
 
 func UserInfoFromDomain(user domain.User) UserInfo {
 	avatar := "/api/avatars/default"
-	if _, trusted := application.TrustedAvatarObjectName(user, user.ID); trusted {
+	if _, trusted := domain.TrustedAvatarObjectName(user, user.ID); trusted {
 		avatar = "/api/avatars/" + strconv.FormatUint(uint64(user.ID), 10)
 	}
 	return UserInfo{ID: user.ID, Username: user.Username, Nickname: user.Nickname, Avatar: avatar, Email: user.Email, Role: user.Role, Status: user.Status}

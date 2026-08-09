@@ -14,6 +14,33 @@ type UserRepository interface {
 	Create(context.Context, *domain.User) error
 }
 
+// DirectoryUserRecord is the narrow persistence result used only by the
+// Identity directory application service. It contains no object key, legacy
+// avatar URL, ORM model, or storage client.
+type DirectoryUserRecord struct {
+	ID            uint
+	Username      string
+	Nickname      string
+	Email         string
+	Role          string
+	Status        int
+	AvatarTrusted bool
+}
+
+// DirectoryRepository supplies only the fields needed to build public user
+// directory values and the user IDs needed by cross-module invalidation.
+type DirectoryRepository interface {
+	ListUsersByIDs(context.Context, []uint) ([]DirectoryUserRecord, error)
+	ListUserIDs(context.Context) ([]uint, error)
+}
+
+// UserDirectory is the Identity-owned user read capability consumed by other
+// modules. Implementations return only safe, public directory values.
+type UserDirectory interface {
+	ListUsersByIDs(context.Context, []uint) ([]domain.DirectoryUser, error)
+	ListUserIDs(context.Context) ([]uint, error)
+}
+
 type UserChanges struct {
 	Nickname *string
 	Email    *string

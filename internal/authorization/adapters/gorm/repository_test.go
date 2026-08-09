@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"admin/testsupport/testutil"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	authapp "admin/internal/authorization/application"
 	authdomain "admin/internal/authorization/domain"
+	identitydomain "admin/internal/identity/domain"
 	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
 )
 
 func TestRepositoryPersistsAuthorizationRelationsAndScopes(t *testing.T) {
@@ -81,6 +82,6 @@ func TestRepositoryPersistsAuthorizationRelationsAndScopes(t *testing.T) {
 
 type noUsers struct{}
 
-func (noUsers) ListUsersByIDs(context.Context, []uint) ([]authdomain.UserSummary, error) {
-	return []authdomain.UserSummary{}, nil
+func (noUsers) ListUsersByIDs(context.Context, []uint) ([]identitydomain.DirectoryUser, error) {
+	return []identitydomain.DirectoryUser{}, nil
 }

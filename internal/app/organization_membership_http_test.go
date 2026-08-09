@@ -9,15 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	authdomain "admin/internal/authorization/domain"
 	"admin/internal/identity"
 	identityjwt "admin/internal/identity/adapters/jwt"
 	identityapplication "admin/internal/identity/application"
+	identitydomain "admin/internal/identity/domain"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -84,6 +85,63 @@ func TestOrganizationHTTPOverwritesMembersAndInvalidatesOldTokens(t *testing.T) 
 	}
 	if response := fixture.request(http.MethodGet, "/api/admin/organizations", firstCurrentToken, nil); response.Code != http.StatusUnauthorized {
 		t.Fatalf("deleted Organization Member old token status = %d, want 401", response.Code)
+	}
+}
+
+func TestOrganizationUsersUseIdentityDirectoryAvatars(t *testing.T) {
+	fixture := newOrganizationJWTFixture(t)
+	trusted := fixture.createUser("organization-trusted")
+	untrusted := fixture.createUser("organization-untrusted")
+	invalidMetadata := fixture.createUser("organization-invalid-metadata")
+	trustedObject := "avatars/" + itoa(trusted.ID) + "/00000000-0000-4000-8000-000000000008.png"
+	if err := fixture.db.Model(&trusted).Updates(map[string]any{
+		"avatar": "https://legacy.example/trusted.png", "avatar_object_name": trustedObject,
+		"avatar_content_type": "image/png", "avatar_validation_status": identitydomain.AvatarValidationStatusValidated,
+	}).Error; err != nil {
+		t.Fatalf("trust organization avatar: %v", err)
+	}
+	if err := fixture.db.Model(&untrusted).Update("avatar", "https://legacy.example/untrusted.png").Error; err != nil {
+		t.Fatalf("set legacy organization avatar: %v", err)
+	}
+	invalidObject := "avatars/" + itoa(invalidMetadata.ID) + "/00000000-0000-4000-8000-000000000011.png"
+	if err := fixture.db.Model(&invalidMetadata).Updates(map[string]any{
+		"avatar": "https://legacy.example/invalid.png", "avatar_object_name": invalidObject,
+		"avatar_content_type": "image/jpeg", "avatar_validation_status": identitydomain.AvatarValidationStatusValidated,
+	}).Error; err != nil {
+		t.Fatalf("set invalid organization avatar metadata: %v", err)
+	}
+	unit := fixture.post("/api/admin/organizations", map[string]any{"name": "Directory Members", "code": "directory-members"})
+	unitID := uint(unit["id"].(float64))
+	empty := fixture.post("/api/admin/organizations", map[string]any{"name": "Empty Directory Members", "code": "empty-directory-members"})
+	emptyID := uint(empty["id"].(float64))
+	assigned := fixture.request(http.MethodPost, "/api/admin/organizations/"+itoa(unitID)+"/users", fixture.adminToken, map[string]any{"user_ids": []uint{trusted.ID, untrusted.ID, invalidMetadata.ID}})
+	if assigned.Code != http.StatusOK {
+		t.Fatalf("assign directory members status=%d body=%s", assigned.Code, assigned.Body.String())
+	}
+
+	response := fixture.request(http.MethodGet, "/api/admin/organizations/"+itoa(unitID)+"/users", fixture.adminToken, nil)
+	var payload struct {
+		Data []struct {
+			ID     uint   `json:"id"`
+			Avatar string `json:"avatar"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode organization users: %v", err)
+	}
+	if response.Code != http.StatusOK || len(payload.Data) != 3 || payload.Data[0].ID != trusted.ID || payload.Data[0].Avatar != "/api/avatars/"+itoa(trusted.ID) || payload.Data[1].ID != untrusted.ID || payload.Data[1].Avatar != "/api/avatars/default" || payload.Data[2].ID != invalidMetadata.ID || payload.Data[2].Avatar != "/api/avatars/default" {
+		t.Fatalf("organization users status=%d data=%#v body=%s", response.Code, payload.Data, response.Body.String())
+	}
+
+	emptyResponse := fixture.request(http.MethodGet, "/api/admin/organizations/"+itoa(emptyID)+"/users", fixture.adminToken, nil)
+	var emptyPayload struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(emptyResponse.Body.Bytes(), &emptyPayload); err != nil {
+		t.Fatalf("decode empty organization users: %v", err)
+	}
+	if emptyResponse.Code != http.StatusOK || emptyPayload.Data == nil || len(emptyPayload.Data) != 0 {
+		t.Fatalf("empty organization users status=%d data=%#v body=%s", emptyResponse.Code, emptyPayload.Data, emptyResponse.Body.String())
 	}
 }
 
