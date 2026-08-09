@@ -57,6 +57,6 @@
 
 ## 使用统一术语
 
-代码、测试、Issue、OpenSpec 和审查意见应优先使用 `CONTEXT.md` 中定义的术语。
+代码、测试、需求记录、OpenSpec 和审查意见应优先使用 `CONTEXT.md` 中定义的术语。
 
 如果实现或新设计与现有 ADR、OpenSpec 或术语定义冲突，必须明确指出冲突。

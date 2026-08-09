@@ -10,8 +10,8 @@
 
 具体实施顺序见：
 
-- [项目优化路线图](项目优化路线图.md)
-- [文件上传安全优化建议](文件上传安全优化建议.md)
+- [project-improvement-roadmap](project-improvement-roadmap.md)
+- [file-upload-security-recommendations](file-upload-security-recommendations.md)
 
 ## 参考方向
 
@@ -176,7 +176,7 @@ test database
 - 批量上传与批量重新验证。
 - 新增文件类型的独立风险评审。
 
-V1 已实现行为和 V2 边界见[文件上传安全优化建议](文件上传安全优化建议.md)。
+V1 已实现行为和 V2 边界见[file-upload-security-recommendations](file-upload-security-recommendations.md)。
 
 ### 6. 运行状态和监控不足
 

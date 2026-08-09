@@ -1,0 +1,13 @@
+flowchart LR
+  Main["main.go"] --> App["internal/app<br/>唯一组合根"]
+  App --> Platform["internal/platform<br/>配置与基础设施"]
+  App --> Identity["Identity + Authorization"]
+  App --> Business["Organization + Navigation<br/>API Metadata + Dictionary"]
+  App --> Operations["Files + Audit<br/>Upload Security"]
+  App --> Catalog["Route Catalog<br/>静态路由事实"]
+  Identity --> Catalog
+  Business --> Catalog
+  Operations --> Catalog
+  Catalog --> Gin["Gin Engine<br/>唯一注册点"]
+  Catalog --> APIDoc["API Doc"]
+  App --> Lifecycle["AutoMigrate + Seed<br/>后台任务"]

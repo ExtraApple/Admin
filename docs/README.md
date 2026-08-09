@@ -1,49 +1,63 @@
 # docs 使用说明
 
-`docs/` 保存实现说明、设计草案、测试步骤、运维说明和背景材料。
+`docs/` 保存实现导航、业务边界摘要、运维手册、架构决策和历史背景。接口契约不在 Markdown 中重复维护。
 
-当前系统稳定行为以 `openspec/specs/` 为准；未来功能变更应先创建 `openspec/changes/`，实现完成后再同步回主规格和模块文档。
+## 事实来源
 
-## 文档定位
+| 内容 | 入口 |
+|---|---|
+| 领域术语 | [`CONTEXT.md`](../CONTEXT.md) |
+| 当前系统行为 | [`openspec/specs/`](../openspec/specs/) |
+| 计划中的行为变化 | [`openspec/changes/`](../openspec/changes/) |
+| API 路径、请求和响应 Schema | 本地 `http://localhost:8080/docs`、`http://localhost:8080/docs/openapi.json` |
+| 长期架构决策 | [`adr/`](adr/) |
+| 代码导航 | [`module-navigation.md`](module-navigation.md) |
 
-| 文档 | 定位 | 对应 OpenSpec |
-|---|---|---|
-| `登录安全策略.md` | 登录锁定、验证码和安全策略说明 | `openspec/specs/auth/spec.md` |
-| `配置管理.md` | 环境变量、敏感配置和超级管理员初始化说明 | `openspec/specs/auth/spec.md` |
-| `用户管理.md` | 用户、个人中心、头像、强制下线等说明 | `openspec/specs/user-management/spec.md` |
-| `角色管理.md` | 角色、角色用户、角色权限、角色菜单、数据范围说明 | `openspec/specs/rbac/spec.md` |
-| `数据权限.md` | 角色数据范围和组织数据过滤说明 | `openspec/specs/rbac/spec.md`、`openspec/specs/organization-management/spec.md` |
-| `权限管理.md` | 权限、权限分组、权限码同步说明 | `openspec/specs/rbac/spec.md` |
-| `菜单管理.md` | 菜单树、菜单 CRUD、角色菜单、菜单 API 绑定说明 | `openspec/specs/menu-management/spec.md` |
-| `菜单与API联动.md` | 菜单按钮和 API 权限码联动说明 | `openspec/specs/menu-management/spec.md`、`openspec/specs/api-management/spec.md` |
-| `API管理.md` | API 元数据、路由同步、动态权限、生成按钮菜单说明 | `openspec/specs/api-management/spec.md` |
-| `自动化API文档.md` | OpenAPI JSON、Swagger UI、Apifox 导入说明 | `openspec/specs/api-management/spec.md` |
-| `数据库迁移和Seed初始化.md` | 数据库迁移、基础数据 Seed、部署初始化流程设计 | 暂未单独建 OpenSpec |
-| `文件管理.md` | 文件上传、下载、浏览、轮转说明 | `openspec/specs/file-management/spec.md` |
-| `Zap日志模块.md` | Zap 运行日志模块说明 | `openspec/specs/logging/spec.md` |
-| `操作日志.md` | 审计日志、冷热归档、分类查询说明 | `openspec/specs/logging/spec.md` |
-| `组织管理.md` | 组织 CRUD、组织树、成员绑定、数据范围说明 | `openspec/specs/organization-management/spec.md` |
-| `字典管理.md` | 字典类型、字典条目、公开字典查询说明 | `openspec/specs/dict-management/spec.md` |
+发生冲突时，当前行为以 OpenSpec 为准；运行代码用于核验实现一致性。
 
-## modify 目录
+## 目录职责
 
-`docs/modify/` 用来记录跨模块重要修改、架构演进、项目优化路线和当前专题设计。
+| 目录 | 内容 |
+|---|---|
+| `modules/` | 业务模块边界摘要和非 API 规则 |
+| `runbooks/` | 配置、部署、切换、排障和维护步骤 |
+| `assets/architecture/` | Mermaid 源文件及 SVG、PNG 导出文件 |
+| `adr/` | 已接受的长期架构决策 |
+| `modify/` | 架构演进、路线图和历史背景 |
+| `agents/` | 文档维护规则 |
 
-当前主要记录：
+## 业务模块摘要
 
-```text
-docs/modify/权限链路修改记录.md
-docs/modify/成熟后台项目对比与改进建议.md
-docs/modify/成熟后台项目对比概览.md
-docs/modify/项目优化路线图.md
-docs/modify/文件上传安全优化建议.md
-```
+| 文档 | 领域 |
+|---|---|
+| [`user-management.md`](modules/user-management.md) | 用户、会话和头像边界 |
+| [`role-management.md`](modules/role-management.md) | 角色和角色关联 |
+| [`permission-management.md`](modules/permission-management.md) | 权限码和权限同步 |
+| [`data-scope.md`](modules/data-scope.md) | 数据范围和资源过滤 |
+| [`menu-management.md`](modules/menu-management.md) | 菜单树和菜单维护 |
+| [`menu-api-integration.md`](modules/menu-api-integration.md) | 菜单与 API 权限码联动 |
+| [`api-metadata-management.md`](modules/api-metadata-management.md) | API 元数据和运行时策略 |
+| [`organization-management.md`](modules/organization-management.md) | 组织单位和组织成员 |
+| [`dictionary-management.md`](modules/dictionary-management.md) | 字典类型和字典条目 |
+
+## 运维手册
+
+| 文档 | 主题 |
+|---|---|
+| [`configuration.md`](runbooks/configuration.md) | 配置来源、Secret 和部署 |
+| [`login-security.md`](runbooks/login-security.md) | 验证码、登录锁定和 Token |
+| [`database-migration-and-seeding.md`](runbooks/database-migration-and-seeding.md) | AutoMigrate、Seed 和启动初始化 |
+| [`file-management.md`](runbooks/file-management.md) | 文件安全、状态和存储 |
+| [`runtime-logging.md`](runbooks/runtime-logging.md) | Zap 运行日志 |
+| [`audit-logging.md`](runbooks/audit-logging.md) | 审计日志和冷热归档 |
+| [`api-documentation.md`](runbooks/api-documentation.md) | Swagger UI 和 OpenAPI 维护 |
+| [`access-version-storage-switch.md`](runbooks/access-version-storage-switch.md) | 授权版本迁移历史 |
 
 ## 维护规则
 
-- 已实现行为：先更新 `openspec/specs/`，再更新对应模块文档。
-- 新功能：先创建 OpenSpec change，再实现代码，最后同步主规格和文档。
-- 接口测试步骤可以放在 `docs/`。
-- 行为规则、接口约束、安全边界、错误处理必须沉淀到 OpenSpec。
-- 不要把临时调试日志写入正式文档。
-- 生产的功能要添加对应的代码注释
+- Route Descriptor 和 OpenAPI 生成链路维护接口契约。
+- 当前行为先更新 `openspec/specs/`；未来变化先创建 `openspec/changes/`。
+- 模块摘要只记录 Swagger 不适合表达的边界、背景和验证重点。
+- 可执行部署、切换和排障步骤进入 `runbooks/`；长期架构取舍进入 `adr/`。
+- 图表源文件与导出文件放在 `assets/architecture/`，引用文档使用相对路径。
+- 不保留临时调试日志、过期目录结构、伪代码实现步骤或未批准的未来方案。

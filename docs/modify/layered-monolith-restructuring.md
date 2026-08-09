@@ -3,7 +3,7 @@
 ## 文档状态
 
 - 最近更新：2026-08-02
-- 状态：设计决策已确认；授权版本迁移和旧字段退出已完成，分层代码迁移尚未开始
+- 状态：阶段 0 至阶段 6 的代码迁移已完成；当前进行阶段 7 的最终门禁与规格验收
 - 适用范围：目录结构、模块归属、依赖方向、路由装配、跨模块事务、授权版本 Contract、测试与渐进实施
 - 当前行为事实来源：`openspec/specs/`
 - 后续实施入口：`openspec/changes/restructure-layered-monolith/`
@@ -1285,6 +1285,8 @@ Route Catalog Descriptor集合必须与Gin实际路由集合一致，不允许�
 
 ## 15. 渐进实施顺序
 
+> 实施状态（2026-08-05）：阶段 0 至阶段 6 已完成。系统入口已切换到 `internal/app`，顶层技术目录、`global`、`legacyglobal` 和迁移期兼容 Adapter 已删除；当前只剩阶段 7 的最终门禁和规格验收。授权版本迁移已归档，本重构只消费现行 Authorization Contract，不依赖 `users.token_version` 或旧迁移观察期。
+
 ### 阶段0：前置复核与行为基线
 
 1. 复核 `migrate-access-version-storage` 的退出证据和 `user_access_versions` 唯一事实来源。
@@ -1518,12 +1520,12 @@ Route Catalog Descriptor集合必须与Gin实际路由集合一致，不允许�
 
 | 文档 | 定位 |
 | --- | --- |
-| [成熟后台项目对比与改进建议](成熟后台项目对比与改进建议.md) | 历史导航和项目阶段结论 |
-| [成熟后台项目对比概览](成熟后台项目对比概览.md) | 已有能力、工程化差距和候选业务模块 |
-| [项目优化路线图](项目优化路线图.md) | 全项目长期优先级和前置关系 |
-| [权限链路修改记录](权限链路修改记录.md) | 权限体系演进历史 |
-| [文件上传安全优化建议](文件上传安全优化建议.md) | 文件安全V1背景和后续方向 |
-| [项目分层重构方案](项目分层重构方案.md) | 当前目录结构、模块所有权和迁移方案 |
+| [mature-admin-system-comparison-recommendations](mature-admin-system-comparison-recommendations.md) | 历史导航和项目阶段结论 |
+| [mature-admin-system-comparison-overview](mature-admin-system-comparison-overview.md) | 已有能力、工程化差距和候选业务模块 |
+| [project-improvement-roadmap](project-improvement-roadmap.md) | 全项目长期优先级和前置关系 |
+| [authorization-flow-change-log](authorization-flow-change-log.md) | 权限体系演进历史 |
+| [file-upload-security-recommendations](file-upload-security-recommendations.md) | 文件安全 V1 背景和后续方向 |
+| [layered-monolith-restructuring](layered-monolith-restructuring.md) | 当前目录结构、模块所有权和迁移方案 |
 
 出现冲突时，优先级为：
 

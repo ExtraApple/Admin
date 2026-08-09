@@ -1,30 +1,29 @@
-# modify 修改记录说明
+# modify 架构与修改记录说明
 
-`docs/modify` 用来记录跨模块、架构级、权限链路级的修改历史，方便后续回看项目为什么这样设计、哪些地方已经完成、哪些地方还需要继续优化。
+`docs/modify/` 保存跨模块、架构级、权限链路级的设计和历史记录。当前行为不以本目录为事实来源；请优先查看 `openspec/specs/`、`docs/adr/` 和 `docs/runbooks/`。
 
 ## 文件索引
 
+### 当前设计
+
 | 文件 | 说明 |
-| --- | --- |
-| `权限链路修改记录.md` | 记录认证、权限、菜单/API、自动化 API 文档、数据权限等权限链路相关的已完成变更 |
-| `成熟后台项目对比与改进建议.md` | 成熟后台项目改进文档的导航入口和当前结论 |
-| `成熟后台项目对比概览.md` | 记录当前已有基础、与成熟后台系统的主要差距和候选业务模块 |
-| `项目优化路线图.md` | 记录阶段划分、前置依赖、完成标准和精确执行顺序 |
-| `文件上传安全优化建议.md` | 记录已实现并归档的文件上传安全 V1 背景、实施概要、版本边界和 V2 后续优化 |
+|---|---|
+| [`layered-monolith-restructuring.md`](layered-monolith-restructuring.md) | 当前目录分层、模块归属、路由和事务边界 |
+| [`project-improvement-roadmap.md`](project-improvement-roadmap.md) | 全项目长期优先级和执行顺序 |
 
-## 优化文档阅读顺序
+### 背景与历史
 
-```text
-成熟后台项目对比与改进建议
-  → 成熟后台项目对比概览
-  → 项目优化路线图
-  → 当前最高优先级专题文档
-```
+| 文件 | 说明 |
+|---|---|
+| [`authorization-flow-change-log.md`](authorization-flow-change-log.md) | 认证、RBAC、菜单/API 和 Token 失效演进历史 |
+| [`mature-admin-system-comparison-recommendations.md`](mature-admin-system-comparison-recommendations.md) | 成熟后台项目对比导航和阶段结论 |
+| [`mature-admin-system-comparison-overview.md`](mature-admin-system-comparison-overview.md) | 已有能力、工程化差距和候选模块 |
+| [`file-upload-security-recommendations.md`](file-upload-security-recommendations.md) | 文件安全 V1 背景和 V2 候选方向 |
 
 ## 维护规则
 
-- 跨多个模块的结构性修改，优先写入 `docs/modify`。
-- 单个模块的接口、字段、Apifox 测试说明，写入 `docs/模块名称.md`。
-- 已经稳定落地的行为，需要同步到对应模块文档和 OpenSpec。
-- 尚未开始实现且仍在讨论中的设计，写入对应专题优化文档。
-- 已经达成共享理解、准备进入开发的需求，再创建 GitHub Issue 和 OpenSpec change。
+- 跨多个模块的结构性修改优先写入本目录。
+- 当前行为先更新 OpenSpec；本目录只保留设计过程、背景和历史结论。
+- 接口路径、请求字段、响应 Schema 和在线调试以 Swagger UI / OpenAPI JSON 为准。
+- 已接受且改变成本较高的决策写入 `docs/adr/`。
+- 可执行的部署、切换和排障步骤写入 `docs/runbooks/`。
