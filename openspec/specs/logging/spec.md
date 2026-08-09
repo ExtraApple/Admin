@@ -1,4 +1,4 @@
-﻿# logging Specification
+# logging Specification
 
 ## Purpose
 
@@ -7,12 +7,13 @@
 ## Requirements
 
 ### Requirement: Zap 运行日志
-系统 SHALL 使用 Zap 作为运行日志核心，为服务启动、定时任务、HTTP 请求和运行错误提供运行日志。
+系统 SHALL 使用 Zap 作为运行日志核心，为服务启动、定时任务、HTTP 请求和运行错误提供运行日志；App/Platform SHALL 负责创建和装配 Logger，Domain 和 Application SHALL 通过显式依赖使用日志能力，不依赖全局运行时状态。
 
 #### Scenario: 服务启动时初始化日志
-- **WHEN** 应用启动并读取配置成功
-- **THEN** 系统初始化全局 Zap logger
-- **AND** 后续初始化流程可以通过全局 logger 写入运行日志
+- **WHEN** App 启动并读取配置成功
+- **THEN** `internal/platform/logging` SHALL 创建 Zap Logger
+- **AND** App SHALL 将 Logger 注入需要日志能力的模块和后台任务
+- **AND** 日志级别、输出配置和现有启动日志行为 SHALL 保持兼容
 
 #### Scenario: 初始化失败
 - **WHEN** MySQL、Redis 或 MinIO 初始化失败
@@ -27,7 +28,7 @@
 
 #### Scenario: 文件轮转任务运行
 - **WHEN** 文件轮转任务启动、跳过、移动文件或遇到错误
-- **THEN** 系统通过 Zap 写入描述执行结果的运行日志
+- **THEN** 系统通过注入的 Zap Logger 写入描述执行结果的运行日志
 
 ### Requirement: API 审计日志
 系统 SHALL 自动记录 `/api/*` 请求到 `audit_logs` 表，并为文件和头像上传记录不包含文件内容的结构化安全元数据。
@@ -99,5 +100,3 @@
 - **AND** `audit_logs` 中存在早于 `retention_days` 的记录
 - **THEN** 系统 SHALL 按 `batch_size` 批量复制记录及 metadata 到 `audit_log_archives`
 - **AND** 只有复制成功后才删除 `audit_logs` 中对应记录
-
-

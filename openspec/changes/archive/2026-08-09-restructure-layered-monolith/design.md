@@ -157,23 +157,23 @@ Identity 拥有 JWT、Refresh Token、Redis 黑名单、用户状态和 `/api/us
 
 模块 `module.go` 只能构造模块内部对象，不读取全局配置，也不自行创建基础设施客户端。`platform` 不包含角色、菜单、文件等业务规则。
 
-推荐的模块构造顺序为：
+推荐的依赖装配顺序为（无跨模块依赖的模块可以在满足自身依赖后提前构造）：
 
 ```text
 Platform
-→ Organization Hierarchy Core
-→ Authorization Core
-→ API Metadata Storage/Policy Core
-→ Navigation Core
-→ API Metadata Management
-→ Identity Core
+→ Identity Core（Identity Repository 和唯一 DirectoryService）
+→ Organization Hierarchy Core 与 API Metadata Storage/Policy Core
+→ Authorization Core（注入 Identity Directory 和 Organization Hierarchy）
+→ Navigation Core（注入 Authorization、API Metadata Storage 和 Identity Directory）
+→ Organization Management 与 API Metadata Management
+→ 完整 Identity 用例（注入 Authorization 和 Navigation）
 → Files、Audit、Dictionary、API Doc
 → 各模块 HTTP Adapter
 → Route Catalog
 → App 注册 Gin 路由
 ```
 
-Navigation 需要 API Metadata 读写能力，而 API Metadata 的 Permission Code 管理又需要 Navigation 同步关联菜单，因此先构造不依赖 Navigation 的 Storage/Policy Core，再构造 Navigation，最后构造 API Metadata Management。类似循环必须通过拆分基础 Capability 和管理用例解决，不得创建可变的半初始化模块后回填字段。
+Identity Directory 是 Authorization、Organization 和 Navigation 的前置能力，完整 Identity 用例则依赖已经完成的 Authorization 和 Navigation，因此必须拆分 Identity Core 与完整 Identity 装配。Navigation 需要 API Metadata 读写能力，而 API Metadata 的 Permission Code 管理又需要 Navigation 同步关联菜单，因此先构造不依赖 Navigation 的 Storage/Policy Core，再构造 Navigation，最后构造 API Metadata Management。类似循环必须通过拆分基础 Capability 和管理用例解决，不得创建可变的半初始化模块后回填字段。
 
 该决策让依赖图在一个位置可见，并允许测试使用 Fake Contract 或测试 Adapter。备选的全局容器或 Service Locator 会隐藏依赖并继续制造运行时耦合，因此不采用。
 
@@ -236,6 +236,39 @@ internal/<caller>/application/contracts.go
 跨模块公开值类型保持稳定和最小。请求身份使用只包含用户 ID 的 `Principal`；Authorization 通过 `AccessSnapshot` 返回角色、权限和授权版本。JWT 中已有的角色或权限 Claim 不能绕过运行时授权版本和权限校验。
 
 Go 的隐式接口实现允许提供方不导入调用方。App 将提供方实现注入调用方，Application 只依赖接口。
+#### Identity 用户目录与头像能力
+
+用户头像继续由 Identity 唯一拥有。本 Change 不新增顶层 `internal/avatar` 或 `internal/identity/avatar` 业务模块；头像对象生命周期、用户归属和可信状态与用户记录不可分离，新增独立 Avatar 所有者会重新制造数据归属和依赖边界。
+
+Identity 保持现有 `internal/identity/application/avatar_service.go` 作为头像对象生命周期能力，负责上传、恢复默认头像和受控读取。`UserDirectory` 定位为 Identity 向其他业务模块提供的批量安全用户读取能力；Authorization 和 Organization 通过调用方定义的最小 Contract 消费用户目录，Navigation 只消费全部用户 ID 查询。
+
+Identity 自有的注册、登录、用户资料、管理员用户列表和头像操作继续消费 Identity Application 返回的领域值，不得仅为复用 `UserDirectory` 而重复查询数据库。根级 Identity DTO 负责把这些 Identity 自有值映射为既有 HTTP 响应。
+
+`UserDirectory` 使用 Identity 定义的最小公开值类型 `identity/domain.DirectoryUser`，不返回 GORM Model、密码、旧 `avatar` 字段、MinIO URL、object key 或基础设施客户端。App 创建一个 Identity Directory 实例，并将同一个实例注入 Authorization、Organization 和 Navigation。
+
+头像可信判断属于 Identity 领域规则。`AvatarService`、`UserDirectory` 和 Identity DTO 必须共同使用 `internal/identity/domain` 中的可信判断，不得各自实现对象归属、验证状态、文件后缀或 MIME 判断。展示层只允许输出 `/api/avatars/default` 或 `/api/avatars/<user-id>`，不为两处简单的公开路径格式化新增无所有权的头像工具包。
+
+#### Identity Core 装配阶段
+
+App 按固定阶段装配 Identity 及其消费者：
+
+1. 构造 Identity Core，包括 Identity Repository 和唯一的 `DirectoryService`。
+2. 使用 Identity Directory 装配 Authorization、Organization 和 Navigation。
+3. 使用已经完成的 Authorization 和 Navigation 能力装配完整 Identity 用例。
+4. 装配 Audit、Route Catalog 和 Gin。
+
+`identityComposition` 只保存 Identity HTTP 路由实际需要的 Service、UserService、ContextService、AvatarService、Captcha Store 和必要 Repository，不重复保存已经由 `identityCore` 拥有的 `DirectoryService`。
+
+#### App Identity 依赖门禁
+
+App 是合法的组合根，因此 Identity 自有组合文件可以导入 Identity Adapter；跨模块组合文件只能依赖 Identity Application Contract 或批准的最小领域值类型。
+
+- `identity.go` 和 `identity_avatar.go` 可以导入 Identity Application、Domain 和基础设施 Adapter。
+- `app.go` 可以导入 Identity Application 和 HTTP Adapter。
+- `authorization.go`、`organization.go` 和 `navigation.go` 只能通过 Identity Application 接缝访问用户能力。
+- `migrate.go` 只保留迁移所需的 Identity Model 入口。
+- 其他跨模块组合文件不得导入 Identity 根级持久化模型、GORM/Redis/Object Storage/JWT/Password Adapter，也不得复制头像字段、可信判断或公开头像路径规则。
+- 架构测试必须按导入路径前缀和文件职责检查，并为允许与拒绝的依赖样例提供可执行测试；不得只拒绝一个精确包路径。
 
 备选方案：
 
@@ -413,8 +446,9 @@ SQLite 不能作为唯一验收数据库。以下场景必须使用真实 MySQL�
    - 扩展 Route Catalog 的 API 同步和 OpenAPI 描述。
 
 4. **迁移 Identity 和 Organization**
+   - 先构造 Identity Core，提供用户 Repository、User Directory 和 Avatar Service；再装配依赖 Authorization、Navigation 的完整 Identity 用例，避免 App 直接查询 Identity 持久化模型。
    - 迁移登录、JWT、用户状态、资料、头像和用户上下文编排。
-   - 通过正式 Contract 使用 Authorization、Navigation 和 Organization。
+   - 通过正式 Contract 使用 Authorization、Navigation 和 Organization；管理员用户、组织成员和角色成员统一消费 Identity User Directory 的脱敏投影。
    - 删除旧 JWT 和数据范围入口。
 
 5. **迁移 Files、Audit、API Doc 和 Upload Security**
@@ -443,4 +477,4 @@ SQLite 不能作为唯一验收数据库。以下场景必须使用真实 MySQL�
 
 ## Open Questions
 
-无阻断实施的开放问题。一级模块、Authorization 有限拆分、路由归属、Contract 归属、事务边界和测试策略已在本 Change、`openspec/specs/` 及 ADR 中确认；授权版本迁移和旧字段退出已由 `migrate-access-version-storage` 完成，不再以 `docs/modify/项目分层重构方案.md` 中的旧迁移计划作为前置事实。
+无阻断实施的开放问题。一级模块、Authorization 有限拆分、路由归属、Contract 归属、事务边界和测试策略已在本 Change、`openspec/specs/` 及 ADR 中确认；授权版本迁移和旧字段退出已由 `migrate-access-version-storage` 完成，不再以 `docs/modify/layered-monolith-restructuring.md` 中的旧迁移计划作为前置事实。
