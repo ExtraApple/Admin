@@ -151,14 +151,34 @@ func TestRegisterValidatesPasswordAndPersistsHashedUser(t *testing.T) {
 func TestLoginLocksAfterFifthPasswordFailure(t *testing.T) {
 	attempts := &countingAttemptFake{}
 	service := application.NewService(userRepositoryFake{user: domain.User{Username: "alice", Password: "stored", Status: 1}}, &captchaFake{verified: true}, rejectingPasswordFake{}, attempts, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	var lastErr error
 	for i := range 5 {
-		_, err := service.Login(context.Background(), application.LoginRequest{Username: "alice", Password: "wrong", CaptchaID: "id", CaptchaCode: "123456"})
-		if err == nil {
+		_, lastErr = service.Login(context.Background(), application.LoginRequest{Username: "alice", Password: "wrong", CaptchaID: "id", CaptchaCode: "123456"})
+		if lastErr == nil {
 			t.Fatalf("login attempt %d error = nil", i+1)
 		}
 	}
 	if attempts.failures != 5 || attempts.lockedFor != time.Minute {
 		t.Fatalf("lockout state = failures:%d duration:%s", attempts.failures, attempts.lockedFor)
+	}
+	if code, _ := application.CodeOf(lastErr); code != application.CodeLoginLocked {
+		t.Fatalf("fifth failure code = %q, want %q", code, application.CodeLoginLocked)
+	}
+	details, ok := application.DetailsOf(lastErr)
+	if !ok || details.RetryAfterSeconds != 60 {
+		t.Fatalf("fifth failure details = %#v, want retry_after_seconds=60", details)
+	}
+}
+
+func TestPasswordValidationCarriesSafeFieldError(t *testing.T) {
+	service := application.NewService(&recordingUserRepository{}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	_, err := service.Register(context.Background(), application.RegisterRequest{Username: "alice", Password: "weak", CaptchaID: "id", CaptchaCode: "123456"})
+	if code, _ := application.CodeOf(err); code != application.CodeValidationInvalid {
+		t.Fatalf("validation code = %q, want %q", code, application.CodeValidationInvalid)
+	}
+	details, ok := application.DetailsOf(err)
+	if !ok || len(details.Fields) != 1 || details.Fields[0].Field != "password" || details.Fields[0].ErrorCode != "IDENTITY_PASSWORD_INVALID" {
+		t.Fatalf("validation details = %#v", details)
 	}
 }
 

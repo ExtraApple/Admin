@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"github.com/gin-gonic/gin"
 )
@@ -138,7 +139,7 @@ func (service *Service) OpenAPI(c *gin.Context) {
 	}
 	document, err := service.Document(c.Request.Context(), scheme+"://"+host)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
+		httpresponse.WriteError(c, httpresponse.InternalErrorDefinition(), err, nil)
 		return
 	}
 	c.JSON(http.StatusOK, document)
@@ -204,7 +205,6 @@ func buildRequestBody(request routecatalog.RequestBody) map[string]any {
 		return nil
 	}
 }
-
 func buildResponses(responses map[int]routecatalog.Response) map[string]any {
 	result := make(map[string]any, len(responses))
 	codes := make([]int, 0, len(responses))
@@ -222,13 +222,121 @@ func buildResponses(responses map[int]routecatalog.Response) map[string]any {
 			}
 			content := make(map[string]any, len(contentTypes))
 			for _, contentType := range contentTypes {
-				content[contentType] = map[string]any{"schema": schemaFor(response.Schema)}
+				schema := schemaFor(response.Schema)
+				if response.Kind == routecatalog.JSONBody {
+					if code >= 400 {
+						schema = errorEnvelopeSchema(code, response.Errors)
+					} else {
+						schema = successEnvelopeSchema(code, response.DataSchema, response.Schema)
+					}
+				}
+				content[contentType] = map[string]any{"schema": schema}
 			}
 			item["content"] = content
 		}
 		result[strconv.Itoa(code)] = item
 	}
 	return result
+}
+
+func successEnvelopeSchema(status int, dataValue, fallback reflect.Type) map[string]any {
+	data := dataValue
+	if data == nil {
+		data = fallback
+	}
+	if envelopeData, ok := envelopeDataType(data); ok {
+		data = envelopeData
+	}
+	return envelopeSchema(status, []string{""}, []string{"success"}, schemaFor(data))
+}
+func errorEnvelopeSchema(status int, definitions []httpresponse.ErrorDefinition) map[string]any {
+	codes := make([]string, 0, len(definitions))
+	messages := make([]string, 0, len(definitions))
+	dataSchemas := make([]map[string]any, 0, len(definitions))
+	for _, definition := range definitions {
+		codes = append(codes, definition.Code)
+		messages = append(messages, definition.Message)
+		if definition.DataSchema != nil {
+			dataSchemas = append(dataSchemas, schemaFor(definition.DataSchema))
+		}
+	}
+	sort.Strings(codes)
+	sort.Strings(messages)
+	data := map[string]any{"nullable": true}
+	if len(dataSchemas) == 1 {
+		data = dataSchemas[0]
+	} else if len(dataSchemas) > 1 {
+		data = map[string]any{"oneOf": dataSchemas}
+	}
+	if fields := fieldErrorSchema(definitions); fields != nil {
+		data = fields
+	}
+	return envelopeSchema(status, codes, messages, data)
+}
+
+func envelopeSchema(status int, errorCodes, messages []string, data map[string]any) map[string]any {
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"code", "error_code", "msg", "data"},
+		"properties": map[string]any{
+			"code":       map[string]any{"type": "integer", "enum": []int{status}},
+			"error_code": map[string]any{"type": "string", "enum": errorCodes},
+			"msg":        map[string]any{"type": "string", "enum": messages},
+			"data":       data,
+		},
+	}
+}
+
+func fieldErrorSchema(definitions []httpresponse.ErrorDefinition) map[string]any {
+	codes := []string{}
+	seen := map[string]struct{}{}
+	for _, definition := range definitions {
+		for _, field := range definition.Fields {
+			if _, ok := seen[field.Code]; ok {
+				continue
+			}
+			seen[field.Code] = struct{}{}
+			codes = append(codes, field.Code)
+		}
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	sort.Strings(codes)
+	field := map[string]any{
+		"type":     "object",
+		"required": []string{"fields"},
+		"properties": map[string]any{
+			"fields": map[string]any{"type": "array", "items": map[string]any{
+				"type": "object", "required": []string{"field", "error_code", "message"},
+				"properties": map[string]any{
+					"field":      map[string]any{"type": "string"},
+					"error_code": map[string]any{"type": "string", "enum": codes},
+					"message":    map[string]any{"type": "string"},
+				},
+			}},
+		},
+	}
+	return field
+}
+
+func envelopeDataType(value reflect.Type) (reflect.Type, bool) {
+	if value == nil {
+		return nil, false
+	}
+	if value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct || value.NumField() != 4 {
+		return nil, false
+	}
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Field(index)
+		if strings.Split(field.Tag.Get("json"), ",")[0] == "data" {
+			return field.Type, true
+		}
+	}
+	return nil, false
 }
 
 func schemaFor(value reflect.Type) map[string]any {
@@ -268,8 +376,10 @@ func schemaForStack(value reflect.Type, stack map[reflect.Type]bool) map[string]
 		return map[string]any{"type": "integer", "format": "int64", "minimum": 0}
 	case reflect.Float32, reflect.Float64:
 		return map[string]any{"type": "number"}
+	case reflect.Interface:
+		return map[string]any{}
 	default:
-		return map[string]any{"type": "string"}
+		return map[string]any{}
 	}
 }
 
@@ -365,7 +475,16 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 func errorSchema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{"code": map[string]any{"type": "integer"}, "msg": map[string]any{"type": "string"}, "error_code": map[string]any{"type": "string"}}}
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"code", "error_code", "msg", "data"},
+		"properties": map[string]any{
+			"code":       map[string]any{"type": "integer"},
+			"error_code": map[string]any{"type": "string"},
+			"msg":        map[string]any{"type": "string"},
+			"data":       map[string]any{"nullable": true},
+		},
+	}
 }
 
 const swaggerHTML = `<!doctype html>

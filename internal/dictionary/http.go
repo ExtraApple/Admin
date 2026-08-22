@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 
 	"github.com/gin-gonic/gin"
@@ -12,16 +13,6 @@ import (
 
 type httpHandler struct {
 	service *Service
-}
-
-type successResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-
-type errorResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 }
 
 type typeResponse struct {
@@ -58,11 +49,11 @@ func Routes(service *Service) []routecatalog.Descriptor {
 		dictionaryRoute(http.MethodGet, "/api/admin/dict-types", routecatalog.PermissionControlled, "List Dictionary Types", "admin.dict-types.get", handler.listTypes, nil, typeListEnvelope{}),
 		dictionaryRoute(http.MethodPost, "/api/admin/dict-types", routecatalog.PermissionControlled, "Create Dictionary Type", "admin.dict-types.post", handler.createType, CreateTypeRequest{}, typeResponse{}),
 		dictionaryRoute(http.MethodPut, "/api/admin/dict-types/:id", routecatalog.PermissionControlled, "Update Dictionary Type", "admin.dict-types.put", handler.updateType, UpdateTypeRequest{}, typeResponse{}),
-		dictionaryRoute(http.MethodDelete, "/api/admin/dict-types/:id", routecatalog.PermissionControlled, "Delete Dictionary Type", "admin.dict-types.delete", handler.deleteType, nil, successResponse{}),
+		dictionaryRoute(http.MethodDelete, "/api/admin/dict-types/:id", routecatalog.PermissionControlled, "Delete Dictionary Type", "admin.dict-types.delete", handler.deleteType, nil, nil),
 		dictionaryRoute(http.MethodGet, "/api/admin/dict-items", routecatalog.PermissionControlled, "List Dictionary Items", "admin.dict-items.get", handler.listItems, nil, itemListEnvelope{}),
 		dictionaryRoute(http.MethodPost, "/api/admin/dict-items", routecatalog.PermissionControlled, "Create Dictionary Item", "admin.dict-items.post", handler.createItem, CreateItemRequest{}, itemResponse{}),
 		dictionaryRoute(http.MethodPut, "/api/admin/dict-items/:id", routecatalog.PermissionControlled, "Update Dictionary Item", "admin.dict-items.put", handler.updateItem, UpdateItemRequest{}, itemResponse{}),
-		dictionaryRoute(http.MethodDelete, "/api/admin/dict-items/:id", routecatalog.PermissionControlled, "Delete Dictionary Item", "admin.dict-items.delete", handler.deleteItem, nil, successResponse{}),
+		dictionaryRoute(http.MethodDelete, "/api/admin/dict-items/:id", routecatalog.PermissionControlled, "Delete Dictionary Item", "admin.dict-items.delete", handler.deleteItem, nil, nil),
 	}
 }
 
@@ -74,14 +65,14 @@ func dictionaryRoute(method, path string, access routecatalog.AccessLevel, name,
 	return routecatalog.Descriptor{
 		Method: method, Path: path, Access: access, Handler: handler,
 		Name: name, Group: "dict", DefaultPermissionCode: permissionCode, DefaultAuditCategory: "dict",
-		OpenAPI: routecatalog.Operation{
-			Summary: name,
-			Request: request,
-			Responses: map[int]routecatalog.Response{
-				http.StatusOK:         {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(responseSchema)},
-				http.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorResponse{})},
-			},
-		},
+		OpenAPI: routecatalog.Operation{Summary: name, Request: request, Responses: map[int]routecatalog.Response{
+			http.StatusOK:                  routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(responseSchema)),
+			http.StatusBadRequest:          routecatalog.ErrorResponse("request is invalid", httpresponse.RequestInvalidDefinition()),
+			http.StatusNotFound:            routecatalog.ErrorResponse("dictionary resource was not found", dictNotFound()),
+			http.StatusConflict:            routecatalog.ErrorResponse("dictionary resource conflicts with an existing resource", dictConflict()),
+			http.StatusUnprocessableEntity: routecatalog.ErrorResponse("dictionary validation failed", dictValidation()),
+			http.StatusInternalServerError: routecatalog.ErrorResponse("dictionary operation failed", dictInternal()),
+		}},
 	}
 }
 
@@ -93,7 +84,7 @@ func (handler *httpHandler) listTypes(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": TypeListResponse{List: list, Total: total, Page: page, Size: size}})
+	dictionarySuccess(c, TypeListResponse{List: list, Total: total, Page: page, Size: size})
 }
 
 func (handler *httpHandler) createType(c *gin.Context) {
@@ -106,7 +97,7 @@ func (handler *httpHandler) createType(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": dictionaryType})
+	dictionarySuccess(c, dictionaryType)
 }
 
 func (handler *httpHandler) updateType(c *gin.Context) {
@@ -123,7 +114,7 @@ func (handler *httpHandler) updateType(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": dictionaryType})
+	dictionarySuccess(c, dictionaryType)
 }
 
 func (handler *httpHandler) deleteType(c *gin.Context) {
@@ -135,7 +126,7 @@ func (handler *httpHandler) deleteType(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+	dictionarySuccess(c, nil)
 }
 
 func (handler *httpHandler) listItems(c *gin.Context) {
@@ -146,7 +137,7 @@ func (handler *httpHandler) listItems(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": ItemListResponse{List: list, Total: total, Page: page, Size: size}})
+	dictionarySuccess(c, ItemListResponse{List: list, Total: total, Page: page, Size: size})
 }
 
 func (handler *httpHandler) createItem(c *gin.Context) {
@@ -159,7 +150,7 @@ func (handler *httpHandler) createItem(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": item})
+	dictionarySuccess(c, item)
 }
 
 func (handler *httpHandler) updateItem(c *gin.Context) {
@@ -176,7 +167,7 @@ func (handler *httpHandler) updateItem(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": item})
+	dictionarySuccess(c, item)
 }
 
 func (handler *httpHandler) deleteItem(c *gin.Context) {
@@ -188,7 +179,7 @@ func (handler *httpHandler) deleteItem(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+	dictionarySuccess(c, nil)
 }
 
 func (handler *httpHandler) listEnabledItems(c *gin.Context) {
@@ -197,7 +188,7 @@ func (handler *httpHandler) listEnabledItems(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": items})
+	dictionarySuccess(c, items)
 }
 
 func parseOptionalInt(value string) *int {
@@ -213,8 +204,8 @@ func parseOptionalInt(value string) *int {
 
 func pathID(c *gin.Context) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+	if err != nil || parsed == 0 {
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return 0, false
 	}
 	return uint(parsed), true
@@ -222,12 +213,12 @@ func pathID(c *gin.Context) (uint, bool) {
 
 func bindJSON(c *gin.Context, request any) bool {
 	if err := c.ShouldBindJSON(request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return false
 	}
 	return true
 }
 
 func badRequest(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+	dictionaryError(c, err)
 }

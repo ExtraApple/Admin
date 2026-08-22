@@ -8,7 +8,7 @@ import (
 
 	"admin/internal/apimetadata/application"
 	"admin/internal/apimetadata/domain"
-
+	"admin/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,15 +29,17 @@ func PermissionMiddleware(policies PolicyReader) gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			c.Abort()
 			if errors.Is(err, application.ErrNotFound) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API未配置权限"})
-				return
+				httpresponse.WriteError(c, apiMetaPermissionNotConfigured(), err, nil)
+			} else {
+				httpresponse.WriteError(c, apiMetaInternal(), err, nil)
 			}
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "API权限校验失败"})
 			return
 		}
 		if policy.Status != 1 {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API已禁用"})
+			c.Abort()
+			httpresponse.WriteError(c, apiMetaDisabled(), nil, nil)
 			return
 		}
 		if isBootstrapRoute(method, path) && contextContains(c, "roles", "admin") {
@@ -50,11 +52,13 @@ func PermissionMiddleware(policies PolicyReader) gin.HandlerFunc {
 		}
 		permissionCode := strings.TrimSpace(policy.PermissionCode)
 		if permissionCode == "" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "API未绑定权限码"})
+			c.Abort()
+			httpresponse.WriteError(c, apiMetaPermissionMissing(), nil, nil)
 			return
 		}
 		if !contextContains(c, "permissions", permissionCode) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": "无操作权限"})
+			c.Abort()
+			httpresponse.WriteError(c, apiMetaPermissionDenied(), nil, nil)
 			return
 		}
 		c.Next()

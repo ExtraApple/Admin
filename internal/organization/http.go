@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 
 	"github.com/gin-gonic/gin"
@@ -12,16 +13,6 @@ import (
 
 type httpHandler struct {
 	service *Service
-}
-
-type successResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-
-type errorResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 }
 
 type unitResponse struct {
@@ -52,8 +43,8 @@ func Routes(service *Service) []routecatalog.Descriptor {
 		organizationRoute(http.MethodGet, "/api/admin/organizations/tree", "Get Organization Tree", "admin.organizations.tree.get", handler.tree, nil, treeEnvelope{}),
 		organizationRoute(http.MethodPost, "/api/admin/organizations", "Create Organization Unit", "admin.organizations.post", handler.createUnit, CreateUnitRequest{}, unitResponse{}),
 		organizationRoute(http.MethodPut, "/api/admin/organizations/:id", "Update Organization Unit", "admin.organizations.id.put", handler.updateUnit, UpdateUnitRequest{}, unitResponse{}),
-		organizationRoute(http.MethodDelete, "/api/admin/organizations/:id", "Delete Organization Unit", "admin.organizations.id.delete", handler.deleteUnit, nil, successResponse{}),
-		organizationRoute(http.MethodPost, "/api/admin/organizations/:id/users", "Assign Organization Members", "admin.organizations.id.users.post", handler.assignUsers, AssignUsersRequest{}, successResponse{}),
+		organizationRoute(http.MethodDelete, "/api/admin/organizations/:id", "Delete Organization Unit", "admin.organizations.id.delete", handler.deleteUnit, nil, nil),
+		organizationRoute(http.MethodPost, "/api/admin/organizations/:id/users", "Assign Organization Members", "admin.organizations.id.users.post", handler.assignUsers, AssignUsersRequest{}, nil),
 		organizationRoute(http.MethodGet, "/api/admin/organizations/:id/users", "List Organization Members", "admin.organizations.id.users.get", handler.users, nil, membersEnvelope{}),
 	}
 }
@@ -66,14 +57,14 @@ func organizationRoute(method, path, name, permissionCode string, handler gin.Ha
 	return routecatalog.Descriptor{
 		Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: handler,
 		Name: name, Group: "organization", DefaultPermissionCode: permissionCode, DefaultAuditCategory: "organization",
-		OpenAPI: routecatalog.Operation{
-			Summary: name,
-			Request: request,
-			Responses: map[int]routecatalog.Response{
-				http.StatusOK:         {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(responseSchema)},
-				http.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorResponse{})},
-			},
-		},
+		OpenAPI: routecatalog.Operation{Summary: name, Request: request, Responses: map[int]routecatalog.Response{
+			http.StatusOK:                  routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(responseSchema)),
+			http.StatusBadRequest:          routecatalog.ErrorResponse("request is invalid", httpresponse.RequestInvalidDefinition()),
+			http.StatusNotFound:            routecatalog.ErrorResponse("organization resource was not found", orgNotFound()),
+			http.StatusConflict:            routecatalog.ErrorResponse("organization resource conflicts with an existing resource", orgConflict()),
+			http.StatusUnprocessableEntity: routecatalog.ErrorResponse("organization validation failed", orgValidation()),
+			http.StatusInternalServerError: routecatalog.ErrorResponse("organization operation failed", orgInternal()),
+		}},
 	}
 }
 
@@ -85,7 +76,7 @@ func (handler *httpHandler) listUnits(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": ListResponse{List: units, Total: total, Page: page, Size: size}})
+	organizationSuccess(c, ListResponse{List: units, Total: total, Page: page, Size: size})
 }
 
 func (handler *httpHandler) tree(c *gin.Context) {
@@ -94,7 +85,7 @@ func (handler *httpHandler) tree(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": tree})
+	organizationSuccess(c, tree)
 }
 
 func (handler *httpHandler) createUnit(c *gin.Context) {
@@ -107,7 +98,7 @@ func (handler *httpHandler) createUnit(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "创建成功", "data": unit})
+	organizationSuccess(c, unit)
 }
 
 func (handler *httpHandler) updateUnit(c *gin.Context) {
@@ -124,7 +115,7 @@ func (handler *httpHandler) updateUnit(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": unit})
+	organizationSuccess(c, unit)
 }
 
 func (handler *httpHandler) deleteUnit(c *gin.Context) {
@@ -136,7 +127,7 @@ func (handler *httpHandler) deleteUnit(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+	organizationSuccess(c, nil)
 }
 
 func (handler *httpHandler) assignUsers(c *gin.Context) {
@@ -152,7 +143,7 @@ func (handler *httpHandler) assignUsers(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "分配成功"})
+	organizationSuccess(c, nil)
 }
 
 func (handler *httpHandler) users(c *gin.Context) {
@@ -169,7 +160,7 @@ func (handler *httpHandler) users(c *gin.Context) {
 	for index, user := range users {
 		response[index] = MemberInfo{ID: user.ID, Username: user.Username, Nickname: user.Nickname, Avatar: user.Avatar, Email: user.Email, Role: user.Role, Status: user.Status}
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": response})
+	organizationSuccess(c, response)
 }
 
 func parseOptionalInt(value string) *int {
@@ -185,8 +176,8 @@ func parseOptionalInt(value string) *int {
 
 func pathID(c *gin.Context) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+	if err != nil || parsed == 0 {
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return 0, false
 	}
 	return uint(parsed), true
@@ -194,12 +185,12 @@ func pathID(c *gin.Context) (uint, bool) {
 
 func bindJSON(c *gin.Context, request any) bool {
 	if err := c.ShouldBindJSON(request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return false
 	}
 	return true
 }
 
 func badRequest(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+	organizationError(c, err)
 }

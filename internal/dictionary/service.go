@@ -23,17 +23,17 @@ func NewService(repository Repository, transactions TransactionRunner) *Service 
 func (service *Service) CreateType(ctx context.Context, request CreateTypeRequest) (TypeInfo, error) {
 	exists, err := service.repository.TypeCodeExists(ctx, request.Code, 0)
 	if err != nil {
-		return TypeInfo{}, errors.New("查询字典类型失败")
+		return TypeInfo{}, NewError(CodeInternalError, err)
 	}
 	if exists {
-		return TypeInfo{}, errors.New("字典编码已存在")
+		return TypeInfo{}, NewError(CodeConflict, nil)
 	}
 	dictionaryType := Type{
 		Name: request.Name, Code: request.Code, Remark: request.Remark,
 		Sort: request.Sort, Status: defaultStatus(request.Status),
 	}
 	if err := service.repository.CreateType(ctx, &dictionaryType); err != nil {
-		return TypeInfo{}, errors.New("创建字典类型失败: " + err.Error())
+		return TypeInfo{}, NewError(CodeInternalError, err)
 	}
 	return typeInfo(dictionaryType), nil
 }
@@ -42,7 +42,7 @@ func (service *Service) ListTypes(ctx context.Context, page, pageSize int, keywo
 	page, pageSize = normalizePage(page, pageSize)
 	dictionaryTypes, total, err := service.repository.ListTypes(ctx, (page-1)*pageSize, pageSize, keyword, status)
 	if err != nil {
-		return nil, 0, errors.New("查询字典类型失败")
+		return nil, 0, NewError(CodeInternalError, err)
 	}
 	result := make([]TypeInfo, len(dictionaryTypes))
 	for index, dictionaryType := range dictionaryTypes {
@@ -55,9 +55,9 @@ func (service *Service) UpdateType(ctx context.Context, typeID uint, request Upd
 	dictionaryType, err := service.repository.FindTypeByID(ctx, typeID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return TypeInfo{}, errors.New("字典类型不存在")
+			return TypeInfo{}, NewError(CodeNotFound, err)
 		}
-		return TypeInfo{}, errors.New("查询字典类型失败")
+		return TypeInfo{}, NewError(CodeInternalError, err)
 	}
 
 	updates := make(map[string]any, 5)
@@ -67,10 +67,10 @@ func (service *Service) UpdateType(ctx context.Context, typeID uint, request Upd
 	if request.Code != "" {
 		exists, err := service.repository.TypeCodeExists(ctx, request.Code, typeID)
 		if err != nil {
-			return TypeInfo{}, errors.New("查询字典类型失败")
+			return TypeInfo{}, NewError(CodeInternalError, err)
 		}
 		if exists {
-			return TypeInfo{}, errors.New("字典编码已存在")
+			return TypeInfo{}, NewError(CodeConflict, nil)
 		}
 		updates["code"] = request.Code
 	}
@@ -84,7 +84,7 @@ func (service *Service) UpdateType(ctx context.Context, typeID uint, request Upd
 		updates["status"] = *request.Status
 	}
 	if len(updates) == 0 {
-		return TypeInfo{}, errors.New("无修改内容")
+		return TypeInfo{}, NewError(CodeValidationInvalid, nil)
 	}
 
 	oldCode := dictionaryType.Code
@@ -97,11 +97,11 @@ func (service *Service) UpdateType(ctx context.Context, typeID uint, request Upd
 		}
 		return nil
 	}); err != nil {
-		return TypeInfo{}, errors.New("修改字典类型失败")
+		return TypeInfo{}, NewError(CodeInternalError, err)
 	}
 	dictionaryType, err = service.repository.FindTypeByID(ctx, typeID)
 	if err != nil {
-		return TypeInfo{}, errors.New("查询字典类型失败")
+		return TypeInfo{}, NewError(CodeInternalError, err)
 	}
 	return typeInfo(dictionaryType), nil
 }
@@ -110,38 +110,41 @@ func (service *Service) DeleteType(ctx context.Context, typeID uint) error {
 	dictionaryType, err := service.repository.FindTypeByID(ctx, typeID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("字典类型不存在")
+			return NewError(CodeNotFound, err)
 		}
-		return errors.New("查询字典类型失败")
+		return NewError(CodeInternalError, err)
 	}
-	return service.transactions.Run(ctx, func(txContext context.Context) error {
+	if err := service.transactions.Run(ctx, func(txContext context.Context) error {
 		if err := service.repository.DeleteItemsByTypeCode(txContext, dictionaryType.Code); err != nil {
 			return err
 		}
 		return service.repository.DeleteType(txContext, &dictionaryType)
-	})
+	}); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func (service *Service) CreateItem(ctx context.Context, request CreateItemRequest) (ItemInfo, error) {
 	if _, err := service.repository.FindTypeByCode(ctx, request.TypeCode); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ItemInfo{}, errors.New("字典类型不存在")
+			return ItemInfo{}, NewError(CodeNotFound, err)
 		}
-		return ItemInfo{}, errors.New("查询字典类型失败")
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 	exists, err := service.repository.ItemValueExists(ctx, request.TypeCode, request.Value, 0)
 	if err != nil {
-		return ItemInfo{}, errors.New("查询字典条目失败")
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 	if exists {
-		return ItemInfo{}, errors.New("同一字典类型下字典值已存在")
+		return ItemInfo{}, NewError(CodeConflict, nil)
 	}
 	item := Item{
 		TypeCode: request.TypeCode, Label: request.Label, Value: request.Value,
 		Remark: request.Remark, Sort: request.Sort, Status: defaultStatus(request.Status),
 	}
 	if err := service.repository.CreateItem(ctx, &item); err != nil {
-		return ItemInfo{}, errors.New("创建字典条目失败: " + err.Error())
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 	return itemInfo(item), nil
 }
@@ -150,18 +153,18 @@ func (service *Service) UpdateItem(ctx context.Context, itemID uint, request Upd
 	item, err := service.repository.FindItemByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ItemInfo{}, errors.New("字典条目不存在")
+			return ItemInfo{}, NewError(CodeNotFound, err)
 		}
-		return ItemInfo{}, errors.New("查询字典条目失败")
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 
 	targetTypeCode := item.TypeCode
 	if request.TypeCode != "" {
 		if _, err := service.repository.FindTypeByCode(ctx, request.TypeCode); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ItemInfo{}, errors.New("字典类型不存在")
+				return ItemInfo{}, NewError(CodeNotFound, err)
 			}
-			return ItemInfo{}, errors.New("查询字典类型失败")
+			return ItemInfo{}, NewError(CodeInternalError, err)
 		}
 		targetTypeCode = request.TypeCode
 	}
@@ -172,10 +175,10 @@ func (service *Service) UpdateItem(ctx context.Context, itemID uint, request Upd
 	if targetTypeCode != item.TypeCode || targetValue != item.Value {
 		exists, err := service.repository.ItemValueExists(ctx, targetTypeCode, targetValue, itemID)
 		if err != nil {
-			return ItemInfo{}, errors.New("查询字典条目失败")
+			return ItemInfo{}, NewError(CodeInternalError, err)
 		}
 		if exists {
-			return ItemInfo{}, errors.New("同一字典类型下字典值已存在")
+			return ItemInfo{}, NewError(CodeConflict, nil)
 		}
 	}
 
@@ -199,14 +202,14 @@ func (service *Service) UpdateItem(ctx context.Context, itemID uint, request Upd
 		updates["status"] = *request.Status
 	}
 	if len(updates) == 0 {
-		return ItemInfo{}, errors.New("无修改内容")
+		return ItemInfo{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.repository.UpdateItem(ctx, itemID, updates); err != nil {
-		return ItemInfo{}, errors.New("修改字典条目失败")
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 	item, err = service.repository.FindItemByID(ctx, itemID)
 	if err != nil {
-		return ItemInfo{}, errors.New("查询字典条目失败")
+		return ItemInfo{}, NewError(CodeInternalError, err)
 	}
 	return itemInfo(item), nil
 }
@@ -215,18 +218,21 @@ func (service *Service) DeleteItem(ctx context.Context, itemID uint) error {
 	item, err := service.repository.FindItemByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("字典条目不存在")
+			return NewError(CodeNotFound, err)
 		}
-		return errors.New("查询字典条目失败")
+		return NewError(CodeInternalError, err)
 	}
-	return service.repository.DeleteItem(ctx, &item)
+	if err := service.repository.DeleteItem(ctx, &item); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func (service *Service) ListItems(ctx context.Context, page, pageSize int, typeCode, keyword string, status *int) ([]ItemInfo, int64, error) {
 	page, pageSize = normalizePage(page, pageSize)
 	items, total, err := service.repository.ListItems(ctx, (page-1)*pageSize, pageSize, typeCode, keyword, status)
 	if err != nil {
-		return nil, 0, errors.New("查询字典条目失败")
+		return nil, 0, NewError(CodeInternalError, err)
 	}
 	result := make([]ItemInfo, len(items))
 	for index, item := range items {
@@ -240,11 +246,11 @@ func (service *Service) ListEnabledItems(ctx context.Context, typeCode string) (
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return []ItemInfo{}, nil
 		}
-		return nil, errors.New("查询字典类型失败")
+		return nil, NewError(CodeInternalError, err)
 	}
 	items, err := service.repository.ListEnabledItems(ctx, typeCode)
 	if err != nil {
-		return nil, errors.New("查询字典条目失败")
+		return nil, NewError(CodeInternalError, err)
 	}
 	result := make([]ItemInfo, len(items))
 	for index, item := range items {

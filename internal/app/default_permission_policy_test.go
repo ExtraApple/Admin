@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"testing"
 
-	"admin/testsupport/testutil"
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/app"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -73,7 +73,7 @@ func TestNewInstallsAPIMetadataPermissionPolicyByDefault(t *testing.T) {
 	request.Header.Set("X-Identity", "user")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusForbidden || response.Body.String() != `{"code":403,"msg":"无操作权限"}` {
+	if response.Code != http.StatusForbidden || response.Body.String() != `{"code":403,"error_code":"API_META_PERMISSION_DENIED","msg":"permission is denied","data":null}` {
 		t.Fatalf("missing permission response = %d %s", response.Code, response.Body.String())
 	}
 }

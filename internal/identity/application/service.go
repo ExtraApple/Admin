@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 	"unicode"
 
@@ -13,10 +12,10 @@ import (
 const maxLoginFailures = 5
 
 var (
-	ErrCaptchaInvalid         = errors.New("验证码错误或已过期")
-	ErrRefreshTokenInvalid    = errors.New("Refresh Token 无效或已过期")
-	ErrAvatarFieldNotWritable = errors.New("头像只能通过专用接口修改")
-	ErrUserNotFound           = errors.New("用户不存在")
+	ErrCaptchaInvalid         = NewError(CodeCaptchaInvalid, nil)
+	ErrRefreshTokenInvalid    = NewError(CodeRefreshTokenInvalid, nil)
+	ErrAvatarFieldNotWritable = NewError(CodeValidationInvalid, nil)
+	ErrUserNotFound           = NewError(CodeUserNotFound, nil)
 )
 
 type LoginRequest struct {
@@ -106,18 +105,18 @@ func (service *Service) Register(ctx context.Context, request RegisterRequest) (
 	}
 	exists, err := service.users.ExistsByUsernameOrEmail(ctx, request.Username, request.Email)
 	if err != nil {
-		return domain.User{}, fmt.Errorf("查询用户失败: %w", err)
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	if exists {
-		return domain.User{}, errors.New("用户名或邮箱已被注册")
+		return domain.User{}, NewError(CodeConflict, nil)
 	}
 	hashed, err := service.passwords.Hash(request.Password)
 	if err != nil {
-		return domain.User{}, errors.New("密码加密失败")
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	user := domain.User{Username: request.Username, Password: hashed, Email: request.Email, Nickname: request.Nickname, Role: "user", Status: 1}
 	if err := service.users.Create(ctx, &user); err != nil {
-		return domain.User{}, fmt.Errorf("创建用户失败: %w", err)
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	return user, nil
 }
@@ -127,47 +126,51 @@ func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginR
 		return LoginResult{}, ErrCaptchaInvalid
 	}
 	if remaining, locked, err := service.attempts.IsLocked(ctx, request.Username); err != nil {
-		return LoginResult{}, err
+		return LoginResult{}, NewError(CodeInternalError, err)
 	} else if locked {
-		return LoginResult{}, fmt.Errorf("账号已被锁定，请 %d 分钟后重试", int(remaining.Minutes())+1)
+		return LoginResult{}, NewLoginLockedError(retryAfterSeconds(remaining), nil)
 	}
 	user, err := service.users.FindByUsername(ctx, request.Username)
 	if err != nil {
-		return LoginResult{}, errors.New("用户名或密码错误")
+		if errors.Is(err, ErrUserNotFound) {
+			return LoginResult{}, NewCredentialsError(0, nil)
+		}
+		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	if !user.Enabled() {
-		return LoginResult{}, errors.New("账号已被禁用")
+		return LoginResult{}, NewError(CodeAccountDisabled, nil)
 	}
 	if err := service.passwords.Compare(user.Password, request.Password); err != nil {
 		failures, recordErr := service.attempts.RecordFailure(ctx, request.Username)
 		if recordErr != nil {
-			return LoginResult{}, recordErr
+			return LoginResult{}, NewError(CodeInternalError, recordErr)
 		}
 		if lockDuration := lockDurationForFailures(failures); lockDuration > 0 {
 			if err := service.attempts.Lock(ctx, request.Username, lockDuration); err != nil {
-				return LoginResult{}, err
+				return LoginResult{}, NewError(CodeInternalError, err)
 			}
+			return LoginResult{}, NewLoginLockedError(retryAfterSeconds(lockDuration), nil)
 		}
-		return LoginResult{}, fmt.Errorf("用户名或密码错误（剩余尝试: %d 次）", maxLoginFailures-failures)
+		return LoginResult{}, NewCredentialsError(maxLoginFailures-failures, nil)
 	}
 
 	version, err := service.authorization.EnsureVersion(ctx, user.ID)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("初始化用户授权版本失败: %w", err)
+		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	snapshot, err := service.authorization.Snapshot(ctx, user.ID)
 	if err != nil {
-		return LoginResult{}, err
+		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	if snapshot.Version != version {
-		return LoginResult{}, errors.New("用户授权版本不一致")
+		return LoginResult{}, NewError(CodeInternalError, errors.New("authorization version changed during login"))
 	}
 	tokens, err := service.tokens.Issue(ctx, TokenIssue{UserID: user.ID, TokenVersion: version, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)})
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("生成 Token 失败: %w", err)
+		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	if err := service.attempts.Clear(ctx, request.Username); err != nil {
-		return LoginResult{}, err
+		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	return LoginResult{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, User: user}, nil
 }
@@ -189,31 +192,50 @@ func (service *Service) Refresh(ctx context.Context, request RefreshRequest) (To
 	if err != nil || claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {
 		return TokenPair{}, ErrRefreshTokenInvalid
 	}
-	return service.tokens.Issue(ctx, TokenIssue{UserID: claims.UserID, TokenVersion: snapshot.Version, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)})
+	pair, err := service.tokens.Issue(ctx, TokenIssue{UserID: claims.UserID, TokenVersion: snapshot.Version, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)})
+	if err != nil {
+		return TokenPair{}, NewError(CodeInternalError, err)
+	}
+	return pair, nil
 }
 
 func (service *Service) Authenticate(ctx context.Context, token string) (AuthenticatedIdentity, error) {
 	claims, err := service.tokens.Parse(ctx, token)
 	if err != nil || claims.Purpose != TokenPurposeAccess {
-		return AuthenticatedIdentity{}, errors.New("Token 无效或已过期")
+		return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, err)
 	}
 	blacklisted, err := service.blacklist.Contains(ctx, token)
-	if err != nil || blacklisted {
-		return AuthenticatedIdentity{}, errors.New("Token 已失效")
+	if err != nil {
+		return AuthenticatedIdentity{}, NewError(CodeInternalError, err)
+	}
+	if blacklisted {
+		return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, nil)
 	}
 	user, err := service.users.FindByID(ctx, claims.UserID)
-	if err != nil || !user.Enabled() {
-		return AuthenticatedIdentity{}, errors.New("账号已被禁用")
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, err)
+		}
+		return AuthenticatedIdentity{}, NewError(CodeInternalError, err)
+	}
+	if !user.Enabled() {
+		return AuthenticatedIdentity{}, NewError(CodeAccountDisabled, nil)
 	}
 	snapshot, err := service.authorization.Snapshot(ctx, claims.UserID)
-	if err != nil || claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {
-		return AuthenticatedIdentity{}, errors.New("Token已失效，请重新登录")
+	if err != nil {
+		return AuthenticatedIdentity{}, NewError(CodeInternalError, err)
+	}
+	if claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {
+		return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, nil)
 	}
 	return AuthenticatedIdentity{UserID: claims.UserID, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)}, nil
 }
 
 func (service *Service) Logout(ctx context.Context, token string, expire time.Duration) error {
-	return service.blacklist.Add(ctx, token, expire)
+	if err := service.blacklist.Add(ctx, token, expire); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func lockDurationForFailures(failures int) time.Duration {
@@ -231,9 +253,17 @@ func lockDurationForFailures(failures int) time.Duration {
 	}
 }
 
+func retryAfterSeconds(duration time.Duration) int {
+	seconds := int((duration + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
+}
+
 func validatePassword(password string) error {
 	if len(password) < 6 {
-		return errors.New("密码长度不能少于 6 位")
+		return NewValidationError([]FieldError{{Field: "password", ErrorCode: "IDENTITY_PASSWORD_INVALID", Message: "password does not meet the security requirements"}}, nil)
 	}
 	var upper, lower, digit, special bool
 	for _, char := range password {
@@ -255,7 +285,7 @@ func validatePassword(password string) error {
 		}
 	}
 	if count < 3 {
-		return errors.New("密码必须包含大写字母、小写字母、数字、特殊符号中至少 3 种")
+		return NewValidationError([]FieldError{{Field: "password", ErrorCode: "IDENTITY_PASSWORD_INVALID", Message: "password does not meet the security requirements"}}, nil)
 	}
 	return nil
 }

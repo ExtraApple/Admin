@@ -1,0 +1,17 @@
+Backend Acceptance: backend-accepted / release-blocked
+
+验证日期：2026-08-22
+
+已执行：
+- `go test ./... -count=1`：34 packages ok，9 packages no tests。
+- `go test ./internal/platform/httpresponse ./internal/identity/... ./internal/authorization/... ./internal/navigation ./internal/organization ./internal/dictionary ./internal/apimetadata/... ./internal/audit/... ./internal/app`：后端专项通过。
+- `openspec validate --all`：14 items passed，主规格与 change artifacts 格式有效。
+- 认证结构化错误：登录锁定返回 `AUTHN_LOGIN_LOCKED`、`data.retry_after_seconds` 和 `Retry-After`；密码校验返回稳定 `data.fields`，字段数组稳定排序。
+- 模块错误传播：Identity、Authorization、Navigation、Organization、Dictionary、API Metadata 和 Audit 的 HTTP 适配器优先按 typed Error Code 分类，内部 cause 保留在错误链。
+
+静态复核：
+- 生产 HTTP Adapter 不再依赖模块业务中文错误文本决定公开错误码；未知错误回退模块内部错误定义。
+- 422 字段详情仅允许 Route Catalog 声明的字段/错误码组合，写入前稳定按 JSON 字段名和字段级错误码排序。
+- 登录锁定的 `retry_after_seconds` 与标准 `Retry-After` Header 使用同一秒数来源。
+
+状态边界：根目录 `web/` 尚不存在，Frontend Part、Frontend Acceptance 和 Integration Acceptance 仍未执行。因此 Backend Accepted 不等于可发布，Change 保持 release-blocked。

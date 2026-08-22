@@ -6,14 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	"admin/internal/dictionary"
 	platformdatabase "admin/internal/platform/database"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 )
@@ -79,8 +78,8 @@ func TestDictionaryHTTPRejectsInvalidRequests(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			response := fixture.request(test.method, test.path, test.body, http.StatusBadRequest)
 			payload := decodeJSON[apiEnvelope[struct{}]](t, response)
-			if payload.Code != http.StatusBadRequest || !strings.HasPrefix(payload.Msg, "参数错误") {
-				t.Fatalf("validation response = %#v, want code 400 and parameter error", payload)
+			if payload.Code != http.StatusBadRequest || payload.Msg != "request is invalid" {
+				t.Fatalf("validation response = %#v, want unified request error", payload)
 			}
 		})
 	}
@@ -93,7 +92,7 @@ func TestDictionaryHTTPTypeLifecycleRenamesAndCascadesItems(t *testing.T) {
 		"name": "Priority", "code": "priority", "remark": "Ticket priority", "sort": 20,
 	}, http.StatusOK)
 	created := decodeJSON[apiEnvelope[dictionary.TypeInfo]](t, response)
-	if created.Code != http.StatusOK || created.Msg != "创建成功" || created.Data.ID == 0 ||
+	if created.Code != http.StatusOK || created.Msg != "success" || created.Data.ID == 0 ||
 		created.Data.Name != "Priority" || created.Data.Code != "priority" || created.Data.Remark != "Ticket priority" ||
 		created.Data.Sort != 20 || created.Data.Status != 1 {
 		t.Fatalf("create Dictionary Type response = %#v", created)
@@ -101,9 +100,9 @@ func TestDictionaryHTTPTypeLifecycleRenamesAndCascadesItems(t *testing.T) {
 
 	response = fixture.request(http.MethodPost, "/api/admin/dict-types", map[string]any{
 		"name": "Duplicate", "code": "priority",
-	}, http.StatusBadRequest)
+	}, http.StatusConflict)
 	duplicate := decodeJSON[apiEnvelope[struct{}]](t, response)
-	if duplicate.Code != http.StatusBadRequest || duplicate.Msg != "字典编码已存在" {
+	if duplicate.Code != http.StatusConflict || duplicate.Msg != "dictionary resource conflicts with an existing resource" {
 		t.Fatalf("duplicate Dictionary Type response = %#v", duplicate)
 	}
 
@@ -122,7 +121,7 @@ func TestDictionaryHTTPTypeLifecycleRenamesAndCascadesItems(t *testing.T) {
 		"name": "Urgency", "code": "urgency", "sort": 5,
 	}, http.StatusOK)
 	updated := decodeJSON[apiEnvelope[dictionary.TypeInfo]](t, response)
-	if updated.Code != http.StatusOK || updated.Msg != "修改成功" || updated.Data.ID != created.Data.ID ||
+	if updated.Code != http.StatusOK || updated.Msg != "success" || updated.Data.ID != created.Data.ID ||
 		updated.Data.Name != "Urgency" || updated.Data.Code != "urgency" || updated.Data.Sort != 5 {
 		t.Fatalf("update Dictionary Type response = %#v", updated)
 	}
@@ -145,7 +144,7 @@ func TestDictionaryHTTPTypeLifecycleRenamesAndCascadesItems(t *testing.T) {
 
 	response = fixture.request(http.MethodDelete, "/api/admin/dict-types/"+strconv.FormatUint(uint64(created.Data.ID), 10), nil, http.StatusOK)
 	deleted := decodeJSON[apiEnvelope[struct{}]](t, response)
-	if deleted.Code != http.StatusOK || deleted.Msg != "删除成功" {
+	if deleted.Code != http.StatusOK || deleted.Msg != "success" {
 		t.Fatalf("delete Dictionary Type response = %#v", deleted)
 	}
 	response = fixture.request(http.MethodGet, "/api/admin/dict-types?keyword=urgency", nil, http.StatusOK)
@@ -176,9 +175,9 @@ func TestDictionaryHTTPItemLifecycleSupportsPaginationAndDuplicateProtection(t *
 	})
 	response := fixture.request(http.MethodPost, "/api/admin/dict-items", map[string]any{
 		"type_code": "numbers", "label": "Duplicate one", "value": "1",
-	}, http.StatusBadRequest)
+	}, http.StatusConflict)
 	duplicate := decodeJSON[apiEnvelope[struct{}]](t, response)
-	if duplicate.Code != http.StatusBadRequest || duplicate.Msg != "同一字典类型下字典值已存在" {
+	if duplicate.Code != http.StatusConflict || duplicate.Msg != "dictionary resource conflicts with an existing resource" {
 		t.Fatalf("duplicate Dictionary Item response = %#v", duplicate)
 	}
 
@@ -193,7 +192,7 @@ func TestDictionaryHTTPItemLifecycleSupportsPaginationAndDuplicateProtection(t *
 		"label": "Primary", "value": "01", "remark": "Updated", "sort": 5, "status": 0,
 	}, http.StatusOK)
 	updated := decodeJSON[apiEnvelope[dictionary.ItemInfo]](t, response)
-	if updated.Code != http.StatusOK || updated.Msg != "修改成功" || updated.Data.ID != first.ID ||
+	if updated.Code != http.StatusOK || updated.Msg != "success" || updated.Data.ID != first.ID ||
 		updated.Data.TypeCode != "numbers" || updated.Data.Label != "Primary" || updated.Data.Value != "01" ||
 		updated.Data.Remark != "Updated" || updated.Data.Sort != 5 || updated.Data.Status != 0 {
 		t.Fatalf("update Dictionary Item response = %#v", updated)
@@ -206,7 +205,7 @@ func TestDictionaryHTTPItemLifecycleSupportsPaginationAndDuplicateProtection(t *
 
 	response = fixture.request(http.MethodDelete, "/api/admin/dict-items/"+strconv.FormatUint(uint64(second.ID), 10), nil, http.StatusOK)
 	deleted := decodeJSON[apiEnvelope[struct{}]](t, response)
-	if deleted.Code != http.StatusOK || deleted.Msg != "删除成功" {
+	if deleted.Code != http.StatusOK || deleted.Msg != "success" {
 		t.Fatalf("delete Dictionary Item response = %#v", deleted)
 	}
 	response = fixture.request(http.MethodGet, "/api/admin/dict-items?type_code=numbers", nil, http.StatusOK)
@@ -295,7 +294,7 @@ func createType(t *testing.T, fixture *dictionaryHTTPFixture, body map[string]an
 	t.Helper()
 	response := fixture.request(http.MethodPost, "/api/admin/dict-types", body, http.StatusOK)
 	payload := decodeJSON[apiEnvelope[dictionary.TypeInfo]](t, response)
-	if payload.Code != http.StatusOK || payload.Msg != "创建成功" || payload.Data.ID == 0 {
+	if payload.Code != http.StatusOK || payload.Msg != "success" || payload.Data.ID == 0 {
 		t.Fatalf("create Dictionary Type response = %#v", payload)
 	}
 	return payload.Data
@@ -305,7 +304,7 @@ func createItem(t *testing.T, fixture *dictionaryHTTPFixture, body map[string]an
 	t.Helper()
 	response := fixture.request(http.MethodPost, "/api/admin/dict-items", body, http.StatusOK)
 	payload := decodeJSON[apiEnvelope[dictionary.ItemInfo]](t, response)
-	if payload.Code != http.StatusOK || payload.Msg != "创建成功" || payload.Data.ID == 0 {
+	if payload.Code != http.StatusOK || payload.Msg != "success" || payload.Data.ID == 0 {
 		t.Fatalf("create Dictionary Item response = %#v", payload)
 	}
 	return payload.Data

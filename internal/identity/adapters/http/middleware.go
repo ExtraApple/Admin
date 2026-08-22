@@ -1,11 +1,10 @@
 package httpadapter
 
 import (
-	"net/http"
 	"strings"
 
 	"admin/internal/identity/application"
-
+	"admin/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,21 +12,32 @@ func AuthMiddleware(service *application.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "缺少 Authorization 头"})
+			c.Abort()
+			httpresponse.WriteError(c, authnHeaderMissing(), nil, nil)
 			return
 		}
 		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Authorization 格式错误，需要 Bearer Token"})
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" || strings.TrimSpace(parts[1]) == "" {
+			c.Abort()
+			httpresponse.WriteError(c, authnHeaderInvalid(), nil, nil)
 			return
 		}
 		if service == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "Token 无效或已过期"})
+			c.Abort()
+			httpresponse.WriteError(c, authnTokenInvalid(), nil, nil)
 			return
 		}
 		identity, err := service.Authenticate(c.Request.Context(), parts[1])
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": err.Error()})
+			c.Abort()
+			switch code, _ := application.CodeOf(err); code {
+			case application.CodeAccountDisabled:
+				httpresponse.WriteError(c, identityAccountDisabled(), err, nil)
+			case application.CodeInternalError:
+				httpresponse.WriteError(c, identityInternal(), err, nil)
+			default:
+				httpresponse.WriteError(c, authnTokenInvalid(), err, nil)
+			}
 			return
 		}
 		c.Set("userID", identity.UserID)

@@ -3,10 +3,12 @@ package app
 import (
 	"net/http"
 	"strings"
+	"time"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
-
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type TechnicalHTTP struct {
@@ -17,7 +19,7 @@ type TechnicalHTTP struct {
 
 func RegisterTechnicalHTTP(engine *gin.Engine, technical TechnicalHTTP) {
 	engine.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"msg": "pong"})
+		httpresponse.WriteSuccess(c, http.StatusOK, map[string]string{"msg": "pong"})
 	})
 	if technical.APIDocsEnabled {
 		engine.GET("/docs", technical.Docs)
@@ -32,6 +34,7 @@ type HTTPMiddleware struct {
 }
 
 func RegisterHTTP(engine *gin.Engine, catalog *routecatalog.Catalog, middleware HTTPMiddleware) {
+	engine.HandleMethodNotAllowed = true
 	for _, descriptor := range catalog.Snapshot() {
 		handlers := make([]gin.HandlerFunc, 0, 4)
 		if middleware.API != nil && strings.HasPrefix(descriptor.Path, "/api/") {
@@ -52,5 +55,60 @@ func RegisterHTTP(engine *gin.Engine, catalog *routecatalog.Catalog, middleware 
 		}
 		handlers = append(handlers, descriptor.Handler)
 		engine.Handle(descriptor.Method, descriptor.Path, handlers...)
+	}
+	engine.NoRoute(writeHTTPNotFound)
+	engine.NoMethod(writeHTTPMethodNotAllowed)
+}
+
+func writeHTTPNotFound(c *gin.Context) {
+	httpresponse.WriteError(c, httpresponse.NotFoundDefinition(), nil, nil)
+}
+
+func writeHTTPMethodNotAllowed(c *gin.Context) {
+	httpresponse.WriteError(c, httpresponse.MethodNotAllowedDefinition(), nil, nil)
+}
+
+func requestLoggingMiddleware(logger *zap.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return func(c *gin.Context) {
+		started := time.Now()
+		c.Next()
+		path := c.FullPath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
+		fields := []zap.Field{
+			zap.String("method", c.Request.Method), zap.String("path", path), zap.Int("status", c.Writer.Status()),
+			zap.Duration("latency", time.Since(started)), zap.String("client_ip", c.ClientIP()), zap.String("user_agent", c.Request.UserAgent()),
+		}
+		if c.Writer.Status() >= 500 {
+			if errorContext, ok := httpresponse.ErrorContextOf(c); ok && errorContext.Cause != nil {
+				logger.Error("http request failed", append(fields, zap.String("error_code", errorContext.Definition.Code), zap.Error(errorContext.Cause))...)
+			} else {
+				logger.Error("http request failed", fields...)
+			}
+			return
+		}
+		logger.Info("http request", fields...)
+	}
+}
+
+func recoveryMiddleware(logger *zap.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	return func(c *gin.Context) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				logger.Error("http panic recovered", zap.Any("panic", recovered), zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
+				if !c.Writer.Written() {
+					httpresponse.WriteError(c, httpresponse.InternalErrorDefinition(), nil, nil)
+				}
+				c.Abort()
+			}
+		}()
+		c.Next()
 	}
 }

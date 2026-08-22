@@ -73,8 +73,8 @@ func TestOrganizationHTTPOverwritesMembersAndInvalidatesOldTokens(t *testing.T) 
 	invalidAssignment := fixture.request(http.MethodPost, "/api/admin/organizations/"+itoa(unitID)+"/users", fixture.adminToken, map[string]any{
 		"user_ids": []uint{999999},
 	})
-	if invalidAssignment.Code != http.StatusBadRequest {
-		t.Fatalf("invalid Organization Member status = %d, want 400", invalidAssignment.Code)
+	if invalidAssignment.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid Organization Member status = %d, want 422", invalidAssignment.Code)
 	}
 	assertOrganizationMemberIDs(t, fixture.request(http.MethodGet, "/api/admin/organizations/"+itoa(unitID)+"/users", fixture.adminToken, nil), []uint{first.ID})
 

@@ -9,13 +9,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	authdomain "admin/internal/authorization/domain"
 	"admin/internal/identity"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -76,8 +76,8 @@ func TestNewAssemblesOrganizationHTTPContract(t *testing.T) {
 	duplicate := requestOrganization(t, application.Handler(), http.MethodPost, "/api/admin/organizations", map[string]any{
 		"name": "Duplicate", "code": "root",
 	})
-	if duplicate.Code != http.StatusBadRequest {
-		t.Fatalf("duplicate Organization status = %d, want 400", duplicate.Code)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate Organization status = %d, want 409", duplicate.Code)
 	}
 
 	treeResponse := requestOrganization(t, application.Handler(), http.MethodGet, "/api/admin/organizations/tree", nil)
@@ -100,8 +100,8 @@ func TestNewAssemblesOrganizationHTTPContract(t *testing.T) {
 	}
 
 	cycle := requestOrganization(t, application.Handler(), http.MethodPut, "/api/admin/organizations/"+itoa(childID), map[string]any{"parent_id": childID})
-	if cycle.Code != http.StatusBadRequest {
-		t.Fatalf("self-parent Organization status = %d, want 400", cycle.Code)
+	if cycle.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("self-parent Organization status = %d, want 422", cycle.Code)
 	}
 	var cycleError struct {
 		Msg string `json:"msg"`
@@ -109,12 +109,12 @@ func TestNewAssemblesOrganizationHTTPContract(t *testing.T) {
 	if err := json.Unmarshal(cycle.Body.Bytes(), &cycleError); err != nil {
 		t.Fatalf("decode self-parent Organization error: %v", err)
 	}
-	if cycleError.Msg != "不能将组织挂载到自身下面" {
+	if cycleError.Msg != "organization validation failed" {
 		t.Fatalf("self-parent Organization error = %q", cycleError.Msg)
 	}
 	protectedDelete := requestOrganization(t, application.Handler(), http.MethodDelete, "/api/admin/organizations/"+itoa(rootID), nil)
-	if protectedDelete.Code != http.StatusBadRequest {
-		t.Fatalf("parent Organization delete status = %d, want 400", protectedDelete.Code)
+	if protectedDelete.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("parent Organization delete status = %d, want 422", protectedDelete.Code)
 	}
 	requestOrganization(t, application.Handler(), http.MethodDelete, "/api/admin/organizations/"+itoa(childID), nil)
 	requestOrganization(t, application.Handler(), http.MethodDelete, "/api/admin/organizations/"+itoa(rootID), nil)

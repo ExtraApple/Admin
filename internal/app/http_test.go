@@ -153,3 +153,17 @@ func httpTestDescriptor(method, path string, access routecatalog.AccessLevel, ha
 	}
 	return descriptor
 }
+
+func TestRegisterTechnicalHTTPUsesSuccessEnvelope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	app.RegisterTechnicalHTTP(engine, app.TechnicalHTTP{})
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/ping", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Body.String(); got != `{"code":200,"error_code":"","msg":"success","data":{"msg":"pong"}}` {
+		t.Fatalf("body = %s", got)
+	}
+}

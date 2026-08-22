@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"strconv"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -81,19 +81,9 @@ type menuAPIResponse struct {
 	Data []navigationAPIInfo `json:"data"`
 }
 type syncMenusResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 	Data struct {
 		Created int `json:"created"`
 	} `json:"data"`
-}
-type navigationSuccessResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-type navigationErrorResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 }
 
 func Routes(service *Service) []routecatalog.Descriptor {
@@ -102,11 +92,11 @@ func Routes(service *Service) []routecatalog.Descriptor {
 		navigationRoute(http.MethodGet, "/api/admin/menus", "List Menus", "admin.menus.get", handler.listMenus, nil, menuListResponse{}),
 		navigationRoute(http.MethodPost, "/api/admin/menus", "Create Menu", "admin.menus.post", handler.createMenu, menuCreateRequest{}, menuResponse{}),
 		navigationRoute(http.MethodPut, "/api/admin/menus/:id", "Update Menu", "admin.menus.id.put", handler.updateMenu, menuUpdateRequest{}, menuResponse{}),
-		navigationRoute(http.MethodDelete, "/api/admin/menus/:id", "Delete Menu", "admin.menus.id.delete", handler.deleteMenu, nil, navigationSuccessResponse{}),
+		navigationRoute(http.MethodDelete, "/api/admin/menus/:id", "Delete Menu", "admin.menus.id.delete", handler.deleteMenu, nil, nil),
 		navigationRoute(http.MethodPost, "/api/admin/menus/sync", "Sync Menus", "admin.menus.sync.post", handler.syncMenus, syncMenusRequest{}, syncMenusResponse{}),
-		navigationRoute(http.MethodPost, "/api/admin/menus/:id/apis", "Assign Menu APIs", "admin.menus.id.apis.post", handler.assignAPIs, assignAPIsRequest{}, navigationSuccessResponse{}),
+		navigationRoute(http.MethodPost, "/api/admin/menus/:id/apis", "Assign Menu APIs", "admin.menus.id.apis.post", handler.assignAPIs, assignAPIsRequest{}, nil),
 		navigationRoute(http.MethodGet, "/api/admin/menus/:id/apis", "List Menu APIs", "admin.menus.id.apis.get", handler.listAPIs, nil, menuAPIResponse{}),
-		navigationRoute(http.MethodPost, "/api/admin/roles/:id/menus", "Assign Role Menus", "admin.roles.id.menus.post", handler.assignRoleMenus, assignMenuRequest{}, navigationSuccessResponse{}),
+		navigationRoute(http.MethodPost, "/api/admin/roles/:id/menus", "Assign Role Menus", "admin.roles.id.menus.post", handler.assignRoleMenus, assignMenuRequest{}, nil),
 		navigationRoute(http.MethodGet, "/api/admin/roles/:id/menus", "List Role Menus", "admin.roles.id.menus.get", handler.listRoleMenus, nil, menuListResponse{}),
 	}
 }
@@ -119,13 +109,14 @@ func navigationRoute(method, path, name, permission string, handler gin.HandlerF
 	return routecatalog.Descriptor{
 		Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: handler,
 		Name: name, Group: "menu", DefaultPermissionCode: permission, DefaultAuditCategory: "menu",
-		OpenAPI: routecatalog.Operation{
-			Summary: name, Request: request,
-			Responses: map[int]routecatalog.Response{
-				http.StatusOK:         {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(responseSchema)},
-				http.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(navigationErrorResponse{})},
-			},
-		},
+		OpenAPI: routecatalog.Operation{Summary: name, Request: request, Responses: map[int]routecatalog.Response{
+			http.StatusOK:                  routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(responseSchema)),
+			http.StatusBadRequest:          routecatalog.ErrorResponse("request is invalid", httpresponse.RequestInvalidDefinition()),
+			http.StatusNotFound:            routecatalog.ErrorResponse("navigation resource was not found", navNotFound()),
+			http.StatusConflict:            routecatalog.ErrorResponse("navigation resource conflicts with an existing resource", navConflict()),
+			http.StatusUnprocessableEntity: routecatalog.ErrorResponse("navigation validation failed", navValidation()),
+			http.StatusInternalServerError: routecatalog.ErrorResponse("navigation operation failed", navInternal()),
+		}},
 	}
 }
 
@@ -135,7 +126,7 @@ func (handler *menuHTTPHandler) listMenus(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": menus})
+	navigationSuccess(c, menus)
 }
 func (handler *menuHTTPHandler) createMenu(c *gin.Context) {
 	var request menuCreateRequest
@@ -147,7 +138,7 @@ func (handler *menuHTTPHandler) createMenu(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, menuResponse{Code: 200, Msg: "创建成功", Data: menu})
+	navigationSuccess(c, menu)
 }
 func (handler *menuHTTPHandler) updateMenu(c *gin.Context) {
 	id, ok := navigationPathID(c)
@@ -163,7 +154,7 @@ func (handler *menuHTTPHandler) updateMenu(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, menuResponse{Code: 200, Msg: "修改成功", Data: menu})
+	navigationSuccess(c, menu)
 }
 func (handler *menuHTTPHandler) deleteMenu(c *gin.Context) {
 	id, ok := navigationPathID(c)
@@ -174,7 +165,7 @@ func (handler *menuHTTPHandler) deleteMenu(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, navigationSuccessResponse{Code: 200, Msg: "删除成功"})
+	navigationSuccess(c, nil)
 }
 func (handler *menuHTTPHandler) syncMenus(c *gin.Context) {
 	var request syncMenusRequest
@@ -190,9 +181,9 @@ func (handler *menuHTTPHandler) syncMenus(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	response := syncMenusResponse{Code: 200, Msg: "同步成功"}
+	response := syncMenusResponse{}
 	response.Data.Created = created
-	c.JSON(http.StatusOK, response)
+	navigationSuccess(c, response.Data)
 }
 
 func (handler *menuHTTPHandler) assignAPIs(c *gin.Context) {
@@ -208,7 +199,7 @@ func (handler *menuHTTPHandler) assignAPIs(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, navigationSuccessResponse{Code: 200, Msg: "绑定成功"})
+	navigationSuccess(c, nil)
 }
 func (handler *menuHTTPHandler) listAPIs(c *gin.Context) {
 	id, ok := navigationPathID(c)
@@ -224,7 +215,7 @@ func (handler *menuHTTPHandler) listAPIs(c *gin.Context) {
 	for index, api := range apis {
 		result[index] = navigationAPIInfo{ID: api.ID, Name: api.Name, Method: api.Method, Path: api.Path, Group: api.Group, PermissionCode: api.PermissionCode, Remark: api.Remark, Sort: api.Sort, Status: api.Status, NeedAuth: api.NeedAuth, NeedAudit: api.NeedAudit}
 	}
-	c.JSON(http.StatusOK, menuAPIResponse{Code: 200, Data: result})
+	navigationSuccess(c, result)
 }
 func (handler *menuHTTPHandler) assignRoleMenus(c *gin.Context) {
 	id, ok := navigationPathID(c)
@@ -239,7 +230,7 @@ func (handler *menuHTTPHandler) assignRoleMenus(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, navigationSuccessResponse{Code: 200, Msg: "分配成功"})
+	navigationSuccess(c, nil)
 }
 func (handler *menuHTTPHandler) listRoleMenus(c *gin.Context) {
 	id, ok := navigationPathID(c)
@@ -251,24 +242,24 @@ func (handler *menuHTTPHandler) listRoleMenus(c *gin.Context) {
 		navigationBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, menuListResponse{Code: 200, Data: menus})
+	navigationSuccess(c, menus)
 }
 
 func navigationPathID(c *gin.Context) (uint, bool) {
 	value, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, navigationErrorResponse{Code: 400, Msg: "参数错误"})
+	if err != nil || value == 0 {
+		navigationError(c, err)
 		return 0, false
 	}
 	return uint(value), true
 }
 func navigationBindJSON(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
-		c.JSON(http.StatusBadRequest, navigationErrorResponse{Code: 400, Msg: "参数错误: " + err.Error()})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return false
 	}
 	return true
 }
 func navigationBadRequest(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, navigationErrorResponse{Code: 400, Msg: err.Error()})
+	navigationError(c, err)
 }

@@ -1,10 +1,12 @@
 package routecatalog_test
 
 import (
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 
 	"github.com/gin-gonic/gin"
@@ -136,5 +138,74 @@ func validDescriptor() routecatalog.Descriptor {
 				200: {Description: "healthy", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(routeResponse{})},
 			},
 		},
+	}
+}
+
+func TestCatalogCarriesAndClonesErrorDefinitions(t *testing.T) {
+	definition := httpresponse.ErrorDefinition{
+		Owner:   "identity",
+		Code:    "AUTHN_INVALID",
+		Status:  http.StatusUnauthorized,
+		Message: "authentication failed",
+		Fields:  []httpresponse.FieldErrorDefinition{{Field: "username", Code: "AUTHN_USERNAME_INVALID", Message: "username is invalid"}},
+	}
+	descriptor := validDescriptor()
+	descriptor.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{
+		Description: "authentication failed",
+		Kind:        routecatalog.JSONBody,
+		Schema:      reflect.TypeOf(httpresponse.Envelope[any]{}),
+		Errors:      []httpresponse.ErrorDefinition{definition},
+	}
+	catalog, err := routecatalog.New([]routecatalog.Descriptor{descriptor})
+	if err != nil {
+		t.Fatalf("build route catalog: %v", err)
+	}
+	definition.Fields[0].Message = "mutated"
+	snapshot := catalog.Snapshot()
+	got := snapshot[0].OpenAPI.Responses[http.StatusUnauthorized].Errors[0]
+	if got.Fields[0].Message != "username is invalid" {
+		t.Fatalf("snapshot error definition was mutable: %#v", got)
+	}
+}
+
+func TestCatalogRejectsErrorDefinitionDriftAndInvalidEnvelope(t *testing.T) {
+	definition := httpresponse.ErrorDefinition{Owner: "identity", Code: "AUTHN_INVALID", Status: http.StatusUnauthorized, Message: "authentication failed"}
+	tests := []struct {
+		name   string
+		mutate func(*routecatalog.Descriptor)
+		want   string
+	}{
+		{name: "missing errors", mutate: func(d *routecatalog.Descriptor) {
+			d.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{Description: "error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[any]{})}
+		}, want: "error definitions"},
+		{name: "schema is not envelope", mutate: func(d *routecatalog.Descriptor) {
+			d.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{Description: "error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(routeResponse{}), Errors: []httpresponse.ErrorDefinition{definition}}
+		}, want: "envelope"},
+		{name: "status drift", mutate: func(d *routecatalog.Descriptor) {
+			wrong := definition
+			wrong.Status = http.StatusForbidden
+			d.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{Description: "error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[any]{}), Errors: []httpresponse.ErrorDefinition{wrong}}
+		}, want: "status"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor := validDescriptor()
+			test.mutate(&descriptor)
+			_, err := routecatalog.New([]routecatalog.Descriptor{descriptor})
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), test.want) {
+				t.Fatalf("catalog error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsPublicErrorCodeOwnershipConflict(t *testing.T) {
+	first := validDescriptor()
+	first.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{Description: "error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[any]{}), Errors: []httpresponse.ErrorDefinition{{Owner: "identity", Code: "AUTHN_INVALID", Status: http.StatusUnauthorized, Message: "authentication failed"}}}
+	second := validDescriptor()
+	second.Path = "/api/other"
+	second.OpenAPI.Responses[http.StatusUnauthorized] = routecatalog.Response{Description: "error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[any]{}), Errors: []httpresponse.ErrorDefinition{{Owner: "authorization", Code: "AUTHN_INVALID", Status: http.StatusUnauthorized, Message: "authorization failed"}}}
+	if _, err := routecatalog.New([]routecatalog.Descriptor{first, second}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "ownership") {
+		t.Fatalf("catalog error = %v, want ownership conflict", err)
 	}
 }

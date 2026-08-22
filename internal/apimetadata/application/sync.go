@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"admin/internal/apimetadata/domain"
@@ -10,14 +9,14 @@ import (
 
 func (service *Service) SyncRoutes(ctx context.Context) ([]domain.API, error) {
 	if service.routes == nil {
-		return nil, errors.New("API 路由来源不可用")
+		return nil, NewError(CodeInternalError, nil)
 	}
 	facts, err := service.routes.Routes(ctx)
 	if err != nil {
-		return nil, err
+		return nil, NewError(CodeInternalError, err)
 	}
 	if service.transactions == nil {
-		return nil, errors.New("API 路由同步事务不可用")
+		return nil, NewError(CodeInternalError, nil)
 	}
 	var created []domain.API
 	err = service.transactions.Run(ctx, func(transactionContext context.Context) error {
@@ -34,14 +33,14 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 		method := strings.ToUpper(strings.TrimSpace(fact.Method))
 		path := strings.TrimSpace(fact.Path)
 		if method == "" || path == "" {
-			return nil, errors.New("路由 Method 和 Path 不能为空")
+			return nil, NewError(CodeValidationInvalid, nil)
 		}
 		if !strings.HasPrefix(path, "/api/") {
 			continue
 		}
 		api, deleted, err := service.core.repository.FindByMethodPathUnscoped(ctx, method, path)
 		if err != nil {
-			return nil, err
+			return nil, NewError(CodeInternalError, err)
 		}
 		if api.ID != 0 {
 			updates := make(map[string]any)
@@ -55,7 +54,7 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 			}
 			if len(updates) > 0 {
 				if err := service.core.repository.Restore(ctx, api.ID, updates); err != nil {
-					return nil, errors.New("同步API公开配置失败: " + err.Error())
+					return nil, NewError(CodeInternalError, err)
 				}
 			}
 			continue
@@ -71,7 +70,7 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 		}
 		api = domain.API{Name: name, Method: method, Path: path, Group: group, PermissionCode: permissionCode, Status: 1, NeedAuth: needAuth, NeedAudit: boolInt(fact.NeedAudit)}
 		if err := service.core.repository.Create(ctx, &api); err != nil {
-			return nil, errors.New("同步API失败: " + err.Error())
+			return nil, NewError(CodeInternalError, err)
 		}
 		created = append(created, api)
 	}

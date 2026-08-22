@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 
 	"admin/internal/identity/domain"
 )
@@ -64,61 +63,64 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 	if request.Email != "" {
 		exists, err := service.users.EmailExists(ctx, request.Email, userID)
 		if err != nil {
-			return domain.User{}, err
+			return domain.User{}, NewError(CodeInternalError, err)
 		}
 		if exists {
-			return domain.User{}, errors.New("邮箱已被占用")
+			return domain.User{}, NewError(CodeConflict, nil)
 		}
 		value := request.Email
 		changes.Email = &value
 	}
 	if changes.Nickname == nil && changes.Email == nil {
-		return domain.User{}, errors.New("无修改内容")
+		return domain.User{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.users.Update(ctx, userID, changes); err != nil {
-		return domain.User{}, err
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	return service.Get(ctx, userID)
 }
 
 func (service *UserService) ChangePassword(ctx context.Context, userID uint, request ChangePasswordRequest) error {
 	if request.NewPassword != request.ConfirmPassword {
-		return errors.New("两次输入的新密码不一致")
+		return NewValidationError([]FieldError{{Field: "confirm_password", ErrorCode: "IDENTITY_PASSWORD_CONFIRMATION_INVALID", Message: "password confirmation does not match"}}, nil)
 	}
 	if err := validatePassword(request.NewPassword); err != nil {
 		return err
 	}
 	if request.OldPassword == request.NewPassword {
-		return errors.New("新密码不能与旧密码相同")
+		return NewValidationError([]FieldError{{Field: "new_password", ErrorCode: "IDENTITY_PASSWORD_REUSE", Message: "new password must differ from the old password"}}, nil)
 	}
 	user, err := service.users.FindByID(ctx, userID)
 	if err != nil {
 		return ErrUserNotFound
 	}
 	if err := service.passwords.Compare(user.Password, request.OldPassword); err != nil {
-		return errors.New("旧密码错误")
+		return NewValidationError([]FieldError{{Field: "old_password", ErrorCode: "IDENTITY_OLD_PASSWORD_INVALID", Message: "old password is invalid"}}, nil)
 	}
 	hashed, err := service.passwords.Hash(request.NewPassword)
 	if err != nil {
-		return errors.New("密码加密失败")
+		return NewError(CodeInternalError, err)
 	}
-	return service.transactions.Run(ctx, func(tx context.Context) error {
+	if err := service.transactions.Run(ctx, func(tx context.Context) error {
 		if err := service.users.UpdatePassword(tx, userID, hashed); err != nil {
 			return err
 		}
 		return service.access.IncrementVersions(tx, []uint{userID})
-	})
+	}); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func (service *UserService) List(ctx context.Context, operatorID uint, page, size int) (UserPage, error) {
 	page, size = normalizeUserPage(page, size)
 	scope, err := service.access.UserScope(ctx, operatorID)
 	if err != nil {
-		return UserPage{}, err
+		return UserPage{}, NewError(CodeInternalError, err)
 	}
 	users, total, err := service.users.List(ctx, (page-1)*size, size, scope)
 	if err != nil {
-		return UserPage{}, errors.New("查询用户列表失败")
+		return UserPage{}, NewError(CodeInternalError, err)
 	}
 	if users == nil {
 		users = []domain.User{}
@@ -128,7 +130,7 @@ func (service *UserService) List(ctx context.Context, operatorID uint, page, siz
 
 func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targetID uint, request AdminUpdateUserRequest) (domain.User, error) {
 	if operatorID == targetID {
-		return domain.User{}, errors.New("不能修改自己的信息（请使用普通用户修改接口）")
+		return domain.User{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
 		return domain.User{}, err
@@ -141,10 +143,10 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 	if request.Email != "" {
 		exists, err := service.users.EmailExists(ctx, request.Email, targetID)
 		if err != nil {
-			return domain.User{}, err
+			return domain.User{}, NewError(CodeInternalError, err)
 		}
 		if exists {
-			return domain.User{}, errors.New("邮箱已被占用")
+			return domain.User{}, NewError(CodeConflict, nil)
 		}
 		value := request.Email
 		changes.Email = &value
@@ -155,7 +157,7 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 	}
 	changes.Status = request.Status
 	if changes.Nickname == nil && changes.Email == nil && changes.Role == nil && changes.Status == nil {
-		return domain.User{}, errors.New("无修改内容")
+		return domain.User{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.transactions.Run(ctx, func(tx context.Context) error {
 		if err := service.users.Update(tx, targetID, changes); err != nil {
@@ -163,29 +165,32 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
 	}); err != nil {
-		return domain.User{}, errors.New("修改失败")
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	return service.Get(ctx, targetID)
 }
 
 func (service *UserService) Delete(ctx context.Context, operatorID, targetID uint) error {
 	if operatorID == targetID {
-		return errors.New("不能删除自己")
+		return NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
 		return err
 	}
-	return service.transactions.Run(ctx, func(tx context.Context) error {
+	if err := service.transactions.Run(ctx, func(tx context.Context) error {
 		if err := service.users.Delete(tx, targetID); err != nil {
 			return err
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
-	})
+	}); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func (service *UserService) ToggleStatus(ctx context.Context, operatorID, targetID uint) (int, error) {
 	if operatorID == targetID {
-		return 0, errors.New("不能操作自己")
+		return 0, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
 		return 0, err
@@ -204,19 +209,24 @@ func (service *UserService) ToggleStatus(ctx context.Context, operatorID, target
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
 	}); err != nil {
-		return 0, errors.New("操作失败")
+		return 0, NewError(CodeInternalError, err)
 	}
 	return status, nil
 }
 
 func (service *UserService) Kick(ctx context.Context, operatorID, targetID uint) error {
 	if operatorID == targetID {
-		return errors.New("不能强制下线自己")
+		return NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
 		return err
 	}
-	return service.transactions.Run(ctx, func(tx context.Context) error { return service.access.IncrementVersions(tx, []uint{targetID}) })
+	if err := service.transactions.Run(ctx, func(tx context.Context) error {
+		return service.access.IncrementVersions(tx, []uint{targetID})
+	}); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
 }
 
 func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID, targetID uint) error {
@@ -225,17 +235,17 @@ func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID,
 	}
 	scope, err := service.access.UserScope(ctx, operatorID)
 	if err != nil {
-		return err
+		return NewError(CodeInternalError, err)
 	}
 	if !scope.All && !containsUserID(scope.UserIDs, targetID) {
-		return errors.New("无权操作该用户")
+		return NewError(CodePermissionDenied, nil)
 	}
 	administrator, err := service.access.IsAdministrator(ctx, targetID)
 	if err != nil {
-		return err
+		return NewError(CodeInternalError, err)
 	}
 	if administrator {
-		return errors.New("不能操作其他管理员")
+		return NewError(CodePermissionDenied, nil)
 	}
 	return nil
 }

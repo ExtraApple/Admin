@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"admin/internal/apimetadata/domain"
@@ -73,7 +72,7 @@ func (service *Service) Methods() []MethodOption {
 
 func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int) (Button, error) {
 	if service.coordinator == nil {
-		return Button{}, errors.New("Navigation 协调器不可用")
+		return Button{}, NewError(CodeInternalError, nil)
 	}
 	return service.coordinator.GenerateMenuButton(ctx, apiID, parentID, name, sort)
 }
@@ -81,7 +80,7 @@ func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID 
 func (service *Service) SyncPermissions(ctx context.Context) ([]string, int, error) {
 	apis, _, err := service.core.repository.List(ctx, 0, -1, Filter{})
 	if err != nil {
-		return nil, 0, errors.New("查询API列表失败")
+		return nil, 0, NewError(CodeInternalError, err)
 	}
 	created := make([]string, 0)
 	updated := 0

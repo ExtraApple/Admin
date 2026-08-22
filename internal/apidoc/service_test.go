@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"admin/internal/apidoc"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"github.com/gin-gonic/gin"
 )
@@ -101,5 +102,40 @@ func TestDocumentDescribesMultipartUploadAndBinaryResponse(t *testing.T) {
 	responses := download["responses"].(map[string]any)
 	if _, ok := responses["200"].(map[string]any)["content"].(map[string]any)["application/octet-stream"]; !ok {
 		t.Fatal("binary response content type missing")
+	}
+}
+
+func TestDocumentDescribesEnvelopeAndErrorCodeEnums(t *testing.T) {
+	type responseData struct {
+		ID uint `json:"id"`
+	}
+	descriptor := routecatalog.Descriptor{
+		Method: http.MethodGet, Path: "/api/widgets", Access: routecatalog.Public,
+		Handler: func(*gin.Context) {}, Name: "Widgets", Group: "widgets", DefaultAuditCategory: "widgets",
+		OpenAPI: routecatalog.Operation{
+			Summary: "Widgets", Request: routecatalog.RequestBody{Kind: routecatalog.NoBody},
+			Responses: map[int]routecatalog.Response{
+				http.StatusOK:           {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[responseData]{})},
+				http.StatusUnauthorized: {Description: "authentication failed", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(httpresponse.Envelope[any]{}), Errors: []httpresponse.ErrorDefinition{{Owner: "identity", Code: "AUTHN_INVALID", Status: http.StatusUnauthorized, Message: "authentication failed"}}},
+			},
+		},
+	}
+	catalog, err := routecatalog.New([]routecatalog.Descriptor{descriptor})
+	if err != nil {
+		t.Fatalf("build Route Catalog: %v", err)
+	}
+	document, err := apidoc.New(catalog, nil, apidoc.Config{}).Document(context.Background(), "")
+	if err != nil {
+		t.Fatalf("build document: %v", err)
+	}
+	operation := document["paths"].(map[string]any)["/api/widgets"].(map[string]any)["get"].(map[string]any)
+	responses := operation["responses"].(map[string]any)
+	successSchema := responses["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	if successSchema["properties"].(map[string]any)["error_code"].(map[string]any)["enum"].([]string)[0] != "" {
+		t.Fatalf("success error_code schema = %#v", successSchema)
+	}
+	errorSchema := responses["401"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	if got := errorSchema["properties"].(map[string]any)["error_code"].(map[string]any)["enum"].([]string); len(got) != 1 || got[0] != "AUTHN_INVALID" {
+		t.Fatalf("error_code enum = %#v", got)
 	}
 }

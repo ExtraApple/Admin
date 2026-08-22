@@ -16,6 +16,7 @@ import (
 	navigationmodule "admin/internal/navigation"
 	platformconfig "admin/internal/platform/config"
 	platformdatabase "admin/internal/platform/database"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -101,6 +102,7 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	descriptors = append(descriptors, identityRoutes...)
 	descriptors = append(descriptors, filesModule.routes...)
 	descriptors = append(descriptors, auditModule.routes...)
+	descriptors = addMiddlewareErrorDefinitions(descriptors)
 	catalog, err := routecatalog.New(descriptors)
 	if err != nil {
 		return nil, fmt.Errorf("build Route Catalog: %w", err)
@@ -133,7 +135,8 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 		}
 	}
 	engine := gin.New()
-	engine.Use(gin.Recovery())
+	engine.HandleMethodNotAllowed = true
+	engine.Use(requestLoggingMiddleware(resources.Logger), recoveryMiddleware(resources.Logger))
 	httpMiddleware := options.Middleware
 	if httpMiddleware.API == nil {
 		httpMiddleware.API = auditMiddleware(auditModule.recorder)
@@ -159,6 +162,44 @@ func dictionaryDescriptors(resources Resources) []routecatalog.Descriptor {
 	repository := dictionary.NewGORMRepository(resources.DB)
 	service := dictionary.NewService(repository, platformdatabase.NewTransactionRunner(resources.DB))
 	return dictionary.Routes(service)
+}
+
+func addMiddlewareErrorDefinitions(descriptors []routecatalog.Descriptor) []routecatalog.Descriptor {
+	authentication := identityhttp.AuthenticationErrorDefinitions()
+	permissions := apihttp.PermissionErrorDefinitions()
+	result := make([]routecatalog.Descriptor, len(descriptors))
+	copy(result, descriptors)
+	for index := range result {
+		definitions := []httpresponse.ErrorDefinition{}
+		switch result[index].Access {
+		case routecatalog.Authenticated:
+			definitions = append(definitions, authentication...)
+		case routecatalog.PermissionControlled:
+			definitions = append(definitions, authentication...)
+			definitions = append(definitions, permissions...)
+		default:
+			continue
+		}
+		for _, definition := range definitions {
+			response, exists := result[index].OpenAPI.Responses[definition.Status]
+			if !exists {
+				result[index].OpenAPI.Responses[definition.Status] = routecatalog.ErrorResponse(definition.Message, definition)
+				continue
+			}
+			found := false
+			for _, existing := range response.Errors {
+				if existing.Code == definition.Code {
+					found = true
+					break
+				}
+			}
+			if !found {
+				response.Errors = append(response.Errors, definition)
+				result[index].OpenAPI.Responses[definition.Status] = response
+			}
+		}
+	}
+	return result
 }
 
 func (application *Application) Handler() http.Handler {

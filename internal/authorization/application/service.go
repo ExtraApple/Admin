@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"admin/internal/authorization/domain"
@@ -11,8 +10,8 @@ import (
 )
 
 var (
-	ErrInvalidUser            = errors.New("用户身份无效")
-	ErrPermissionCodeNotFound = errors.New("权限码不存在")
+	ErrInvalidUser            = NewError(CodeInvalidUser, nil)
+	ErrPermissionCodeNotFound = NewError(CodePermissionCodeAbsent, nil)
 )
 
 type Service struct {
@@ -61,7 +60,7 @@ func (service *Service) ListRoles(ctx context.Context, page, size int) (RolePage
 	page, size = normalizePage(page, size)
 	roles, total, err := service.repository.ListRoles(ctx, (page-1)*size, size)
 	if err != nil {
-		return RolePage{}, errors.New("查询角色列表失败")
+		return RolePage{}, NewError(CodeInternalError, err)
 	}
 	return RolePage{List: roles, Total: total, Page: page, Size: size}, nil
 }
@@ -69,21 +68,21 @@ func (service *Service) ListRoles(ctx context.Context, page, size int) (RolePage
 func (service *Service) CreateRole(ctx context.Context, request CreateRoleRequest) (domain.Role, error) {
 	scope, err := domain.ParseDataScope(request.DataScope)
 	if err != nil {
-		return domain.Role{}, err
+		return domain.Role{}, NewError(CodeValidationInvalid, err)
 	}
 	if scope == domain.DataScopeCustom {
-		return domain.Role{}, errors.New("自定义数据范围请创建角色后通过数据权限接口配置")
+		return domain.Role{}, NewError(CodeValidationInvalid, nil)
 	}
 	nameExists, err := service.repository.RoleNameExists(ctx, request.Name, 0)
 	if err != nil {
-		return domain.Role{}, err
+		return domain.Role{}, wrapError(err)
 	}
 	codeExists, err := service.repository.RoleCodeExists(ctx, request.Code, 0)
 	if err != nil {
-		return domain.Role{}, err
+		return domain.Role{}, wrapError(err)
 	}
 	if nameExists || codeExists {
-		return domain.Role{}, errors.New("角色名称或编码已存在")
+		return domain.Role{}, NewError(CodeConflict, nil)
 	}
 	status := request.Status
 	if status != 0 && status != 1 {
@@ -91,7 +90,7 @@ func (service *Service) CreateRole(ctx context.Context, request CreateRoleReques
 	}
 	role := domain.Role{Name: request.Name, Code: request.Code, Description: request.Description, Sort: request.Sort, Status: status, DataScope: scope}
 	if err := service.repository.CreateRole(ctx, &role); err != nil {
-		return domain.Role{}, fmt.Errorf("创建角色失败: %w", err)
+		return domain.Role{}, NewError(CodeInternalError, err)
 	}
 	return role, nil
 }
@@ -102,7 +101,7 @@ func (service *Service) UpdateRole(ctx context.Context, roleID uint, request Upd
 		return domain.Role{}, roleError(err)
 	}
 	if domain.IsProtectedRole(role.Code) {
-		return domain.Role{}, errors.New("不能修改超级管理员角色")
+		return domain.Role{}, NewError(CodeConflict, nil)
 	}
 	if request.Name != "" {
 		role.Name = request.Name
@@ -122,31 +121,31 @@ func (service *Service) UpdateRole(ctx context.Context, roleID uint, request Upd
 	if request.DataScope != "" {
 		role.DataScope, err = domain.ParseDataScope(request.DataScope)
 		if err != nil {
-			return domain.Role{}, err
+			return domain.Role{}, NewError(CodeValidationInvalid, err)
 		}
 		if role.DataScope == domain.DataScopeCustom {
-			return domain.Role{}, errors.New("自定义数据范围请通过数据权限接口配置")
+			return domain.Role{}, NewError(CodeValidationInvalid, nil)
 		}
 	}
 	if request.Name == "" && request.Code == "" && request.Description == "" && request.Sort == nil && request.Status == nil && request.DataScope == "" {
-		return domain.Role{}, errors.New("无修改内容")
+		return domain.Role{}, NewError(CodeValidationInvalid, nil)
 	}
 	if request.Name != "" {
 		exists, err := service.repository.RoleNameExists(ctx, request.Name, roleID)
 		if err != nil {
-			return domain.Role{}, err
+			return domain.Role{}, wrapError(err)
 		}
 		if exists {
-			return domain.Role{}, errors.New("角色名称已被占用")
+			return domain.Role{}, NewError(CodeConflict, nil)
 		}
 	}
 	if request.Code != "" {
 		exists, err := service.repository.RoleCodeExists(ctx, request.Code, roleID)
 		if err != nil {
-			return domain.Role{}, err
+			return domain.Role{}, wrapError(err)
 		}
 		if exists {
-			return domain.Role{}, errors.New("角色编码已被占用")
+			return domain.Role{}, NewError(CodeConflict, nil)
 		}
 	}
 	if err := service.transactions.Run(ctx, func(tx context.Context) error {
@@ -155,7 +154,7 @@ func (service *Service) UpdateRole(ctx context.Context, roleID uint, request Upd
 		}
 		return service.incrementRoleUsers(tx, roleID)
 	}); err != nil {
-		return domain.Role{}, errors.New("修改角色失败")
+		return domain.Role{}, NewError(CodeInternalError, err)
 	}
 	return service.repository.FindRole(ctx, roleID)
 }
@@ -166,7 +165,7 @@ func (service *Service) DeleteRole(ctx context.Context, roleID uint) error {
 		return roleError(err)
 	}
 	if domain.IsProtectedRole(role.Code) {
-		return errors.New("不能删除超级管理员角色")
+		return NewError(CodeConflict, nil)
 	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
 		userIDs, err := service.repository.UserIDsByRole(tx, roleID)
@@ -182,7 +181,7 @@ func (service *Service) DeleteRole(ctx context.Context, roleID uint) error {
 
 func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, userIDs []uint) error {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return errors.New("角色不存在")
+		return NewError(CodeNotFound, err)
 	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
 		oldIDs, err := service.repository.UserIDsByRole(tx, roleID)
@@ -190,7 +189,7 @@ func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, user
 			return err
 		}
 		if err := service.repository.ReplaceRoleUsers(tx, roleID, userIDs); err != nil {
-			return fmt.Errorf("分配用户失败: %w", err)
+			return NewError(CodeInternalError, err)
 		}
 		return service.incrementUsers(tx, append(oldIDs, userIDs...))
 	})
@@ -198,15 +197,15 @@ func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, user
 
 func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]identitydomain.DirectoryUser, error) {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return nil, errors.New("角色不存在")
+		return nil, NewError(CodeNotFound, err)
 	}
 	ids, err := service.repository.UserIDsByRole(ctx, roleID)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err)
 	}
 	users, err := service.users.ListUsersByIDs(ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err)
 	}
 	if users == nil {
 		return []identitydomain.DirectoryUser{}, nil
@@ -217,26 +216,26 @@ func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]identityd
 func (service *Service) AssignRoleDataScope(ctx context.Context, roleID uint, scopeValue string, organizationIDs []uint) error {
 	scope, err := domain.ParseDataScope(scopeValue)
 	if err != nil {
-		return err
+		return NewError(CodeValidationInvalid, err)
 	}
 	role, err := service.repository.FindRole(ctx, roleID)
 	if err != nil {
-		return errors.New("角色不存在")
+		return NewError(CodeNotFound, err)
 	}
 	if domain.IsProtectedRole(role.Code) {
-		return errors.New("超级管理员角色固定拥有全部数据权限")
+		return NewError(CodeConflict, nil)
 	}
 	organizationIDs = uniqueIDs(organizationIDs)
 	if scope == domain.DataScopeCustom {
 		if len(organizationIDs) == 0 {
-			return errors.New("自定义数据范围必须选择组织")
+			return NewError(CodeValidationInvalid, nil)
 		}
 		existing, err := service.organizations.ExistingOrganizationIDs(ctx, organizationIDs)
 		if err != nil {
-			return errors.New("查询组织失败")
+			return NewError(CodeInternalError, err)
 		}
 		if !sameIDs(existing, organizationIDs) {
-			return errors.New("存在无效组织")
+			return NewError(CodeValidationInvalid, nil)
 		}
 	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
@@ -249,7 +248,7 @@ func (service *Service) AssignRoleDataScope(ctx context.Context, roleID uint, sc
 
 func (service *Service) RoleDataScope(ctx context.Context, roleID uint) (domain.RoleDataScope, error) {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return domain.RoleDataScope{}, errors.New("角色不存在")
+		return domain.RoleDataScope{}, NewError(CodeNotFound, err)
 	}
 	return service.repository.RoleDataScope(ctx, roleID)
 }
@@ -278,7 +277,7 @@ func (service *Service) ListPermissions(ctx context.Context, page, size int) (Pe
 	page, size = normalizePage(page, size)
 	permissions, total, err := service.repository.ListPermissions(ctx, (page-1)*size, size)
 	if err != nil {
-		return PermissionPage{}, errors.New("查询权限列表失败")
+		return PermissionPage{}, NewError(CodeInternalError, err)
 	}
 	return PermissionPage{List: permissions, Total: total, Page: page, Size: size}, nil
 }
@@ -286,18 +285,18 @@ func (service *Service) ListPermissions(ctx context.Context, page, size int) (Pe
 func (service *Service) CreatePermission(ctx context.Context, request CreatePermissionRequest) (domain.Permission, error) {
 	code, err := domain.NewPermissionCode(request.Code)
 	if err != nil {
-		return domain.Permission{}, err
+		return domain.Permission{}, NewError(CodeValidationInvalid, err)
 	}
 	exists, err := service.repository.PermissionCodeExists(ctx, code.String())
 	if err != nil {
-		return domain.Permission{}, err
+		return domain.Permission{}, wrapError(err)
 	}
 	if exists {
-		return domain.Permission{}, errors.New("权限码已存在")
+		return domain.Permission{}, NewError(CodeConflict, nil)
 	}
 	permission := domain.Permission{Name: request.Name, Code: code, Group: request.Group, Sort: request.Sort}
 	if err := service.repository.CreatePermission(ctx, &permission); err != nil {
-		return domain.Permission{}, fmt.Errorf("创建权限失败: %w", err)
+		return domain.Permission{}, NewError(CodeInternalError, err)
 	}
 	return permission, nil
 }
@@ -308,7 +307,7 @@ func (service *Service) UpdatePermission(ctx context.Context, permissionID uint,
 		return domain.Permission{}, permissionError(err)
 	}
 	if request.Name == "" && request.Group == "" && request.Sort == nil {
-		return domain.Permission{}, errors.New("无修改内容")
+		return domain.Permission{}, NewError(CodeValidationInvalid, nil)
 	}
 	if request.Name != "" {
 		permission.Name = request.Name
@@ -320,7 +319,7 @@ func (service *Service) UpdatePermission(ctx context.Context, permissionID uint,
 		permission.Sort = *request.Sort
 	}
 	if err := service.repository.UpdatePermission(ctx, permission); err != nil {
-		return domain.Permission{}, errors.New("修改权限失败")
+		return domain.Permission{}, NewError(CodeInternalError, err)
 	}
 	return service.repository.FindPermission(ctx, permissionID)
 }
@@ -343,11 +342,11 @@ func (service *Service) DeletePermission(ctx context.Context, permissionID uint)
 
 func (service *Service) AssignPermissionsToRole(ctx context.Context, roleID uint, permissionIDs []uint) error {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return errors.New("角色不存在")
+		return NewError(CodeNotFound, err)
 	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
 		if err := service.repository.ReplaceRolePermissions(tx, roleID, permissionIDs); err != nil {
-			return fmt.Errorf("分配权限失败: %w", err)
+			return NewError(CodeInternalError, err)
 		}
 		return service.incrementRoleUsers(tx, roleID)
 	})
@@ -355,11 +354,11 @@ func (service *Service) AssignPermissionsToRole(ctx context.Context, roleID uint
 
 func (service *Service) RolePermissions(ctx context.Context, roleID uint) ([]domain.Permission, error) {
 	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return nil, errors.New("角色不存在")
+		return nil, NewError(CodeNotFound, err)
 	}
 	permissions, err := service.repository.PermissionsByRole(ctx, roleID)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err)
 	}
 	if permissions == nil {
 		return []domain.Permission{}, nil
@@ -381,15 +380,15 @@ func (service *Service) Snapshot(ctx context.Context, principal domain.Principal
 	}
 	roles, err := service.repository.RolesForUser(ctx, principal.UserID)
 	if err != nil {
-		return domain.AccessSnapshot{}, err
+		return domain.AccessSnapshot{}, wrapError(err)
 	}
 	permissions, err := service.repository.PermissionCodesForUser(ctx, principal.UserID)
 	if err != nil {
-		return domain.AccessSnapshot{}, err
+		return domain.AccessSnapshot{}, wrapError(err)
 	}
 	version, err := service.versions.Current(ctx, principal.UserID)
 	if err != nil {
-		return domain.AccessSnapshot{}, err
+		return domain.AccessSnapshot{}, wrapError(err)
 	}
 	roleCodes := make([]string, len(roles))
 	for index := range roles {
@@ -401,7 +400,7 @@ func (service *Service) Snapshot(ctx context.Context, principal domain.Principal
 func (service *Service) ResolveUserScope(ctx context.Context, principal domain.Principal) (domain.UserScope, error) {
 	organizationScope, err := service.ResolveOrganizationScope(ctx, principal)
 	if err != nil {
-		return domain.UserScope{}, err
+		return domain.UserScope{}, wrapError(err)
 	}
 	if organizationScope.All {
 		return domain.AllUsersScope(), nil
@@ -410,7 +409,7 @@ func (service *Service) ResolveUserScope(ctx context.Context, principal domain.P
 	for _, organizationID := range organizationScope.OrganizationIDs {
 		ids, err := service.organizations.MemberUserIDs(ctx, organizationID)
 		if err != nil {
-			return domain.UserScope{}, errors.New("查询可见用户失败")
+			return domain.UserScope{}, NewError(CodeInternalError, err)
 		}
 		userIDs = append(userIDs, ids...)
 	}
@@ -423,7 +422,7 @@ func (service *Service) ResolveOrganizationScope(ctx context.Context, principal 
 	}
 	all, ids, err := service.scopeOrganizations(ctx, principal.UserID)
 	if err != nil {
-		return domain.OrganizationScope{}, err
+		return domain.OrganizationScope{}, wrapError(err)
 	}
 	if all {
 		return domain.AllOrganizationsScope(), nil
@@ -444,29 +443,29 @@ func (service *Service) VisibleOrganizationIDs(ctx context.Context, operatorID u
 func (service *Service) UserVisible(ctx context.Context, operatorID, targetID uint) error {
 	ids, all, err := service.VisibleUserIDs(ctx, operatorID)
 	if err != nil {
-		return err
+		return wrapError(err)
 	}
 	if all || containsID(ids, targetID) {
 		return nil
 	}
-	return errors.New("无权操作数据范围外的用户")
+	return NewError(CodeInvalidUser, nil)
 }
 
 func (service *Service) OrganizationVisible(ctx context.Context, operatorID, organizationID uint) error {
 	ids, all, err := service.VisibleOrganizationIDs(ctx, operatorID)
 	if err != nil {
-		return err
+		return wrapError(err)
 	}
 	if all || containsID(ids, organizationID) {
 		return nil
 	}
-	return errors.New("无权操作数据范围外的组织")
+	return NewError(CodeInvalidUser, nil)
 }
 
 func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint) (bool, []uint, error) {
 	roles, err := service.repository.RolesForUser(ctx, operatorID)
 	if err != nil {
-		return false, nil, errors.New("查询用户角色失败")
+		return false, nil, NewError(CodeInternalError, err)
 	}
 	organizationIDs := make([]uint, 0)
 	for _, role := range roles {
@@ -478,23 +477,23 @@ func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint)
 		case domain.DataScopeOrg:
 			ids, err := service.organizations.MemberOrganizationIDs(ctx, operatorID)
 			if err != nil {
-				return false, nil, err
+				return false, nil, wrapError(err)
 			}
 			organizationIDs = append(organizationIDs, ids...)
 		case domain.DataScopeOrgAndChildren:
 			ids, err := service.organizations.MemberOrganizationIDs(ctx, operatorID)
 			if err != nil {
-				return false, nil, err
+				return false, nil, wrapError(err)
 			}
 			ids, err = service.organizations.DescendantOrganizationIDs(ctx, ids)
 			if err != nil {
-				return false, nil, err
+				return false, nil, wrapError(err)
 			}
 			organizationIDs = append(organizationIDs, ids...)
 		case domain.DataScopeCustom:
 			ids, err := service.repository.CustomOrganizationIDs(ctx, role.ID)
 			if err != nil {
-				return false, nil, err
+				return false, nil, wrapError(err)
 			}
 			organizationIDs = append(organizationIDs, ids...)
 		}
@@ -505,7 +504,7 @@ func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint)
 func (service *Service) incrementRoleUsers(ctx context.Context, roleID uint) error {
 	ids, err := service.repository.UserIDsByRole(ctx, roleID)
 	if err != nil {
-		return err
+		return wrapError(err)
 	}
 	return service.incrementUsers(ctx, ids)
 }
@@ -515,7 +514,7 @@ func (service *Service) incrementRoles(ctx context.Context, roleIDs []uint) erro
 	for _, roleID := range uniqueIDs(roleIDs) {
 		userIDs, err := service.repository.UserIDsByRole(ctx, roleID)
 		if err != nil {
-			return err
+			return wrapError(err)
 		}
 		ids = append(ids, userIDs...)
 	}
@@ -528,7 +527,7 @@ func (service *Service) incrementUsers(ctx context.Context, userIDs []uint) erro
 	}
 	for _, userID := range uniqueIDs(userIDs) {
 		if _, err := service.versions.EnsureAndIncrement(ctx, userID); err != nil {
-			return err
+			return wrapError(err)
 		}
 	}
 	return nil
@@ -538,7 +537,7 @@ func (service *Service) ListPermissionGroups(ctx context.Context, page, size int
 	page, size = normalizePage(page, size)
 	groups, total, err := service.repository.ListPermissionGroups(ctx, (page-1)*size, size)
 	if err != nil {
-		return PermissionGroupPage{}, errors.New("查询权限分组列表失败")
+		return PermissionGroupPage{}, NewError(CodeInternalError, err)
 	}
 	return PermissionGroupPage{List: groups, Total: total, Page: page, Size: size}, nil
 }
@@ -553,14 +552,14 @@ type PermissionGroupPage struct {
 func (service *Service) CreatePermissionGroup(ctx context.Context, name string, sort int) (domain.PermissionGroup, error) {
 	exists, err := service.repository.PermissionGroupNameExists(ctx, name, 0)
 	if err != nil {
-		return domain.PermissionGroup{}, err
+		return domain.PermissionGroup{}, wrapError(err)
 	}
 	if exists {
-		return domain.PermissionGroup{}, errors.New("分组名称已存在")
+		return domain.PermissionGroup{}, NewError(CodeConflict, nil)
 	}
 	group := domain.PermissionGroup{Name: name, Sort: sort}
 	if err := service.repository.CreatePermissionGroup(ctx, &group); err != nil {
-		return domain.PermissionGroup{}, fmt.Errorf("创建权限分组失败: %w", err)
+		return domain.PermissionGroup{}, NewError(CodeInternalError, err)
 	}
 	return group, nil
 }
@@ -569,20 +568,20 @@ func (service *Service) UpdatePermissionGroup(ctx context.Context, groupID uint,
 	group, err := service.repository.FindPermissionGroup(ctx, groupID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return domain.PermissionGroup{}, errors.New("分组不存在")
+			return domain.PermissionGroup{}, NewError(CodeNotFound, err)
 		}
-		return domain.PermissionGroup{}, errors.New("查询分组失败")
+		return domain.PermissionGroup{}, NewError(CodeInternalError, err)
 	}
 	if name == "" && sort == nil {
-		return domain.PermissionGroup{}, errors.New("无修改内容")
+		return domain.PermissionGroup{}, NewError(CodeValidationInvalid, nil)
 	}
 	if name != "" {
 		exists, err := service.repository.PermissionGroupNameExists(ctx, name, groupID)
 		if err != nil {
-			return domain.PermissionGroup{}, err
+			return domain.PermissionGroup{}, wrapError(err)
 		}
 		if exists {
-			return domain.PermissionGroup{}, errors.New("分组名称已被占用")
+			return domain.PermissionGroup{}, NewError(CodeConflict, nil)
 		}
 		group.Name = name
 	}
@@ -590,7 +589,7 @@ func (service *Service) UpdatePermissionGroup(ctx context.Context, groupID uint,
 		group.Sort = *sort
 	}
 	if err := service.repository.UpdatePermissionGroup(ctx, group); err != nil {
-		return domain.PermissionGroup{}, errors.New("修改分组失败")
+		return domain.PermissionGroup{}, NewError(CodeInternalError, err)
 	}
 	return service.repository.FindPermissionGroup(ctx, groupID)
 }
@@ -598,12 +597,12 @@ func (service *Service) UpdatePermissionGroup(ctx context.Context, groupID uint,
 func (service *Service) DeletePermissionGroup(ctx context.Context, groupID uint) error {
 	if _, err := service.repository.FindPermissionGroup(ctx, groupID); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return errors.New("分组不存在")
+			return NewError(CodeNotFound, err)
 		}
-		return errors.New("查询分组失败")
+		return NewError(CodeInternalError, err)
 	}
 	if err := service.repository.DeletePermissionGroup(ctx, groupID); err != nil {
-		return errors.New("删除分组失败")
+		return NewError(CodeInternalError, err)
 	}
 	return nil
 }
@@ -666,16 +665,16 @@ func normalizePage(page, size int) (int, int) {
 
 func roleError(err error) error {
 	if errors.Is(err, ErrNotFound) {
-		return errors.New("角色不存在")
+		return NewError(CodeNotFound, err)
 	}
-	return errors.New("查询角色失败")
+	return NewError(CodeInternalError, err)
 }
 
 func permissionError(err error) error {
 	if errors.Is(err, ErrNotFound) {
-		return errors.New("权限不存在")
+		return NewError(CodeNotFound, err)
 	}
-	return errors.New("查询权限失败")
+	return NewError(CodeInternalError, err)
 }
 
 func uniqueIDs(ids []uint) []uint {

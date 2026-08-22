@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"admin/internal/audit"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 
 	"github.com/gin-gonic/gin"
@@ -72,10 +73,6 @@ func metadata(c *gin.Context) []byte {
 }
 
 type httpHandler struct{ service *audit.QueryService }
-type errorResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
 
 func Routes(service *audit.QueryService) []routecatalog.Descriptor {
 	handler := &httpHandler{service: service}
@@ -91,8 +88,10 @@ func Routes(service *audit.QueryService) []routecatalog.Descriptor {
 func route(method, path, name, permission string, handler gin.HandlerFunc, category string) routecatalog.Descriptor {
 	return routecatalog.Descriptor{Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: handler, Name: name, Group: "audit", DefaultPermissionCode: permission, DefaultAuditCategory: category,
 		OpenAPI: routecatalog.Operation{Summary: name, Request: routecatalog.RequestBody{Kind: routecatalog.NoBody}, Responses: map[int]routecatalog.Response{
-			nethttp.StatusOK:         {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(audit.AuditLogListResponse{})},
-			nethttp.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorResponse{})},
+			nethttp.StatusOK:                  routecatalog.JSONResponse("success", reflect.TypeOf(audit.AuditLogListResponse{})),
+			nethttp.StatusBadRequest:          routecatalog.ErrorResponse("request is invalid", httpresponse.RequestInvalidDefinition()),
+			nethttp.StatusUnprocessableEntity: routecatalog.ErrorResponse("audit query validation failed", auditValidation()),
+			nethttp.StatusInternalServerError: routecatalog.ErrorResponse("audit operation failed", auditInternal()),
 		}}}
 }
 
@@ -113,7 +112,7 @@ func (handler *httpHandler) dataAccess(c *gin.Context) {
 func (handler *httpHandler) respond(c *gin.Context, categories []string) {
 	request := audit.AuditLogListRequest{}
 	if err := c.ShouldBindQuery(&request); err != nil {
-		c.JSON(nethttp.StatusBadRequest, errorResponse{Code: 400, Msg: "查询日志失败: " + err.Error()})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return
 	}
 	request = audit.NormalizePage(request)
@@ -126,8 +125,8 @@ func (handler *httpHandler) respond(c *gin.Context, categories []string) {
 		list, total, err = handler.service.ListByCategories(c.Request.Context(), request, categories...)
 	}
 	if err != nil {
-		c.JSON(nethttp.StatusBadRequest, errorResponse{Code: 400, Msg: "查询日志失败: " + err.Error()})
+		auditError(c, err)
 		return
 	}
-	c.JSON(nethttp.StatusOK, gin.H{"code": 200, "data": audit.AuditLogListResponse{List: list, Total: total, Page: request.Page, Size: request.Size}})
+	auditSuccess(c, audit.AuditLogListResponse{List: list, Total: total, Page: request.Page, Size: request.Size})
 }

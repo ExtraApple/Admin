@@ -2,7 +2,6 @@ package navigation
 
 import (
 	"context"
-	"errors"
 	"strings"
 )
 
@@ -26,7 +25,7 @@ func NewService(repository Repository, transactions TransactionRunner, authoriza
 func (service *Service) MenuTree(ctx context.Context) ([]MenuDetail, error) {
 	menus, err := service.repository.ListMenus(ctx, false)
 	if err != nil {
-		return nil, errors.New("查询菜单失败")
+		return nil, NewError(CodeInternalError, err)
 	}
 	return buildMenuTree(menus, 0), nil
 }
@@ -34,7 +33,7 @@ func (service *Service) MenuTree(ctx context.Context) ([]MenuDetail, error) {
 func (service *Service) CreateMenu(ctx context.Context, input CreateInput) (MenuDetail, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return MenuDetail{}, errors.New("菜单名称不能为空")
+		return MenuDetail{}, NewError(CodeValidationInvalid, nil)
 	}
 	path := normalizeMenuPath(input.Path)
 	if path != nil {
@@ -43,7 +42,7 @@ func (service *Service) CreateMenu(ctx context.Context, input CreateInput) (Menu
 			return MenuDetail{}, err
 		}
 		if exists {
-			return MenuDetail{}, errors.New("菜单路径已存在")
+			return MenuDetail{}, NewError(CodeConflict, nil)
 		}
 	}
 	menuType := input.Type
@@ -62,7 +61,7 @@ func (service *Service) CreateMenu(ctx context.Context, input CreateInput) (Menu
 	}
 	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if err := service.repository.CreateMenu(transactionContext, &menu); err != nil {
-			return errors.New("创建菜单失败: " + err.Error())
+			return NewError(CodeInternalError, err)
 		}
 		userIDs, err := service.authorization.AllUserIDs(transactionContext)
 		if err != nil {
@@ -74,7 +73,7 @@ func (service *Service) CreateMenu(ctx context.Context, input CreateInput) (Menu
 }
 func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input UpdateInput) (MenuDetail, error) {
 	if input.ParentID != nil && *input.ParentID == menuID {
-		return MenuDetail{}, errors.New("父级菜单不能是自己")
+		return MenuDetail{}, NewError(CodeValidationInvalid, nil)
 	}
 	updates := make(map[string]any)
 	if input.ParentID != nil {
@@ -90,7 +89,7 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 			return MenuDetail{}, err
 		}
 		if exists {
-			return MenuDetail{}, errors.New("菜单路径已存在")
+			return MenuDetail{}, NewError(CodeConflict, nil)
 		}
 		updates["path"] = path
 	}
@@ -113,7 +112,7 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 		updates["status"] = *input.Status
 	}
 	if len(updates) == 0 {
-		return MenuDetail{}, errors.New("无修改内容")
+		return MenuDetail{}, NewError(CodeValidationInvalid, nil)
 	}
 	var menu Menu
 	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
@@ -121,7 +120,7 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 			return err
 		}
 		if err := service.repository.UpdateMenu(transactionContext, menuID, updates); err != nil {
-			return errors.New("修改菜单失败")
+			return NewError(CodeInternalError, err)
 		}
 		var err error
 		menu, err = service.repository.FindMenu(transactionContext, menuID)
@@ -147,7 +146,7 @@ func (service *Service) DeleteMenu(ctx context.Context, menuID uint) error {
 			return err
 		}
 		if childCount > 0 {
-			return errors.New("存在子菜单，不能直接删除")
+			return NewError(CodeConflict, nil)
 		}
 		if err := service.repository.DeleteMenu(transactionContext, menuID); err != nil {
 			return err
@@ -165,7 +164,7 @@ func (service *Service) AssignRoleMenus(ctx context.Context, roleID uint, menuID
 		return err
 	}
 	if !exists {
-		return errors.New("角色不存在")
+		return NewError(CodeNotFound, nil)
 	}
 	return service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if err := service.repository.ReplaceRoleMenus(transactionContext, roleID, menuIDs); err != nil {
@@ -185,7 +184,7 @@ func (service *Service) RoleMenus(ctx context.Context, roleID uint) ([]MenuDetai
 		return nil, err
 	}
 	if !exists {
-		return nil, errors.New("角色不存在")
+		return nil, NewError(CodeNotFound, nil)
 	}
 	menuIDs, err := service.repository.MenuIDsByRoleIDs(ctx, []uint{roleID})
 	if err != nil || len(menuIDs) == 0 {
@@ -263,7 +262,7 @@ func (service *Service) SyncMenus(ctx context.Context, items []SyncItem) (int, e
 		return service.authorization.IncrementAccessVersions(transactionContext, userIDs)
 	})
 	if err != nil {
-		return 0, errors.New("同步菜单失败: " + err.Error())
+		return 0, NewError(CodeInternalError, err)
 	}
 	return created, nil
 }
@@ -274,21 +273,21 @@ func (service *Service) MenuAPIs(ctx context.Context, menuID uint) ([]APIRecord,
 	}
 	apiIDs, err := service.repository.APIIDsByMenuIDs(ctx, []uint{menuID}, false)
 	if err != nil {
-		return nil, errors.New("查询菜单API关联失败")
+		return nil, NewError(CodeInternalError, err)
 	}
 	if len(apiIDs) == 0 {
 		return []APIRecord{}, nil
 	}
 	apis, err := service.apis.ListByIDs(ctx, apiIDs)
 	if err != nil {
-		return nil, errors.New("查询API列表失败")
+		return nil, NewError(CodeInternalError, err)
 	}
 	return apis, nil
 }
 func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []uint, manualCode string) error {
 	apiIDs = uniqueUintIDs(apiIDs)
 	if len(apiIDs) == 0 {
-		return errors.New("请选择要绑定的API")
+		return NewError(CodeValidationInvalid, nil)
 	}
 	var affectedUserIDs []uint
 	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
@@ -308,7 +307,7 @@ func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []ui
 			return err
 		}
 		if len(apis) != len(apiIDs) {
-			return errors.New("存在不存在的API")
+			return NewError(CodeNotFound, nil)
 		}
 		for _, api := range apis {
 			if err := validateLinkableAPI(api); err != nil {
@@ -330,13 +329,13 @@ func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []ui
 			return err
 		}
 		if err := service.apis.SetPermissionCode(transactionContext, apiIDs, permissionCode); err != nil {
-			return errors.New("同步API权限码失败")
+			return NewError(CodeInternalError, err)
 		}
 		if err := service.repository.UpdateMenusPermissionCode(transactionContext, []uint{menuID}, permissionCode); err != nil {
-			return errors.New("同步菜单权限码失败")
+			return NewError(CodeInternalError, err)
 		}
 		if err := service.repository.ReplaceMenuAPIs(transactionContext, menuID, apiIDs); err != nil {
-			return errors.New("绑定菜单API失败: " + err.Error())
+			return NewError(CodeInternalError, err)
 		}
 		afterRoles, err := service.affectedRoleIDs(transactionContext, []uint{menuID}, []string{permissionCode})
 		if err != nil {
@@ -483,12 +482,12 @@ func (service *Service) DeleteAPI(ctx context.Context, apiID uint, deleteAPI fun
 func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int) (MenuDetail, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return MenuDetail{}, errors.New("按钮名称不能为空")
+		return MenuDetail{}, NewError(CodeValidationInvalid, nil)
 	}
 	var menu Menu
 	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if _, err := service.repository.LockMenu(transactionContext, parentID); err != nil {
-			return errors.New("父级菜单不存在")
+			return NewError(CodeNotFound, err)
 		}
 		api, err := service.apis.Lock(transactionContext, apiID)
 		if err != nil {
@@ -509,10 +508,10 @@ func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID 
 		}
 		menu = Menu{ParentID: parentID, Name: name, PermissionCode: permissionCode, Sort: sort, Type: 3, Status: 1}
 		if err := service.repository.CreateMenu(transactionContext, &menu); err != nil {
-			return errors.New("生成按钮菜单失败: " + err.Error())
+			return NewError(CodeInternalError, err)
 		}
 		if err := service.repository.ReplaceMenuAPIs(transactionContext, menu.ID, []uint{apiID}); err != nil {
-			return errors.New("绑定按钮菜单API失败: " + err.Error())
+			return NewError(CodeInternalError, err)
 		}
 		userIDs, err := service.authorization.AllUserIDs(transactionContext)
 		if err != nil {
@@ -679,10 +678,10 @@ func (service *Service) cleanupPermission(ctx context.Context, oldCode, newCode 
 
 func validateLinkableAPI(api APIRecord) error {
 	if api.Status != 1 {
-		return errors.New("只能绑定启用状态的API")
+		return NewError(CodeValidationInvalid, nil)
 	}
 	if api.NeedAuth != 1 {
-		return errors.New("公开API不需要绑定菜单权限")
+		return NewError(CodeValidationInvalid, nil)
 	}
 	return nil
 }
@@ -701,10 +700,10 @@ func resolveBindingCode(manual string, apis []APIRecord) (string, error) {
 		codes[permissionCode] = struct{}{}
 	}
 	if len(codes) == 0 {
-		return "", errors.New("未找到可用API权限码")
+		return "", NewError(CodeValidationInvalid, nil)
 	}
 	if len(codes) > 1 {
-		return "", errors.New("多个API权限码不一致，请手动指定permission_code")
+		return "", NewError(CodeValidationInvalid, nil)
 	}
 	return permissionCode, nil
 }

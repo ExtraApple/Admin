@@ -7,8 +7,8 @@ import (
 
 	"admin/internal/apimetadata/application"
 	"admin/internal/apimetadata/domain"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -57,16 +57,12 @@ type apiInfo struct {
 	NeedAudit      int    `json:"need_audit"`
 }
 type apiSyncResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 	Data struct {
 		Created []apiInfo `json:"created"`
 		Count   int       `json:"count"`
 	} `json:"data"`
 }
 type permissionSyncResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 	Data struct {
 		Created      []string `json:"created"`
 		CreatedCount int      `json:"created_count"`
@@ -74,12 +70,9 @@ type permissionSyncResponse struct {
 	} `json:"data"`
 }
 type apiResponse struct {
-	Code int     `json:"code"`
-	Msg  string  `json:"msg,omitempty"`
 	Data apiInfo `json:"data"`
 }
 type apiListResponse struct {
-	Code int `json:"code"`
 	Data struct {
 		List  []apiInfo `json:"list"`
 		Total int64     `json:"total"`
@@ -88,25 +81,13 @@ type apiListResponse struct {
 	} `json:"data"`
 }
 type methodResponse struct {
-	Code int                        `json:"code"`
 	Data []application.MethodOption `json:"data"`
 }
 type groupResponse struct {
-	Code int                  `json:"code"`
 	Data []domain.GroupOption `json:"data"`
 }
 type buttonResponse struct {
-	Code int                `json:"code"`
-	Msg  string             `json:"msg"`
 	Data application.Button `json:"data"`
-}
-type apiErrorResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-type apiSuccessResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
 }
 
 // Routes returns API Metadata handlers. Route discovery is supplied through the service's RouteSource option.
@@ -118,7 +99,7 @@ func Routes(service *application.Service) []routecatalog.Descriptor {
 		apiRoute(http.MethodGet, "/api/admin/apis", "List APIs", "admin.apis.get", handler.list, nil, apiListResponse{}),
 		apiRoute(http.MethodPost, "/api/admin/apis", "Create API", "admin.apis.post", handler.create, apiCreateRequest{}, apiResponse{}),
 		apiRoute(http.MethodPut, "/api/admin/apis/:id", "Update API", "admin.apis.id.put", handler.update, apiUpdateRequest{}, apiResponse{}),
-		apiRoute(http.MethodDelete, "/api/admin/apis/:id", "Delete API", "admin.apis.id.delete", handler.delete, nil, apiSuccessResponse{}),
+		apiRoute(http.MethodDelete, "/api/admin/apis/:id", "Delete API", "admin.apis.id.delete", handler.delete, nil, nil),
 		apiRoute(http.MethodPost, "/api/admin/apis/:id/menu-button", "Generate API Menu Button", "admin.apis.id.menu-button.post", handler.menuButton, buttonRequest{}, buttonResponse{}),
 		apiRoute(http.MethodPost, "/api/admin/apis/sync", "Sync APIs", "admin.apis.sync.post", handler.sync, nil, apiSyncResponse{}),
 		apiRoute(http.MethodPost, "/api/admin/apis/sync-permissions", "Sync API Permissions", "admin.apis.sync-permissions.post", handler.syncPermissions, nil, permissionSyncResponse{}),
@@ -131,14 +112,16 @@ func apiRoute(method, path, name, permission string, handler gin.HandlerFunc, re
 	if requestSchema != nil {
 		request = routecatalog.RequestBody{Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(requestSchema), Required: true}
 	}
-	return routecatalog.Descriptor{
-		Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: handler,
-		Name: name, Group: "api", DefaultPermissionCode: permission, DefaultAuditCategory: "api",
-		OpenAPI: routecatalog.Operation{Summary: name, Request: request, Responses: map[int]routecatalog.Response{
-			http.StatusOK:         {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(responseSchema)},
-			http.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(apiErrorResponse{})},
-		}},
+	responses := map[int]routecatalog.Response{
+		http.StatusOK:                  routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(responseSchema)),
+		http.StatusBadRequest:          routecatalog.ErrorResponse("request is invalid", httpresponse.RequestInvalidDefinition()),
+		http.StatusForbidden:           routecatalog.ErrorResponse("permission is denied", apiMetaPermissionDenied(), apiMetaPermissionNotConfigured(), apiMetaDisabled(), apiMetaPermissionMissing()),
+		http.StatusNotFound:            routecatalog.ErrorResponse("api metadata was not found", apiMetaNotFound()),
+		http.StatusConflict:            routecatalog.ErrorResponse("api metadata conflicts with an existing resource", apiMetaConflict()),
+		http.StatusUnprocessableEntity: routecatalog.ErrorResponse("api metadata validation failed", apiMetaValidation()),
+		http.StatusInternalServerError: routecatalog.ErrorResponse("api metadata operation failed", apiMetaInternal()),
 	}
+	return routecatalog.Descriptor{Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: handler, Name: name, Group: "api", DefaultPermissionCode: permission, DefaultAuditCategory: "api", OpenAPI: routecatalog.Operation{Summary: name, Request: request, Responses: responses}}
 }
 
 func (handler *routeHandler) list(c *gin.Context) {
@@ -151,13 +134,13 @@ func (handler *routeHandler) list(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	response := apiListResponse{Code: 200}
+	response := apiListResponse{}
 	response.Data.List = make([]apiInfo, len(apis))
 	for index := range apis {
 		response.Data.List[index] = toAPIInfo(apis[index])
 	}
 	response.Data.Total, response.Data.Page, response.Data.Size = total, page, size
-	c.JSON(http.StatusOK, response)
+	apiMetaSuccess(c, response.Data)
 }
 
 func (handler *routeHandler) get(c *gin.Context) {
@@ -170,7 +153,7 @@ func (handler *routeHandler) get(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, apiResponse{Code: 200, Data: toAPIInfo(api)})
+	apiMetaSuccess(c, toAPIInfo(api))
 }
 func (handler *routeHandler) create(c *gin.Context) {
 	var request apiCreateRequest
@@ -182,7 +165,7 @@ func (handler *routeHandler) create(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, apiResponse{Code: 200, Msg: "创建成功", Data: toAPIInfo(api)})
+	apiMetaSuccess(c, toAPIInfo(api))
 }
 func (handler *routeHandler) update(c *gin.Context) {
 	id, ok := apiPathID(c)
@@ -198,7 +181,7 @@ func (handler *routeHandler) update(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, apiResponse{Code: 200, Msg: "修改成功", Data: toAPIInfo(api)})
+	apiMetaSuccess(c, toAPIInfo(api))
 }
 func (handler *routeHandler) delete(c *gin.Context) {
 	id, ok := apiPathID(c)
@@ -209,7 +192,7 @@ func (handler *routeHandler) delete(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, apiSuccessResponse{Code: 200, Msg: "删除成功"})
+	apiMetaSuccess(c, nil)
 }
 func (handler *routeHandler) groups(c *gin.Context) {
 	groups, err := handler.service.Groups(c.Request.Context())
@@ -217,10 +200,10 @@ func (handler *routeHandler) groups(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, groupResponse{Code: 200, Data: groups})
+	apiMetaSuccess(c, groups)
 }
 func (handler *routeHandler) methods(c *gin.Context) {
-	c.JSON(http.StatusOK, methodResponse{Code: 200, Data: handler.service.Methods()})
+	apiMetaSuccess(c, handler.service.Methods())
 }
 func (handler *routeHandler) menuButton(c *gin.Context) {
 	id, ok := apiPathID(c)
@@ -236,7 +219,7 @@ func (handler *routeHandler) menuButton(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, buttonResponse{Code: 200, Msg: "生成成功", Data: button})
+	apiMetaSuccess(c, button)
 }
 
 func (handler *routeHandler) sync(c *gin.Context) {
@@ -245,13 +228,13 @@ func (handler *routeHandler) sync(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	response := apiSyncResponse{Code: 200, Msg: "同步成功"}
+	response := apiSyncResponse{}
 	response.Data.Created = make([]apiInfo, len(apis))
 	for index := range apis {
 		response.Data.Created[index] = toAPIInfo(apis[index])
 	}
 	response.Data.Count = len(apis)
-	c.JSON(http.StatusOK, response)
+	apiMetaSuccess(c, response.Data)
 }
 
 func (handler *routeHandler) syncPermissions(c *gin.Context) {
@@ -260,15 +243,15 @@ func (handler *routeHandler) syncPermissions(c *gin.Context) {
 		apiBadRequest(c, err)
 		return
 	}
-	response := permissionSyncResponse{Code: 200, Msg: "同步成功"}
+	response := permissionSyncResponse{}
 	response.Data.Created, response.Data.CreatedCount, response.Data.UpdatedAPI = created, len(created), updated
-	c.JSON(http.StatusOK, response)
+	apiMetaSuccess(c, response.Data)
 }
 
 func apiPathID(c *gin.Context) (uint, bool) {
 	value, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, apiErrorResponse{Code: 400, Msg: "参数错误"})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return 0, false
 	}
 	return uint(value), true
@@ -295,14 +278,14 @@ func optionalQueryInt(value string) *int {
 
 func apiBindJSON(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
-		c.JSON(http.StatusBadRequest, apiErrorResponse{Code: 400, Msg: "参数错误: " + err.Error()})
+		httpresponse.WriteError(c, httpresponse.RequestInvalidDefinition(), err, nil)
 		return false
 	}
 	return true
 }
 
 func apiBadRequest(c *gin.Context, err error) {
-	c.JSON(http.StatusBadRequest, apiErrorResponse{Code: 400, Msg: err.Error()})
+	writeAPIMetaError(c, err)
 }
 
 func toAPIInfo(api domain.API) apiInfo {

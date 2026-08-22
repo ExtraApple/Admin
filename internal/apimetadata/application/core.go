@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -29,14 +28,14 @@ func (core *Core) Create(ctx context.Context, input CreateInput) (domain.API, er
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return domain.API{}, errors.New("API名称不能为空")
+		return domain.API{}, NewError(CodeValidationInvalid, nil)
 	}
 	exists, err := core.repository.ExistsMethodPath(ctx, 0, method, path)
 	if err != nil {
-		return domain.API{}, err
+		return domain.API{}, wrapError(err)
 	}
 	if exists {
-		return domain.API{}, errors.New("API已存在")
+		return domain.API{}, NewError(CodeConflict, nil)
 	}
 	status, needAuth, needAudit := 1, 1, 1
 	if input.Status != nil {
@@ -59,7 +58,7 @@ func (core *Core) Create(ctx context.Context, input CreateInput) (domain.API, er
 		Status: status, NeedAuth: needAuth, NeedAudit: needAudit,
 	}
 	if err := core.repository.Create(ctx, &api); err != nil {
-		return domain.API{}, errors.New("创建API失败: " + err.Error())
+		return domain.API{}, NewError(CodeInternalError, err)
 	}
 	return api, nil
 }
@@ -106,13 +105,17 @@ func (core *Core) CountPermissionCode(ctx context.Context, code string) (int64, 
 }
 
 func (core *Core) Get(ctx context.Context, id uint) (domain.API, error) {
-	return core.repository.Find(ctx, id)
+	api, err := core.repository.Find(ctx, id)
+	if err != nil {
+		return domain.API{}, wrapError(err)
+	}
+	return api, nil
 }
 
 func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domain.API, error) {
 	current, err := core.repository.Find(ctx, id)
 	if err != nil {
-		return domain.API{}, err
+		return domain.API{}, wrapError(err)
 	}
 	targetMethod, targetPath := current.Method, current.Path
 	if input.Method != nil {
@@ -130,17 +133,17 @@ func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domai
 	if targetMethod != current.Method || targetPath != current.Path {
 		exists, err := core.repository.ExistsMethodPath(ctx, id, targetMethod, targetPath)
 		if err != nil {
-			return domain.API{}, err
+			return domain.API{}, wrapError(err)
 		}
 		if exists {
-			return domain.API{}, errors.New("API已存在")
+			return domain.API{}, NewError(CodeConflict, nil)
 		}
 	}
 	updates := make(map[string]any)
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
 		if name == "" {
-			return domain.API{}, errors.New("API名称不能为空")
+			return domain.API{}, NewError(CodeValidationInvalid, nil)
 		}
 		updates["name"] = name
 	}
@@ -172,19 +175,26 @@ func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domai
 		updates["need_audit"] = *input.NeedAudit
 	}
 	if len(updates) == 0 {
-		return domain.API{}, errors.New("无修改内容")
+		return domain.API{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := core.repository.Update(ctx, id, updates); err != nil {
-		return domain.API{}, errors.New("修改API失败")
+		return domain.API{}, NewError(CodeInternalError, err)
 	}
-	return core.repository.Find(ctx, id)
+	updated, err := core.repository.Find(ctx, id)
+	if err != nil {
+		return domain.API{}, wrapError(err)
+	}
+	return updated, nil
 }
 
 func (core *Core) Delete(ctx context.Context, id uint) error {
 	if _, err := core.repository.Find(ctx, id); err != nil {
-		return err
+		return wrapError(err)
 	}
-	return core.repository.Delete(ctx, id)
+	if err := core.repository.Delete(ctx, id); err != nil {
+		return wrapError(err)
+	}
+	return nil
 }
 
 func (core *Core) Groups(ctx context.Context) ([]domain.GroupOption, error) {
@@ -215,10 +225,10 @@ func (core *Core) Policy(ctx context.Context, method, path string) (domain.Polic
 func NormalizeMethod(method string) (string, error) {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" {
-		return "", errors.New("请求方法不能为空")
+		return "", NewError(CodeValidationInvalid, nil)
 	}
 	if _, supported := supportedMethods[method]; !supported {
-		return "", errors.New("请求方法不支持")
+		return "", NewError(CodeValidationInvalid, nil)
 	}
 	return method, nil
 }
@@ -226,7 +236,7 @@ func NormalizeMethod(method string) (string, error) {
 func NormalizePath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", errors.New("请求路径不能为空")
+		return "", NewError(CodeValidationInvalid, nil)
 	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path

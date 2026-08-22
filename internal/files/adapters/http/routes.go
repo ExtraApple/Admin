@@ -25,15 +25,6 @@ type handler struct {
 	service        *application.Service
 	maxUploadBytes int64
 }
-type messageEnvelope struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-type errorEnvelope struct {
-	Code      int                 `json:"code"`
-	ErrorCode uploadsecurity.Code `json:"error_code"`
-	Msg       string              `json:"msg"`
-}
 type fileEnvelope struct {
 	Code int                  `json:"code"`
 	Msg  string               `json:"msg,omitempty"`
@@ -59,7 +50,7 @@ func Routes(service *application.Service, maxUploadBytes int64) []routecatalog.D
 		fileRoute(http.MethodGet, "/api/admin/files", "List Files", "admin.files.get", h.list, nil, listEnvelope{}, "按创建时间倒序分页返回文件元数据。", false),
 		fileRoute(http.MethodGet, "/api/admin/files/:id", "Get File", "admin.files.id.get", h.detail, nil, detailEnvelope{}, "返回文件验证状态 validated、legacy_unverified、validation_error、blocked、content_sha256 及其他可信元数据。download_url 仅在状态允许下载时返回；不会暴露 MinIO 直连地址。", false),
 		fileRoute(http.MethodPut, "/api/admin/files/:id", "Update File", "admin.files.id.put", h.update, application.UpdateFileRequest{}, fileEnvelope{}, "修改安全展示文件名并保留可信规范扩展名。", false),
-		fileRoute(http.MethodDelete, "/api/admin/files/:id", "Delete File", "admin.files.id.delete", h.delete, nil, messageEnvelope{}, "删除对象存储内容和文件记录。", false),
+		fileRoute(http.MethodDelete, "/api/admin/files/:id", "Delete File", "admin.files.id.delete", h.delete, nil, nil, "删除对象存储内容和文件记录。", false),
 		binaryRoute("/api/admin/files/:id/download", "Download File", "admin.files.id.download.get", h.download, "使用 JWT、动态 API 权限、有效期和 HMAC 签名下载文件。validated 文件使用规范 MIME；legacy_unverified 和 validation_error 强制作为 application/octet-stream 附件；blocked 拒绝访问。"),
 		previewRoute(h.preview),
 		fileRoute(http.MethodPost, "/api/admin/files/:id/revalidate", "Revalidate File", "admin.files.id.revalidate.post", h.revalidate, nil, fileEnvelope{}, "仅允许重新验证 legacy_unverified 或 validation_error 文件；通过后更新为 validated，明确策略拒绝更新为 blocked，临时基础设施错误更新为 validation_error。", false),
@@ -73,16 +64,37 @@ func fileRoute(method, path, name, permission string, fn gin.HandlerFunc, reques
 	} else if request != nil {
 		body = routecatalog.RequestBody{Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(request), Required: true}
 	}
-	return routecatalog.Descriptor{Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: fn, Name: name, Group: "file", DefaultPermissionCode: permission, DefaultAuditCategory: "file", OpenAPI: routecatalog.Operation{Summary: name, Description: description, Request: body, Responses: map[int]routecatalog.Response{http.StatusOK: {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(response)}, http.StatusBadRequest: {Description: "bad request", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorEnvelope{})}, http.StatusInternalServerError: {Description: "internal error", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorEnvelope{})}}}}
+	responses := map[int]routecatalog.Response{
+		http.StatusOK:                    routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(response)),
+		http.StatusBadRequest:            fileErrorResponseFor(http.StatusBadRequest, uploadsecurity.CodeRequestInvalid, uploadsecurity.CodeUploadBodyInvalid, uploadsecurity.CodeUploadFileMissing, uploadsecurity.CodeUploadMultipleFiles, uploadsecurity.CodeFileEmpty, uploadsecurity.CodeFileNameInvalid),
+		http.StatusRequestEntityTooLarge: fileErrorResponseFor(http.StatusRequestEntityTooLarge, uploadsecurity.CodeUploadBodyTooLarge, uploadsecurity.CodeFileTooLarge),
+		http.StatusUnsupportedMediaType:  fileErrorResponseFor(http.StatusUnsupportedMediaType, uploadsecurity.CodeFileTypeNotAllowed, uploadsecurity.CodeFileTypeMismatch),
+		http.StatusUnprocessableEntity:   fileErrorResponseFor(http.StatusUnprocessableEntity, uploadsecurity.CodeFileEncodingInvalid, uploadsecurity.CodeFileContentInvalid, uploadsecurity.CodeImageDimensionLimit, uploadsecurity.CodeImageDecodeInvalid),
+		http.StatusNotFound:              fileErrorResponseFor(http.StatusNotFound, uploadsecurity.CodeFileNotFound, uploadsecurity.CodeStorageObjectNotFound),
+		http.StatusConflict:              fileErrorResponseFor(http.StatusConflict, uploadsecurity.CodeFileStateBlocked, uploadsecurity.CodeFileStateConflict),
+		http.StatusServiceUnavailable:    fileErrorResponseFor(http.StatusServiceUnavailable, uploadsecurity.CodeStorageUnavailable),
+		http.StatusInternalServerError:   fileErrorResponseFor(http.StatusInternalServerError, uploadsecurity.CodePersistenceFailed, uploadsecurity.CodeInternalError),
+	}
+	return routecatalog.Descriptor{Method: method, Path: path, Access: routecatalog.PermissionControlled, Handler: fn, Name: name, Group: "file", DefaultPermissionCode: permission, DefaultAuditCategory: "file", OpenAPI: routecatalog.Operation{Summary: name, Description: description, Request: body, Responses: responses}}
 }
 func binaryRoute(path, name, permission string, fn gin.HandlerFunc, description string) routecatalog.Descriptor {
-	d := fileRoute(http.MethodGet, path, name, permission, fn, nil, errorEnvelope{}, description, false)
-	d.OpenAPI.Responses = map[int]routecatalog.Response{http.StatusOK: {Description: "file attachment", Kind: routecatalog.BinaryBody, ContentTypes: []string{"application/octet-stream", "application/pdf", "text/plain", "text/csv"}}, http.StatusForbidden: {Description: "invalid access URL", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorEnvelope{})}, http.StatusConflict: {Description: "file state conflict", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorEnvelope{})}}
+	d := fileRoute(http.MethodGet, path, name, permission, fn, nil, nil, description, false)
+	d.OpenAPI.Responses = map[int]routecatalog.Response{
+		http.StatusOK:                  routecatalog.Response{Description: "file attachment", Kind: routecatalog.BinaryBody, ContentTypes: []string{"application/octet-stream", "application/pdf", "text/plain", "text/csv"}},
+		http.StatusBadRequest:          fileErrorResponseFor(http.StatusBadRequest, uploadsecurity.CodeRequestInvalid),
+		http.StatusForbidden:           fileErrorResponseFor(http.StatusForbidden, uploadsecurity.CodeFileAccessInvalid),
+		http.StatusNotFound:            fileErrorResponseFor(http.StatusNotFound, uploadsecurity.CodeFileNotFound, uploadsecurity.CodeStorageObjectNotFound),
+		http.StatusConflict:            fileErrorResponseFor(http.StatusConflict, uploadsecurity.CodeFileStateBlocked, uploadsecurity.CodeFileStateConflict),
+		http.StatusServiceUnavailable:  fileErrorResponseFor(http.StatusServiceUnavailable, uploadsecurity.CodeStorageUnavailable),
+		http.StatusInternalServerError: fileErrorResponseFor(http.StatusInternalServerError, uploadsecurity.CodeInternalError),
+	}
 	return d
 }
 func previewRoute(fn gin.HandlerFunc) routecatalog.Descriptor {
-	d := fileRoute(http.MethodGet, "/api/admin/files/:id/preview", "Preview File", "admin.files.id.preview.get", fn, nil, errorEnvelope{}, "该兼容路由不提供管理员普通文件预览；当前策略始终返回 HTTP 409 和稳定文件状态冲突错误，不读取或返回对象内容。", false)
-	d.OpenAPI.Responses = map[int]routecatalog.Response{http.StatusConflict: {Description: "preview is rejected", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(errorEnvelope{})}}
+	d := fileRoute(http.MethodGet, "/api/admin/files/:id/preview", "Preview File", "admin.files.id.preview.get", fn, nil, nil, "该兼容路由不提供管理员普通文件预览；当前策略始终返回 HTTP 409 和稳定文件状态冲突错误，不读取或返回对象内容。", false)
+	d.OpenAPI.Responses = map[int]routecatalog.Response{
+		http.StatusConflict: fileErrorResponseFor(http.StatusConflict, uploadsecurity.CodeFileStateConflict),
+	}
 	return d
 }
 
@@ -113,7 +125,7 @@ func (h *handler) upload(c *gin.Context) {
 		return
 	}
 	c.Set(application.UploadAuditMetadataContextKey, application.AuditMetadata{Purpose: string(uploadsecurity.PurposeManagedFile), FileName: info.Name, FileSize: info.Size, DeclaredMIME: file.Header.Get("Content-Type"), DetectedMIME: info.DetectedContentType, ValidationResult: application.UploadValidationAccepted, PolicyVersion: info.ValidationPolicyVersion})
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "上传成功", "data": info})
+	fileSuccess(c, info)
 }
 func (h *handler) list(c *gin.Context) {
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -131,7 +143,7 @@ func (h *handler) list(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": application.FileListResponse{List: list, Total: total, Page: page, Size: size}})
+	fileSuccess(c, application.FileListResponse{List: list, Total: total, Page: page, Size: size})
 }
 func (h *handler) detail(c *gin.Context) {
 	id, ok := pathID(c)
@@ -143,7 +155,7 @@ func (h *handler) detail(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
+	fileSuccess(c, result)
 }
 func (h *handler) update(c *gin.Context) {
 	id, ok := pathID(c)
@@ -160,7 +172,7 @@ func (h *handler) update(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "修改成功", "data": result})
+	fileSuccess(c, result)
 }
 func (h *handler) delete(c *gin.Context) {
 	id, ok := pathID(c)
@@ -171,7 +183,7 @@ func (h *handler) delete(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "删除成功"})
+	fileSuccess(c, nil)
 }
 func (h *handler) download(c *gin.Context) {
 	id, ok := pathID(c)
@@ -227,7 +239,7 @@ func (h *handler) revalidate(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "重新验证完成", "data": result})
+	fileSuccess(c, result)
 }
 func (h *handler) browse(c *gin.Context) {
 	result, err := h.service.Browse(c.Request.Context(), c.GetUint("userID"), c.Query("prefix"))
@@ -235,19 +247,18 @@ func (h *handler) browse(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"code": 200, "data": result})
+	fileSuccess(c, result)
 }
 func pathID(c *gin.Context) (uint, bool) {
 	value, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || value == 0 {
 		writeError(c, uploadsecurity.NewError(uploadsecurity.CodeRequestInvalid, err))
 		return 0, false
 	}
 	return uint(value), true
 }
 func writeError(c *gin.Context, err error) {
-	mapped := uploadsecurity.ToHTTPError(err)
-	c.JSON(mapped.Status, gin.H{"code": mapped.Status, "error_code": mapped.Code, "msg": mapped.Message})
+	writeFileError(c, err)
 }
 func parseUpload(c *gin.Context, max int64) (*multipart.FileHeader, func(), error) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, max+multipartOverheadBytes)
