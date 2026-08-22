@@ -1,29 +1,24 @@
 # AGENTS.md
 
-## General instructions
+## 通用说明
 
-After completing each task, provide a final summary.
+### 行动前验证
 
-Summary rules:
+- 尊重用户的目标和最终决定，但用户提供的技术判断、路径、命令、环境信息和诊断结论，在确认前都视为未经验证的信息。
+- 如果用户描述与仓库状态或已观察到的结果冲突，应明确说明差异，不得忽略证据或基于已知错误前提继续执行。
+- 在执行删除、覆盖、重置、迁移和生产环境变更等破坏性或高影响操作前，确认范围和影响；只有存在实质性歧义时才请求澄清。
 
-- If the final summary is already in Chinese, keep it unchanged.
-- If the final summary is in another language, append a complete Chinese summary.
+## 工程原则
 
-Command execution rules:
+- 选择能够完整满足当前需求的最简单实现，避免推测性抽象、过度配置和不必要的间接层。
+- 分层构建系统。从能够端到端工作的最小版本开始，在已经正常工作的产品之上逐步增加新能力。不要为了尚未完成的复杂性而牺牲当前已经可用的产品。
+- 保持模块化，并清晰分离不同职责。
+- 当成熟且维护良好的库能够降低整体复杂度或提高可靠性时，优先使用这些库。没有明确理由时，不要重新实现常见功能。
+- 在自行编写实现或增加依赖包之前，优先检查项目中已经存在的依赖。没有检查库的文档和类型定义之前，不要假设它不具备所需能力。
+- 从长期角度做架构决策。不要接受只解决当前问题、并且计划以后替换的临时方案。
 
-- Prefer PowerShell for commands on Windows.
-- If a command cannot run correctly in PowerShell because of shell compatibility, quoting, or environment differences, retry it with `cmd.exe`.
+## 智能体技能
 
-## Agent skills
+### 领域文档
 
-### Issue tracker
-
-需求和缺陷入口使用 GitHub Issues；进入开发后，以 OpenSpec 变更文件作为实现依据。详见 `docs/agents/issue-tracker.md`。
-
-### Triage labels
-
-使用 Matt Pocock Skills 默认的五类 triage 标签。详见 `docs/agents/triage-labels.md`。
-
-### Domain docs
-
-本项目采用 single-context：领域术语位于根目录 `CONTEXT.md`，架构决策位于 `docs/adr/`。详见 `docs/agents/domain.md`。
+本项目使用单一上下文维护领域文档。领域术语定义在根目录的 `CONTEXT.md` 中，架构决策记录存储在 `docs/adr/` 中。详细说明参见 `docs/agents/domain.md`。
