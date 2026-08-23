@@ -4,7 +4,7 @@ server:
 mysql:
   host: 127.0.0.1
   port: 3306
-  user: root
+  user_env: MYSQL_USER
   password_env: MYSQL_PASSWORD
   db: admin
 
@@ -26,6 +26,13 @@ redis:
   port: 6379
   password_env: REDIS_PASSWORD
   db: 0
+
+rabbitmq:
+  host: 127.0.0.1
+  port: 5672
+  username_env: RABBITMQ_USER
+  password_env: RABBITMQ_PASSWORD
+  vhost_env: RABBITMQ_VHOST
 
 admin:
   username: admin

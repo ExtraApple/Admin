@@ -36,6 +36,12 @@ redis:
   port: 6380
   password: redis-secret
   db: 3
+rabbitmq:
+  host: rabbitmq.local
+  port: 5673
+  username: rabbit-user
+  password: rabbit-secret
+  vhost: test
 admin:
   username: root
   password: admin-secret
@@ -90,6 +96,9 @@ api_docs:
 	if got.Redis.Host != "redis.local" || got.Redis.Port != 6380 || got.Redis.Password != "redis-secret" || got.Redis.DB != 3 {
 		t.Fatalf("redis config changed: %+v", got.Redis)
 	}
+	if got.RabbitMQ.Host != "rabbitmq.local" || got.RabbitMQ.Port != 5673 || got.RabbitMQ.Username != "rabbit-user" || got.RabbitMQ.Password != "rabbit-secret" || got.RabbitMQ.VHost != "test" {
+		t.Fatalf("rabbitmq config changed: %+v", got.RabbitMQ)
+	}
 	if got.Admin.Username != "root" || got.Admin.Password != "admin-secret" || got.Admin.Email != "root@example.com" || got.Admin.Nickname != "Root" {
 		t.Fatalf("admin config changed: %+v", got.Admin)
 	}
@@ -111,11 +120,15 @@ api_docs:
 }
 
 func TestLoadResolvesExistingEnvironmentBackedSecrets(t *testing.T) {
+	t.Setenv("TEST_MYSQL_USER", "mysql-user-from-env")
 	t.Setenv("TEST_MYSQL_PASSWORD", "mysql-from-env")
 	t.Setenv("TEST_MINIO_USERNAME", "minio-user-from-env")
 	t.Setenv("TEST_MINIO_PASSWORD", "minio-password-from-env")
 	t.Setenv("TEST_JWT_SECRET", "jwt-from-env")
 	t.Setenv("TEST_REDIS_PASSWORD", "redis-from-env")
+	t.Setenv("TEST_RABBITMQ_USER", "rabbit-user-from-env")
+	t.Setenv("TEST_RABBITMQ_PASSWORD", "rabbit-password-from-env")
+	t.Setenv("TEST_RABBITMQ_VHOST", "rabbit-vhost-from-env")
 	t.Setenv("TEST_ADMIN_USERNAME", "admin-from-env")
 	t.Setenv("TEST_ADMIN_PASSWORD", "admin-password-from-env")
 	t.Setenv("TEST_ADMIN_EMAIL", "admin-from-env@example.com")
@@ -124,6 +137,7 @@ func TestLoadResolvesExistingEnvironmentBackedSecrets(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
 mysql:
+  user_env: TEST_MYSQL_USER
   password_env: TEST_MYSQL_PASSWORD
 minio:
   username_env: TEST_MINIO_USERNAME
@@ -132,6 +146,10 @@ jwt:
   secret_env: TEST_JWT_SECRET
 redis:
   password_env: TEST_REDIS_PASSWORD
+rabbitmq:
+  username_env: TEST_RABBITMQ_USER
+  password_env: TEST_RABBITMQ_PASSWORD
+  vhost_env: TEST_RABBITMQ_VHOST
 admin:
   username_env: TEST_ADMIN_USERNAME
   password_env: TEST_ADMIN_PASSWORD
@@ -151,8 +169,11 @@ file_upload:
 		t.Fatalf("load config: %v", err)
 	}
 
-	if got.Mysql.Password != "mysql-from-env" || got.Minio.Username != "minio-user-from-env" || got.Minio.Password != "minio-password-from-env" || got.Jwt.Secret != "jwt-from-env" || got.Redis.Password != "redis-from-env" {
-		t.Fatalf("infrastructure secret resolution changed: mysql=%q minio=%q/%q jwt=%q redis=%q", got.Mysql.Password, got.Minio.Username, got.Minio.Password, got.Jwt.Secret, got.Redis.Password)
+	if got.Mysql.User != "mysql-user-from-env" || got.Mysql.Password != "mysql-from-env" || got.Minio.Username != "minio-user-from-env" || got.Minio.Password != "minio-password-from-env" || got.Jwt.Secret != "jwt-from-env" || got.Redis.Password != "redis-from-env" {
+		t.Fatalf("infrastructure secret resolution changed: mysql=%q/%q minio=%q/%q jwt=%q redis=%q", got.Mysql.User, got.Mysql.Password, got.Minio.Username, got.Minio.Password, got.Jwt.Secret, got.Redis.Password)
+	}
+	if got.RabbitMQ.Username != "rabbit-user-from-env" || got.RabbitMQ.Password != "rabbit-password-from-env" || got.RabbitMQ.VHost != "rabbit-vhost-from-env" {
+		t.Fatalf("rabbitmq secret resolution changed: %+v", got.RabbitMQ)
 	}
 	if got.Admin.Username != "admin-from-env" || got.Admin.Password != "admin-password-from-env" || got.Admin.Email != "admin-from-env@example.com" || got.Admin.Nickname != "Administrator" {
 		t.Fatalf("admin secret resolution changed: %+v", got.Admin)

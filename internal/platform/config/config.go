@@ -23,6 +23,7 @@ type Config struct {
 	Minio           MinIOConfig           `yaml:"minio"`
 	Jwt             JWTConfig             `yaml:"jwt"`
 	Redis           RedisConfig           `yaml:"redis"`
+	RabbitMQ        RabbitMQConfig        `yaml:"rabbitmq"`
 	Admin           AdminConfig           `yaml:"admin"`
 	FileRotation    FileRotationConfig    `yaml:"file_rotation"`
 	FileUpload      FileUploadConfig      `yaml:"file_upload"`
@@ -37,6 +38,7 @@ type ServerConfig struct {
 
 type MySQLConfig struct {
 	User        string `yaml:"user"`
+	UserEnv     string `yaml:"user_env"`
 	Password    string `yaml:"password"`
 	PasswordEnv string `yaml:"password_env"`
 	Host        string `yaml:"host"`
@@ -68,6 +70,17 @@ type RedisConfig struct {
 	Password    string `yaml:"password"`
 	PasswordEnv string `yaml:"password_env"`
 	DB          int    `yaml:"db"`
+}
+
+type RabbitMQConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	Username    string `yaml:"username"`
+	UsernameEnv string `yaml:"username_env"`
+	Password    string `yaml:"password"`
+	PasswordEnv string `yaml:"password_env"`
+	VHost       string `yaml:"vhost"`
+	VHostEnv    string `yaml:"vhost_env"`
 }
 
 type AdminConfig struct {
@@ -171,10 +184,14 @@ func applyEnvironment(result *Config) error {
 		destination *string
 	}{
 		{name: result.Mysql.PasswordEnv, fallback: result.Mysql.Password, destination: &result.Mysql.Password},
+		{name: result.Mysql.UserEnv, fallback: result.Mysql.User, destination: &result.Mysql.User},
 		{name: result.Minio.UsernameEnv, fallback: result.Minio.Username, destination: &result.Minio.Username},
 		{name: result.Minio.PasswordEnv, fallback: result.Minio.Password, destination: &result.Minio.Password},
 		{name: result.Jwt.SecretEnv, fallback: result.Jwt.Secret, destination: &result.Jwt.Secret},
 		{name: result.Redis.PasswordEnv, fallback: result.Redis.Password, allowEmpty: true, destination: &result.Redis.Password},
+		{name: result.RabbitMQ.UsernameEnv, fallback: result.RabbitMQ.Username, destination: &result.RabbitMQ.Username},
+		{name: result.RabbitMQ.PasswordEnv, fallback: result.RabbitMQ.Password, destination: &result.RabbitMQ.Password},
+		{name: result.RabbitMQ.VHostEnv, fallback: result.RabbitMQ.VHost, destination: &result.RabbitMQ.VHost},
 		{name: result.Admin.UsernameEnv, fallback: result.Admin.Username, destination: &result.Admin.Username},
 		{name: result.Admin.PasswordEnv, fallback: result.Admin.Password, destination: &result.Admin.Password},
 		{name: result.Admin.EmailEnv, fallback: result.Admin.Email, destination: &result.Admin.Email},
