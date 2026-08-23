@@ -22,8 +22,8 @@
 
 #### Scenario: 启动系统
 - **WHEN** 服务启动
-- **THEN** App SHALL 创建 RabbitMQ Publisher、Messaging Repository、Application Service、HTTP Adapter、Outbox Worker 和 WebSocket Consumer
-- **AND** App SHALL 注入 Identity、Organization、Authorization、Files 和 Audit Contract
+- **THEN** App SHALL 创建 RabbitMQ Publisher、Messaging Repository、Application Service、HTTP Adapter、Outbox Worker、WebSocket Consumer 和 `MessagingMetrics` Adapter
+- **AND** App SHALL 注入 Identity、Organization、Authorization、Files、Audit 和 `MessagingMetrics` Contract
 - **AND** 业务模块 SHALL NOT 自行创建数据库、Redis、MinIO 或 RabbitMQ 客户端
 
 #### Scenario: RabbitMQ 暂时不可用
@@ -31,6 +31,19 @@
 - **THEN** App SHALL 保持 MySQL 消息事实写入能力
 - **AND** App SHALL 将 Outbox Worker 标记为延迟并记录受控运行状态
 - **AND** App SHALL NOT 由 Messaging 直接创建替代 Broker 或全局客户端
+
+#### Scenario: RabbitMQ 降级就绪状态
+- **WHEN** RabbitMQ 不可用但 MySQL 消息事务仍可接受写入
+- **THEN** 既有 `GET /api/health` SHALL 继续只报告进程存活
+- **AND** 公开 `GET /api/ready` SHALL 返回 HTTP 200，以及 `{status, components.rabbitmq.status, components.rabbitmq.outbox_pending, components.rabbitmq.last_error_code}`
+- **AND** RabbitMQ 降级时总体和 RabbitMQ 组件状态 SHALL 为 `degraded`
+- **AND** 就绪响应 SHALL NOT 泄露 Broker 地址、凭据、时间戳、Worker 身份或原始连接错误
+
+#### Scenario: Consumer 死信不降级就绪
+- **WHEN** Messaging 存在待处置的 Consumer DLQ 投影
+- **THEN** App SHALL 将其作为运行告警而非接流量就绪失败
+- **AND** `GET /api/ready` SHALL NOT 因待处置 Consumer DLQ 改变 HTTP 200 或 `status`
+- **AND** App SHALL 通过受保护管理查询和监控指标提供待处置总数、按 Consumer/稳定失败码计数及最旧 `pending` 年龄
 
 #### Scenario: 执行迁移和 Seed
 - **WHEN** 服务执行 AutoMigrate 或 Seed
@@ -48,10 +61,17 @@
 - **THEN** Application SHALL 依赖抽象的 Outbox/Publisher Contract
 - **AND** Domain/Application SHALL NOT 导入 RabbitMQ Client、Gin、GORM Model、Redis Client 或 MinIO Client
 
+#### Scenario: Messaging 记录 Consumer DLQ 告警观测
+- **WHEN** Consumer DLQ 的 `(Consumer, 稳定失败码)` `pending` 计数从零变为非零且 MySQL 投影已提交
+- **THEN** Messaging SHALL 仅以 best-effort 依赖 App 注入的供应商无关 `MessagingMetrics.RecordConsumerDLQPending(context.Context, ConsumerDLQPendingObservation)`
+- **AND** Observation SHALL 仅包含 `consumer_name`、稳定 `failure_code`、`pending_count` 和 `oldest_pending_age`，该方法 SHALL 不返回错误
+- **AND** Adapter 异常 SHALL NOT 阻止 DLQ Recorder ACK 或导致 AMQP 重试
+- **AND** Messaging SHALL NOT 导入 Prometheus、OTel、Alertmanager、Webhook、SMTP 或其他告警提供商 SDK，也不得实现告警发送器
+
 #### Scenario: 未来邮件短信接入
 - **WHEN** 后续能力消费内部消息事件
-- **THEN** 邮件和短信 SHALL 通过独立 Consumer Adapter 订阅事件
-- **AND** 邮件、短信 SHALL NOT 直接写入 Messaging Model 或修改 Messaging 核心事务
+- **THEN** 邮件和短信 SHALL 作为 App 注入的进程内 Consumer Adapter，通过 Messaging Projection Contract 查询当前允许投递的内容和用户标识，再通过 Identity Contract 解析当前渠道地址
+- **AND** 邮件、短信 SHALL NOT 直接写入 Messaging Model、调用网络 Projection API 或修改 Messaging 核心事务
 
 ### Requirement: 调用方拥有消息跨模块 Contract
 

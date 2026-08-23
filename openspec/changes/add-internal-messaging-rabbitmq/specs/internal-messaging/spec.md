@@ -4,7 +4,7 @@
 
 内部消息模块负责私信、管理员群发、通知公告、组织级消息分类、动态受众、用户收件箱、已读/撤销状态和 RabbitMQ 异步事件。MySQL 是消息事实来源，RabbitMQ 只负责后端事件传输，WebSocket 只向已认证客户端提供收件箱刷新提示。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 私信发送
 
@@ -50,6 +50,13 @@
 - **THEN** 系统 SHALL 按组织创建独立副本
 - **AND** 每个组织内当前启用成员 SHALL 能看到对应副本
 - **AND** 普通管理员 SHALL NOT 使用全体用户受众
+
+#### Scenario: 跨目标组织的重叠收件人
+- **WHEN** 同一用户同时属于一次群发或公告的多个目标组织
+- **THEN** 系统 SHALL 为该用户显示每个当前可见组织副本的独立收件箱项
+- **AND** 每个副本 SHALL 独立计算已读、未读、WebSocket 刷新和 Outbox 事件
+- **AND** 系统 SHALL NOT 按逻辑消息去重这些组织副本
+- **AND** 同一组织副本内命中多个受众规则的用户 SHALL 只获得一个用户状态和一次该副本事件投递
 
 #### Scenario: 群发副本事务失败
 - **WHEN** 任一目标组织分类缺失或任一副本写入失败
@@ -266,28 +273,160 @@
 
 系统 SHALL 使用 MySQL Outbox 和 RabbitMQ 传输消息领域事件。
 
-#### Scenario: 消息事务写入 Outbox
+#### Scenario: 消息事务写入有序语义 Outbox
 - **WHEN** 消息创建、发布、编辑、撤销或过期状态变更成功
-- **THEN** 系统 SHALL 在同一 MySQL 事务写入唯一事件 ID 的 Outbox 记录
+- **THEN** 系统 SHALL 在同一 MySQL 事务写入唯一事件 ID、稳定生命周期事件名称和 Routing Key `messaging.message.<action>.v1` 的 Outbox 记录
+- **AND** 同一消息副本的 `aggregate_version` SHALL 单调递增
+- **AND** 前一版本未发布或已进入 `dead` 时 SHALL NOT 正常发布后一版本
 - **AND** RabbitMQ 暂时不可用 SHALL NOT 回滚已提交的消息事实
+
+#### Scenario: 并发 Worker 抢占和租约恢复
+- **WHEN** 多个 Outbox Worker 同时请求可发布事件
+- **THEN** 系统 SHALL 在短 MySQL 事务中使用 `FOR UPDATE SKIP LOCKED` 仅抢占每个消息副本的下一 `aggregate_version`
+- **AND** 系统 SHALL 写入 Worker 身份和有限租约
+- **AND** Worker 崩溃或租约到期后其他 Worker SHALL 能安全接管未发布事件
+
+#### Scenario: Outbox 连接、Confirm 和租约时限
+- **WHEN** Worker 发布已抢占的 Outbox
+- **THEN** 系统 SHALL 使用 5 秒 AMQP 连接超时、10 秒 Publisher Confirm 超时和 30 秒 Worker 租约
+- **AND** 等待 Confirm 时 SHALL 续租，超时或崩溃后 SHALL 允许其他 Worker 在租约到期后接管
 
 #### Scenario: Publisher Confirm 成功
 - **WHEN** Outbox Worker 向持久化 Topic Exchange 发布事件并收到 Publisher Confirm
 - **THEN** 系统 SHALL 标记 Outbox 已发布
 - **AND** 同一事件 SHALL NOT 被正常重发
 
-#### Scenario: Publisher Confirm 失败
+#### Scenario: Publisher Confirm 失败达到终态
 - **WHEN** RabbitMQ 连接失败、Confirm 超时或 Broker 拒绝事件
-- **THEN** 系统 SHALL 保留未发布 Outbox
-- **AND** 系统 SHALL 按有界重试策略再次发布
-- **AND** 超过重试上限 SHALL 进入 Dead Letter Exchange 并记录受控错误
+- **THEN** 系统 SHALL 按 `1s`、`2s`、`4s`、`8s`、`16s` 有界重试并保留未发布 Outbox
+- **AND** 第五次失败后 SHALL 将 Outbox 标记为 `dead` 并记录稳定错误码
+- **AND** 系统 SHALL NOT 尝试将无法发布的事件直接写入 RabbitMQ Dead Letter Exchange
 
-#### Scenario: 消费者幂等 ACK
-- **WHEN** WebSocket Consumer 收到事件
-- **AND** 事件 ID 尚未被该消费者处理
-- **THEN** 消费者 SHALL 记录幂等状态、写入 24 小时恢复缓存并 ACK
-- **WHEN** 同一事件再次投递
-- **THEN** 消费者 SHALL 不重复产生业务状态变化但仍可安全 ACK
+#### Scenario: 超级管理员重放死信 Outbox
+- **WHEN** 超级管理员通过 `POST /api/admin/message-outboxes/:id/replay` 重放 `dead` Outbox
+- **THEN** 系统 SHALL 以原事件 ID、事件名称、消息副本和聚合版本恢复待发布状态
+- **AND** 系统 SHALL 记录重放操作者、时间和结果
+- **AND** 非超级管理员 SHALL NOT 查询或重放死信 Outbox
+
+#### Scenario: 并发 Consumer 幂等 ACK 与用户恢复事件
+- **WHEN** 多个应用实例以竞争 Consumer 和 `prefetch=1` 接收 WebSocket 事件
+- **THEN** 系统 SHALL 在 `message_event_consumptions` 中以 `snapshotting` 状态、30 秒可续租租约和单调递增 `snapshot_fence` 只允许一个 Consumer 构建该事件快照
+- **AND** 抢占和续租 SHALL 使用独立短 MySQL 事务；快照构建的长 `REPEATABLE READ` 事务 SHALL NOT 锁定该消费记录
+- **AND** 租约持有者 SHALL 在单个 `REPEATABLE READ` MySQL 事务中固定首次消费时的读视图，并以每批最多 500 用户持久化按 Consumer、事件 ID 和用户唯一的动态受众快照
+- **AND** 快照状态变更和完成提交 SHALL 同时匹配当前 `snapshot_fence` 与未过期租约
+- **AND** Consumer SHALL 在全量快照封存并提交前不写 Redis Stream 或 ACK
+- **AND** Consumer SHALL 仅在事件未过时的首次处理时创建该快照
+- **AND** Consumer SHALL 通过 Redis Lua 脚本对每个快照用户原子检查 24 小时事件去重键、写入 Redis Stream 并设置去重 TTL
+- **AND** Consumer SHALL 在所有用户 Stream 写入成功后持久化按 Consumer 名称和消息副本唯一的最大聚合版本游标及事件消费记录，再 ACK
+- **WHEN** Consumer 在构建快照时无法续租或发现 `snapshot_fence` 不匹配
+- **THEN** Consumer SHALL 回滚未完成快照事务，且不得写 Redis Stream 或 ACK
+- **AND** 重投递 Consumer SHALL 取得新的 `snapshot_fence` 后接管
+- **WHEN** 已完整提交快照的 Consumer 在 Redis Stream 写入或 ACK 前失去租约或围栏
+- **THEN** 它 SHALL 停止新的 Redis 写入和 ACK
+- **AND** 持有新围栏的 Consumer SHALL 复用完整快照，并通过 Lua 幂等写入补齐任何缺失用户
+- **WHEN** Consumer 在 Stream 写入期间崩溃或部分失败后重投递
+- **THEN** Consumer SHALL 接管或复用封存快照，抑制已写事件并补齐缺失用户
+- **WHEN** 事件的 `aggregate_version` 低于持久化 Consumer 游标（包括更高版本成功处理后的 Consumer DLQ 旧版本重放），或同一事件再次投递
+- **THEN** Consumer SHALL 标记为 `superseded` 或幂等完成后安全 ACK，且不得产生新的用户恢复事件或倒置刷新顺序
+
+#### Scenario: 动态受众快照容量上限与清理
+- **WHEN** 一个事件在首次消费时解析到超过 100,000 个当前可见用户
+- **THEN** 消息业务事实 SHALL 保持已提交
+- **AND** Consumer SHALL 只记录稳定 `audience_capacity_exceeded` 失败码和本次观察到的受众数量
+- **AND** Consumer SHALL NOT 持久化任何用户 `message_event_deliveries` 行、写入 Redis Stream 或 ACK，不得产生部分刷新投递
+- **AND** Consumer SHALL 按既定五级重试后进入 Consumer DLQ
+- **AND** 每次受控重试及该 Consumer DLQ 记录的人工重放 SHALL 重新计算当时动态受众；受众容量超限是“重放复用原受众快照”的唯一例外
+- **WHEN** 消费成功完成或事件过时后安全 ACK
+- **THEN** 系统 SHALL 保留普通终态完整快照 24 小时
+- **WHEN** 完整受众快照关联 Consumer DLQ 投影
+- **THEN** 系统 SHALL 保留该完整快照至投影 30 天终态清理
+- **AND** Messaging 后台任务 SHALL 在相应保留期后删除完整快照
+
+#### Scenario: Consumer 延迟重试和死信
+- **WHEN** Consumer 处理事件失败
+- **THEN** 系统 SHALL 验证并递增受控 `x-retry-attempt` 头，依次通过独立 durable quorum TTL 重试队列按 `1s`、`2s`、`4s`、`8s`、`16s` 延迟后重新投递
+- **AND** 无效或越界重试头 SHALL NOT 绕过第五次死信规则
+- **AND** 系统 SHALL NOT 使用无延迟的重复 `nack(requeue=true)` 形成热循环
+- **AND** 第五次处理失败后 SHALL 路由到按 Consumer 和事件类型隔离、保留 7 天的 Dead Letter Queue
+
+#### Scenario: DLQ Recorder 持久化死信
+- **WHEN** DLQ Recorder 收到 Consumer Dead Letter Message
+- **THEN** Recorder SHALL 以 `(consumer_name, event_id)` 在 MySQL `message_consumer_dead_letters` 创建或更新唯一投影，持久化 Consumer、原队列、最小事件载荷、受控重试头、末次稳定失败码、观察到的受众数量和关联的完整受众快照（如有）后 ACK
+- **WHEN** 该唯一投影处于 `replayed` 且同一事件在重放后再次第五次失败
+- **THEN** Recorder SHALL 将投影重开为 `pending`、递增 `replay_cycle` 并更新末次失败事实，不创建重复投影
+- **AND** 每轮重放与再次死信 SHALL 写入现有 Audit Log
+- **WHEN** Recorder 无法持久化记录
+- **THEN** Recorder SHALL 不 ACK，并通过自身独立 TTL 重试队列按同一五次策略重试
+- **AND** 第五次失败后 SHALL 进入不可自动丢弃、仅由受限运维 CLI 或 RabbitMQ 管理界面处置的运维告警队列
+- **AND** 受限运维重放 SHALL 重置受控重试头并定向返回原 DLQ Recorder
+
+#### Scenario: 超级管理员管理 Consumer 死信
+- **WHEN** 超级管理员通过 `GET /api/admin/message-dead-letters` 查询 Consumer DLQ 消息
+- **THEN** 系统 SHALL 从 MySQL `message_consumer_dead_letters` 分页返回受控元数据
+- **AND** 系统 SHALL NOT 使用 RabbitMQ Management API 或直接浏览 AMQP 队列
+- **WHEN** 超级管理员通过 `POST /api/admin/message-dead-letters/:id/replay` 重放死信消息
+- **THEN** 系统 SHALL 以 `pending → replaying → replayed|pending` 和 30 秒租约抢占记录
+- **AND** 系统 SHALL 在 Publisher Confirm 成功后经 durable direct exchange `admin.events.replay`、使用 `consumer.<consumer-name>` routing key 定向返回原 Consumer；`replayed` 仅表示该定向发布成功
+- **AND** 具有关联完整受众快照的记录 SHALL 复用该快照；`audience_capacity_exceeded` 记录 SHALL 没有用户快照并重新计算当前动态受众
+- **AND** 若重放事件再次第五次失败，DLQ Recorder SHALL 复用同一投影、将 `replayed → pending` 并递增 `replay_cycle`
+- **AND** 若重放事件的 `aggregate_version` 低于 Consumer 游标，Consumer SHALL 标记 `superseded`、不写 Redis Stream 后 ACK
+- **AND** Confirm 后崩溃导致的重复投递 SHALL 由 Consumer 事件 ID 幂等处理
+- **WHEN** 超级管理员通过 `DELETE /api/admin/message-dead-letters/:id` 丢弃死信消息
+- **THEN** 系统 SHALL 标记记录为 `discarded` 而不修改消息业务事实
+- **AND** 最终保持 `replayed` 与 `discarded` 的记录及关联完整受众快照 SHALL 保留 30 天后物理删除，`pending` 与 `replaying` SHALL NOT 按时间自动删除
+- **AND** 查询、重放和丢弃 SHALL 使用 `admin.messages.dead-letter.manage` 并写入审计
+
+#### Scenario: Consumer 死信重放循环审计
+- **WHEN** 同一 Consumer 事件在任意 `replay_cycle` 再次进入 Consumer DLQ
+- **THEN** 管理查询 SHALL 在唯一投影中返回当前 `replay_cycle` 与末次失败受控元数据
+- **AND** 系统 SHALL 通过现有 Audit Log 保留每轮重放、再次死信和最终丢弃或成功重放的处置历史
+
+#### Scenario: Consumer 死信不改变应用就绪
+- **WHEN** MySQL 存在 `pending` 或 `replaying` Consumer DLQ 投影
+- **THEN** 系统 SHALL NOT 因这些记录改变 `GET /api/ready` 的 HTTP 状态或 `status`
+- **AND** 仅具备 `admin.messages.dead-letter.manage` 的超级管理员查询和受控监控指标 SHALL 暴露待处置总数、按 Consumer 与稳定失败码计数及最旧 `pending` 投影年龄
+- **AND** 任一 `(Consumer, 稳定失败码)` 的 `pending` 计数从零变为非零且 MySQL 投影提交后，Messaging SHALL 以 best-effort 调用 App 注入的供应商无关 `MessagingMetrics.RecordConsumerDLQPending(context.Context, ConsumerDLQPendingObservation)`；Observation SHALL 仅包含 `consumer_name`、稳定 `failure_code`、`pending_count` 和 `oldest_pending_age`，且方法 SHALL NOT 向 Messaging 返回错误。部署监控系统 SHALL 负责实际告警规则
+- **AND** Contract Adapter 异常 SHALL 只写受控运行日志，不得阻止 DLQ Recorder ACK 或触发 AMQP 重试；公开就绪响应和 Observation SHALL NOT 返回事件载荷、用户标识、消息内容、凭据或告警提供商实现细节
+
+### Requirement: 未来通知投影
+
+系统 SHALL 允许未来邮件、短信等进程内 Consumer 以最小消息领域事件引用调用 Messaging Projection Contract 查询当前可发送且未读的投递投影，而不向 RabbitMQ 事件加入正文、邮箱、手机号或静态受众快照。
+
+#### Scenario: Consumer 查询当前投递投影
+- **WHEN** App 注入的通知 Consumer 使用消息副本 ID 和事件身份调用 Messaging Projection Contract
+- **THEN** Messaging SHALL 仅返回当前可投递且未读用户的用户 ID、显示名、标题、清洗 HTML、服务端派生纯文本、消息副本 ID 和事件版本
+- **AND** 通知 Adapter SHALL 通过 Identity Contract 以用户 ID 解析当前渠道地址
+- **AND** 已撤销、过期、当前不可见或已读的消息 SHALL NOT 返回可投递内容
+- **AND** Projection Contract SHALL NOT 暴露 GORM Model、存储凭据、RabbitMQ Channel、网络 API 或消息原始 Markdown
+
+#### Scenario: 跨组织副本的外部通知不去重
+- **WHEN** 同一用户同时符合一个逻辑群发或公告的多个组织副本，并且每个副本均满足当前可投递且未读条件
+- **THEN** Projection Contract SHALL 对每个 `message_copy_id` 独立返回该用户
+- **AND** 通知 Consumer MAY 为每个副本独立发起外部通知
+- **AND** 同一组织副本内命中多个受众规则的用户 SHALL 只返回一次
+
+#### Scenario: 待验证邮箱不接收业务通知
+- **WHEN** Identity 用户同时具有当前已验证 `email` 和未确认 `pending_email`
+- **THEN** 通知 Adapter SHALL 仅通过 Identity Contract 解析并向当前已验证 `email` 发起业务通知
+- **AND** Adapter SHALL NOT 接收或使用 `pending_email`
+- **WHEN** 用户确认 `pending_email` 并由 Identity 原子提升为 `email`
+- **THEN** 后续渠道解析 SHALL 仅返回新的已验证 `email`
+
+#### Scenario: 延迟外部通知跳过已读用户
+- **WHEN** 通知 Consumer 因 RabbitMQ 延迟、重试或重放而查询 `created` 或 `published` 事件，且收件人已经在站内读取对应消息
+- **THEN** Projection Contract SHALL 不返回该收件人
+- **AND** Consumer SHALL NOT 为该收件人发起邮件或短信投递
+
+#### Scenario: 查询后的已读不撤回在途投递
+- **WHEN** Projection Contract 已返回未读收件人，而该用户在外部 Consumer 发起 SMTP 或短信投递前后才将消息标记为已读
+- **THEN** Consumer MAY 完成该已在途投递
+- **AND** 本 Change SHALL NOT 引入外部投递预约、发送状态或取消机制
+
+#### Scenario: 外部通知允许的生命周期事件
+- **WHEN** 通知 Consumer 收到私信 `created` 或管理员群发/公告 `published` 事件
+- **THEN** Consumer MAY 查询投递投影并发起外部通知
+- **WHEN** Consumer 收到 `edited`、`revoked` 或 `expired` 事件
+- **THEN** Consumer SHALL NOT 主动发送邮件或短信
 
 ### Requirement: 消息接口错误和审计
 

@@ -16,7 +16,8 @@ Admin 目前没有内部消息能力，无法支持用户私信、管理员群�
 - 新增 WebSocket Gateway，通过一次性短期 ticket 鉴权，发送可恢复的“收件箱需要刷新”事件，不直接向浏览器暴露 RabbitMQ。
 - 使用 MySQL Transactional Outbox 将消息事务与异步事件发布解耦；RabbitMQ 不可用时消息写入继续成功，实时推送延迟并在恢复后补发。
 - 使用 RabbitMQ 持久化 Topic Exchange、独立 Durable Queue、Publisher Confirms、消费者手动 ACK、重试和 Dead Letter Exchange。
-- 预留邮件、短信消费者的事件扩展 Contract，但本 Change 不实现第三方邮件、短信适配器或发送逻辑。
+- 扩展 Identity 的邮箱验证：仅支持邮箱，使用一次性随机 token、`pending_email` 与最小 SMTP Adapter；新注册及邮箱变更后自动发送，受控重发后完成验证才可获得外部通知渠道资格。
+- 预留邮件、短信消费者的事件扩展 Contract，但本 Change 除邮箱验证 SMTP 外不实现第三方邮件、短信适配器或发送逻辑。
 - 增加消息操作和权限拒绝的元数据审计，不记录 Markdown、HTML、图片内容或外链 URL。
 - **BREAKING**：固定一级业务模块清单、权限码、路由元数据、数据库表和 RabbitMQ 拓扑将新增内部消息相关事实；新增接口必须遵守统一四字段 JSON 响应契约，WebSocket 成功通信保持原生协议。
 
