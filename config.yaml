@@ -33,6 +33,29 @@ rabbitmq:
   username_env: RABBITMQ_USER
   password_env: RABBITMQ_PASSWORD
   vhost_env: RABBITMQ_VHOST
+  tls: false
+  ca_file: ""
+  server_name: ""
+  connection_timeout_seconds: 5
+  confirm_timeout_seconds: 10
+  worker_lease_seconds: 30
+  retry_delays_seconds: [1, 2, 4, 8, 16]
+  max_retries: 5
+  dlq_retention_days: 7
+
+messaging:
+  max_audience_users: 100000
+  max_title_runes: 100
+  max_body_runes: 20000
+
+smtp:
+  host: 127.0.0.1
+  port: 587
+  username_env: SMTP_USERNAME
+  password_env: SMTP_PASSWORD
+  from_env: SMTP_FROM
+  timeout_seconds: 10
+  tls_mode: starttls_required
 
 admin:
   username: admin

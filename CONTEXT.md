@@ -206,3 +206,11 @@ _Avoid_: 已验证邮箱、临时登录名、并行投递地址
 绑定用户与目标邮箱、仅保存摘要且只能使用一次的短期随机凭据，用于确认邮箱所有权。
 _Avoid_: 邮箱密码、登录 Token
 
+
+## Messaging 运维边界
+
+Messaging 的最小事件只携带事件 ID、事件名称/版本、消息副本、组织和聚合版本；正文、清洗 HTML、图片、外链 URL、Token 和凭据不进入 RabbitMQ、Redis Stream、WebSocket payload、审计日志或运行日志。
+
+Outbox、事件 Consumer、DLQ Recorder 和 Consumer DLQ Replay 通过 Application 的稳定运行日志 Contract 记录阶段、受控失败码和重试信息。`/api/ready` 只表达进程与 Broker 就绪状态，不承担 Consumer DLQ 告警；DLQ Recorder 投影提交后首次 `pending` 通过无返回值、best-effort 的 `MessagingMetrics.RecordConsumerDLQPending` 上报，Adapter 异常不得阻塞 ACK 或触发 AMQP 重试。
+
+告警队列 `*.dlq.recorder.alert` 由受限 RabbitMQ Management 权限处置；应用 HTTP 审计不得伪造该运维动作。Consumer DLQ 投影通过超级管理员受保护入口查询、重放和丢弃，30 秒重放租约和 `replay_cycle` 保证重复投递、再次死信与旧版本 `superseded` 不倒置刷新。

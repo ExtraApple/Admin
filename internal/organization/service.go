@@ -247,14 +247,7 @@ func (service *Service) SetUsers(ctx context.Context, operatorID, unitID uint, u
 		if err != nil {
 			return err
 		}
-		if err := service.repository.DeleteMemberships(transactionContext, unitID); err != nil {
-			return err
-		}
-		memberships := make([]Membership, len(userIDs))
-		for index, userID := range userIDs {
-			memberships[index] = Membership{UserID: userID, OrganizationID: unitID}
-		}
-		if err := service.repository.CreateMemberships(transactionContext, memberships); err != nil {
+		if err := service.repository.ReplaceMemberships(transactionContext, unitID, userIDs); err != nil {
 			return err
 		}
 		affected := append(oldUserIDs, userIDs...)

@@ -3,6 +3,7 @@ package gormadapter
 import (
 	"context"
 	"errors"
+	"time"
 
 	"admin/internal/identity"
 	"admin/internal/identity/application"
@@ -59,11 +60,11 @@ func (repository *Repository) Create(ctx context.Context, user *domain.User) err
 	return nil
 }
 func toDomain(user UserModel) domain.User {
-	return domain.User{ID: user.ID, Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email}
+	return domain.User{ID: user.ID, Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email, PendingEmail: user.PendingEmail, EmailVerifiedAt: user.EmailVerifiedAt}
 }
 
 func fromDomain(user domain.User) UserModel {
-	return UserModel{Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email}
+	return UserModel{Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email, PendingEmail: user.PendingEmail, EmailVerifiedAt: user.EmailVerifiedAt}
 }
 
 var _ application.UserRepository = (*Repository)(nil)
@@ -129,7 +130,7 @@ func (repository *Repository) List(ctx context.Context, offset, limit int, scope
 }
 
 func (repository *Repository) EmailExists(ctx context.Context, email string, exceptID uint) (bool, error) {
-	query := repository.connection(ctx).Model(&UserModel{}).Where("email = ?", email)
+	query := repository.connection(ctx).Model(&UserModel{}).Where("email = ? OR pending_email = ?", email, email)
 	if exceptID != 0 {
 		query = query.Where("id != ?", exceptID)
 	}
@@ -139,12 +140,18 @@ func (repository *Repository) EmailExists(ctx context.Context, email string, exc
 }
 
 func (repository *Repository) Update(ctx context.Context, userID uint, changes application.UserChanges) error {
-	updates := make(map[string]any, 4)
+	updates := make(map[string]any, 6)
 	if changes.Nickname != nil {
 		updates["nickname"] = *changes.Nickname
 	}
 	if changes.Email != nil {
 		updates["email"] = *changes.Email
+	}
+	if changes.PendingEmail != nil {
+		updates["pending_email"] = *changes.PendingEmail
+	}
+	if changes.ClearEmailVerifiedAt {
+		updates["email_verified_at"] = nil
 	}
 	if changes.Role != nil {
 		updates["role"] = *changes.Role
@@ -154,13 +161,12 @@ func (repository *Repository) Update(ctx context.Context, userID uint, changes a
 	}
 	return repository.connection(ctx).Model(&UserModel{}).Where("id = ?", userID).Updates(updates).Error
 }
+func (repository *Repository) Delete(ctx context.Context, userID uint) error {
+	return repository.connection(ctx).Delete(&UserModel{}, userID).Error
+}
 
 func (repository *Repository) UpdatePassword(ctx context.Context, userID uint, password string) error {
 	return repository.connection(ctx).Model(&UserModel{}).Where("id = ?", userID).Update("password", password).Error
-}
-
-func (repository *Repository) Delete(ctx context.Context, userID uint) error {
-	return repository.connection(ctx).Delete(&UserModel{}, userID).Error
 }
 
 var _ application.UserManagementRepository = (*Repository)(nil)
@@ -183,3 +189,101 @@ func (repository *Repository) UpdateAvatar(ctx context.Context, userID uint, upd
 }
 
 var _ application.AvatarRepository = (*Repository)(nil)
+
+func (repository *Repository) CountIssuedSince(ctx context.Context, userID uint, since time.Time) (int, error) {
+	var count int64
+	err := repository.connection(ctx).Model(&identity.EmailVerificationCredential{}).
+		Where("user_id = ? AND created_at >= ?", userID, since).
+		Count(&count).Error
+	return int(count), err
+}
+
+func (repository *Repository) ReplaceActive(ctx context.Context, credential domain.EmailVerificationCredential) error {
+	db := repository.connection(ctx)
+	now := credential.CreatedAt
+	if err := db.Model(&identity.EmailVerificationCredential{}).
+		Where("user_id = ? AND used_at IS NULL", credential.UserID).
+		Update("used_at", now).Error; err != nil {
+		return err
+	}
+	record := identity.EmailVerificationCredential{
+		Model:  gorm.Model{CreatedAt: credential.CreatedAt},
+		UserID: credential.UserID, Email: credential.Email, TokenHash: credential.TokenHash,
+		ExpiresAt: credential.ExpiresAt, UsedAt: credential.UsedAt,
+	}
+	return db.Create(&record).Error
+}
+
+var _ application.EmailVerificationRepository = (*Repository)(nil)
+
+func (repository *Repository) DeleteTerminalBefore(ctx context.Context, before time.Time) error {
+	return repository.connection(ctx).Unscoped().
+		Where("(used_at IS NOT NULL AND used_at <= ?) OR (used_at IS NULL AND expires_at <= ?)", before, before).
+		Delete(&identity.EmailVerificationCredential{}).Error
+}
+
+func (repository *Repository) InvalidateActive(ctx context.Context, userID uint, email string, at time.Time) error {
+	return repository.connection(ctx).Model(&identity.EmailVerificationCredential{}).
+		Where("user_id = ? AND email = ? AND used_at IS NULL", userID, email).
+		Update("used_at", at).Error
+}
+
+func (repository *Repository) Confirm(ctx context.Context, userID uint, tokenHash string, at time.Time) (application.EmailVerificationConfirmation, error) {
+	db := repository.connection(ctx)
+	var credential identity.EmailVerificationCredential
+	if err := db.Where("user_id = ? AND token_hash = ?", userID, tokenHash).First(&credential).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+		}
+		return application.EmailVerificationConfirmation{}, err
+	}
+	if credential.UsedAt != nil || !at.Before(credential.ExpiresAt) {
+		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+	}
+	var user identity.User
+	if err := db.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+		}
+		return application.EmailVerificationConfirmation{}, err
+	}
+	if user.PendingEmail != credential.Email && !(user.PendingEmail == "" && user.Email == credential.Email && user.EmailVerifiedAt == nil) {
+		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+	}
+	var occupied int64
+	if err := db.Model(&identity.User{}).
+		Where("(email = ? OR pending_email = ?) AND id <> ?", credential.Email, credential.Email, userID).
+		Count(&occupied).Error; err != nil {
+		return application.EmailVerificationConfirmation{}, err
+	}
+	if occupied > 0 {
+		result := db.Model(&identity.EmailVerificationCredential{}).Where("id = ? AND used_at IS NULL", credential.ID).Update("used_at", at)
+		if result.Error != nil {
+			return application.EmailVerificationConfirmation{}, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+		}
+		return application.EmailVerificationConfirmation{Conflict: true}, nil
+	}
+	updates := map[string]any{"email_verified_at": at}
+	if user.PendingEmail == credential.Email {
+		updates["email"] = credential.Email
+		updates["pending_email"] = ""
+	}
+	result := db.Model(&identity.User{}).Where("id = ?", userID).Updates(updates)
+	if result.Error != nil {
+		return application.EmailVerificationConfirmation{}, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+	}
+	result = db.Model(&identity.EmailVerificationCredential{}).Where("id = ? AND used_at IS NULL", credential.ID).Update("used_at", at)
+	if result.Error != nil {
+		return application.EmailVerificationConfirmation{}, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
+	}
+	return application.EmailVerificationConfirmation{}, nil
+}

@@ -28,8 +28,8 @@
 
 #### Scenario: 记录分类服务端错误
 - **WHEN** HTTP 请求返回 5xx 且 Gin Context 中存在分类错误的内部 cause
-- **THEN** App HTTP 错误日志中间件 SHALL 以 error 级别记录 cause、公开 `error_code`、method、path 和 status
-- **AND** 公开 JSON 响应 SHALL NOT 包含 cause
+- **THEN** App HTTP 错误日志中间件 SHALL 以 error 级别记录公开 `error_code`、method、path 和 status
+- **AND** 运行日志 SHALL NOT 写入 cause 原文或其敏感上下文
 
 #### Scenario: 记录未分类服务端错误
 - **WHEN** HTTP 请求返回 5xx 但没有可用内部 cause
@@ -44,7 +44,8 @@
 
 #### Scenario: 恢复未提交响应的 panic
 - **WHEN** Handler 或中间件 panic 且响应尚未提交
-- **THEN** App 恢复中间件 SHALL 记录 panic 和请求上下文
+- **THEN** App 恢复中间件 SHALL 记录稳定 `HTTP_INTERNAL_ERROR` 和请求上下文
+- **AND** 系统 SHALL NOT 记录 panic 值
 - **AND** 系统 SHALL 返回 HTTP 500、`HTTP_INTERNAL_ERROR` 和安全四字段错误信封
 
 #### Scenario: 原生响应提交后失败
@@ -126,3 +127,25 @@
 - **AND** `audit_logs` 中存在早于 `retention_days` 的记录
 - **THEN** 系统 SHALL 按 `batch_size` 批量复制记录及 metadata 到 `audit_log_archives`
 - **AND** 只有复制成功后才删除 `audit_logs` 中对应记录
+
+### Requirement: Messaging 运行日志与受控观测
+系统 SHALL 为 Outbox、RabbitMQ 发布/消费、受控重试、死信和 Consumer DLQ 处置记录不含敏感载荷的稳定运行日志，并通过 App 注入的无返回值 `MessagingMetrics.RecordConsumerDLQPending` 暴露受控 pending 观测。
+
+#### Scenario: Messaging 运行失败
+- **WHEN** Outbox 发布、RabbitMQ 消费、重试、死信记录或 Consumer DLQ 重放失败
+- **THEN** 运行日志 SHALL 包含事件或投影引用、消费者或发布阶段、稳定失败分类和受控重试信息
+- **AND** 运行日志 SHALL NOT 包含 Markdown、HTML、图片、外链 URL、Token、凭据或 Broker/数据库原始错误
+
+#### Scenario: Consumer DLQ 首条 pending 观测
+- **WHEN** 同一 Consumer 和稳定失败码的 pending 投影从零变为非零且 MySQL 提交成功
+- **THEN** Messaging SHALL best-effort 调用无返回值 `RecordConsumerDLQPending`
+- **AND** Observation SHALL 只包含 Consumer、失败码、pending 计数和最旧年龄
+- **AND** Adapter 异常 SHALL 只记录受控日志，不阻塞 DLQ Recorder ACK 或触发 AMQP 重试
+
+### Requirement: 敏感请求和审计数据脱敏
+系统 SHALL 不在普通请求日志、审计日志或错误响应中保存 Authorization、WebSocket ticket、消息正文、图片内容、外链 URL、对象存储路径或基础设施原始错误。
+
+#### Scenario: 敏感 HTTP 请求
+- **WHEN** 请求包含 Authorization、ticket、消息正文、图片或外链参数
+- **THEN** 请求日志和审计记录 SHALL 省略或替换敏感值
+- **AND** HTTP 错误响应 SHALL 只返回稳定错误码和安全提示

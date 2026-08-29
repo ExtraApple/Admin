@@ -159,6 +159,9 @@ func buildOperation(descriptor routecatalog.Descriptor, entry Metadata, metadata
 	if description := strings.TrimSpace(descriptor.OpenAPI.Description); description != "" {
 		operation["description"] = description
 	}
+	if protocol := strings.TrimSpace(descriptor.OpenAPI.Protocol); protocol != "" {
+		operation["x-native-protocol"] = protocol
+	}
 	if remark := strings.TrimSpace(entry.Remark); remark != "" {
 		if existing, ok := operation["description"].(string); ok && existing != "" {
 			operation["description"] = existing + "\n\n" + remark

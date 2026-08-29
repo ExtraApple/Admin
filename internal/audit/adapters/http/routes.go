@@ -34,7 +34,7 @@ func NewMiddleware(recorder Recorder, options ...MiddlewareOptions) gin.HandlerF
 			return
 		}
 		recorder.Submit(audit.AuditLog{UserID: c.GetUint("userID"), Username: c.GetString("username"), Method: c.Request.Method,
-			Path: c.Request.URL.Path, Query: c.Request.URL.RawQuery, Body: audit.SanitizeBody(body), Status: c.Writer.Status(),
+			Path: c.Request.URL.Path, Query: audit.SanitizeQuery(c.Request.URL.RawQuery), Body: audit.SanitizeBody(body), Status: c.Writer.Status(),
 			Duration: clock.Now().Sub(start).Milliseconds(), ClientIP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 			Category: audit.Classify(c.Request.Method, c.Request.URL.Path), Metadata: metadata(c), CreatedAt: start})
 	}
@@ -66,10 +66,10 @@ func readBody(c *gin.Context) []byte {
 
 func metadata(c *gin.Context) []byte {
 	value, ok := c.Get(audit.UploadAuditMetadataContextKey)
-	if !ok {
-		return nil
+	if ok {
+		return audit.UploadMetadata(value)
 	}
-	return audit.UploadMetadata(value)
+	return audit.MessageMetadata(c.Request.Method, c.Request.URL.Path)
 }
 
 type httpHandler struct{ service *audit.QueryService }

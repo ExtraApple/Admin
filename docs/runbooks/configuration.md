@@ -25,9 +25,15 @@ MINIO_USERNAME
 MINIO_PASSWORD
 JWT_SECRET
 ADMIN_PASSWORD
+RABBITMQ_USER
+RABBITMQ_PASSWORD
+RABBITMQ_VHOST
+SMTP_USERNAME
+SMTP_PASSWORD
+SMTP_FROM
 ```
 
-`REDIS_PASSWORD` 可以为空；其他必需值应由开发环境 `.env`、CI/CD Secret、Docker Secret、Kubernetes Secret 或云 Secret Manager 注入。
+RabbitMQ、SMTP 和其他必需凭据应由开发环境 `.env`、CI/CD Secret、Docker Secret、Kubernetes Secret 或云 Secret Manager 注入。凭据不得写入运行日志、审计日志、RabbitMQ 事件或 HTTP 错误响应。
 
 ## 主要配置段
 
@@ -42,6 +48,28 @@ ADMIN_PASSWORD
 | `file_rotation` | 文件热冷 bucket 轮转 |
 | `audit_log_archive` | 审计日志冷热归档 |
 | `api_docs` | Swagger UI 与 OpenAPI JSON |
+
+### RabbitMQ 和 Messaging
+
+| 配置段 | 关键字段 | 说明 |
+|---|---|---|
+| `rabbitmq` | `host`、`port`、`username_env`、`password_env`、`vhost_env` | Broker 连接和 Secret 引用 |
+| `rabbitmq` | `connection_timeout_seconds` | 建连超时，默认 5 秒 |
+| `rabbitmq` | `confirm_timeout_seconds`、`worker_lease_seconds` | Publisher Confirm 默认 10 秒，Outbox 租约默认 30 秒 |
+| `rabbitmq` | `retry_delays_seconds`、`max_retries`、`dlq_retention_days` | 五级 `1/2/4/8/16` 秒重试和死信保留策略 |
+| `messaging` | `max_audience_users`、`max_title_runes`、`max_body_runes` | 动态受众和消息内容上限；受众上限默认 100,000 |
+
+RabbitMQ 事件只包含事件 ID、事件名称/版本、消息副本、组织和聚合版本等最小事实，不包含 Markdown、清洗 HTML、图片、URL 或凭据。
+
+### SMTP 邮箱验证
+
+| 配置段 | 关键字段 | 说明 |
+|---|---|---|
+| `smtp` | `host`、`port`、`username_env`、`password_env`、`from_env` | 邮箱验证 SMTP 连接和 Secret 引用；账号凭据不写 YAML 明文 |
+| `smtp` | `timeout_seconds` | 建连、TLS、认证和发送的统一 deadline，默认 10 秒 |
+| `smtp` | `tls_mode` | 仅允许 `disabled`、`starttls_required`、`implicit`；默认且生产推荐 `starttls_required`，禁止 opportunistic 降级 |
+
+验证 token 只通过同步 SMTP 发送，不进入数据库、日志、审计或消息事件；投递失败返回稳定错误码，邮箱状态保留并允许节流窗口内重试。
 
 ## 文件上传配置校验
 

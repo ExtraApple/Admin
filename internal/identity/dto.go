@@ -31,13 +31,15 @@ type RefreshTokenRequest struct {
 }
 
 type UserInfo struct {
-	ID       uint   `json:"id"`
-	Username string `json:"username"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar"`
-	Email    string `json:"email"`
-	Role     string `json:"role"`
-	Status   int    `json:"status"`
+	ID            uint   `json:"id"`
+	Username      string `json:"username"`
+	Nickname      string `json:"nickname"`
+	Avatar        string `json:"avatar"`
+	Email         string `json:"email"`
+	PendingEmail  string `json:"pending_email"`
+	EmailVerified bool   `json:"email_verified"`
+	Role          string `json:"role"`
+	Status        int    `json:"status"`
 }
 
 type LoginResponse struct {
@@ -50,25 +52,35 @@ type RefreshTokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
-
 type UpdateSelfRequest struct {
-	Nickname string `json:"nickname" binding:"max=100"`
-	Email    string `json:"email" binding:"omitempty,email"`
+	Nickname        string `json:"nickname" binding:"max=100"`
+	Email           string `json:"email" binding:"omitempty,email"`
+	CurrentPassword string `json:"current_password"`
 
 	avatarPresent bool
 }
 
+
+// UpdateSelfRequestSchema describes the conditional email re-authentication
+// contract without changing the custom wire decoder used by the handler.
+type UpdateSelfRequestSchema struct {
+	Nickname        string `json:"nickname"`
+	Email           string `json:"email"`
+	CurrentPassword string `json:"current_password" binding:"required"`
+}
 func (request *UpdateSelfRequest) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		Nickname string          `json:"nickname"`
-		Avatar   json.RawMessage `json:"avatar"`
-		Email    string          `json:"email"`
+		Nickname        string          `json:"nickname"`
+		Avatar          json.RawMessage `json:"avatar"`
+		Email           string          `json:"email"`
+		CurrentPassword string          `json:"current_password"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}
 	request.Nickname = wire.Nickname
 	request.Email = wire.Email
+	request.CurrentPassword = wire.CurrentPassword
 	request.avatarPresent = wire.Avatar != nil
 	return nil
 }
@@ -76,9 +88,14 @@ func (request *UpdateSelfRequest) UnmarshalJSON(data []byte) error {
 func (request UpdateSelfRequest) HasAvatarField() bool { return request.avatarPresent }
 
 type ChangePasswordRequest struct {
-	OldPassword     string `json:"old_password" binding:"required"`
-	NewPassword     string `json:"new_password" binding:"required,min=6,max=255"`
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6,max=255"`
+
 	ConfirmPassword string `json:"confirm_password" binding:"required,min=6,max=255"`
+}
+
+type EmailVerificationRequest struct {
+	Token string `json:"token" binding:"required"`
 }
 
 type UserListResponse struct {
@@ -121,7 +138,7 @@ func UserInfoFromDomain(user domain.User) UserInfo {
 	if _, trusted := domain.TrustedAvatarObjectName(user, user.ID); trusted {
 		avatar = "/api/avatars/" + strconv.FormatUint(uint64(user.ID), 10)
 	}
-	return UserInfo{ID: user.ID, Username: user.Username, Nickname: user.Nickname, Avatar: avatar, Email: user.Email, Role: user.Role, Status: user.Status}
+	return UserInfo{ID: user.ID, Username: user.Username, Nickname: user.Nickname, Avatar: avatar, Email: user.Email, PendingEmail: user.PendingEmail, EmailVerified: user.EmailVerifiedAt != nil, Role: user.Role, Status: user.Status}
 }
 
 func MenuDetailsFromDomain(menus []domain.Menu) []MenuDetail {

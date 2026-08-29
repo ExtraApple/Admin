@@ -103,6 +103,14 @@ func (repository *Repository) UserIDsByRole(ctx context.Context, roleID uint) ([
 	return nonNilIDs(ids), nil
 }
 
+func (repository *Repository) RoleIDsByUser(ctx context.Context, userID uint) ([]uint, error) {
+	var roleIDs []uint
+	if err := repository.connection(ctx).Model(&UserRole{}).Where("user_id = ?", userID).Order("role_id asc").Pluck("role_id", &roleIDs).Error; err != nil {
+		return nil, err
+	}
+	return nonNilIDs(roleIDs), nil
+}
+
 func (repository *Repository) ReplaceRoleUsers(ctx context.Context, roleID uint, userIDs []uint) error {
 	db := repository.connection(ctx)
 	if err := db.Where("role_id = ?", roleID).Delete(&UserRole{}).Error; err != nil {

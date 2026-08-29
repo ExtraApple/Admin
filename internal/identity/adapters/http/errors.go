@@ -44,6 +44,8 @@ func identityValidationInvalid() httpresponse.ErrorDefinition {
 			{Field: "confirm_password", Code: "IDENTITY_PASSWORD_CONFIRMATION_INVALID", Message: "password confirmation does not match"},
 			{Field: "new_password", Code: "IDENTITY_PASSWORD_REUSE", Message: "new password must differ from the old password"},
 			{Field: "old_password", Code: "IDENTITY_OLD_PASSWORD_INVALID", Message: "old password is invalid"},
+			{Field: "current_password", Code: "IDENTITY_CURRENT_PASSWORD_INVALID", Message: "current password is invalid"},
+			{Field: "email", Code: "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE", Message: "administrator email changes use the identity email flow"},
 		},
 	}
 }
@@ -57,9 +59,21 @@ func identityInternal() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_INTERNAL_ERROR", Status: http.StatusInternalServerError, Message: "identity operation failed"}
 }
 
+func identityEmailVerificationRateLimited() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED", Status: http.StatusTooManyRequests, Message: "email verification requests are temporarily limited", DataSchema: reflect.TypeOf(loginErrorData{})}
+}
+
+func identityEmailVerificationDeliveryFailed() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED", Status: http.StatusServiceUnavailable, Message: "email verification delivery is temporarily unavailable"}
+}
+
+func identityEmailVerificationInvalid() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_VERIFICATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "email verification token is invalid or expired"}
+}
+
 func identityErrorDefinitions() []httpresponse.ErrorDefinition {
 	return []httpresponse.ErrorDefinition{
-		httpresponse.RequestInvalidDefinition(), authnCaptchaInvalid(), authnCredentialsInvalid(), authnLoginLocked(), authnRefreshInvalid(), authnTokenInvalid(), identityAccountDisabled(), identityValidationInvalid(), identityConflict(), identityPermissionDenied(), identityInternal(),
+		httpresponse.RequestInvalidDefinition(), authnCaptchaInvalid(), authnCredentialsInvalid(), authnLoginLocked(), authnRefreshInvalid(), authnTokenInvalid(), identityAccountDisabled(), identityValidationInvalid(), identityConflict(), identityPermissionDenied(), identityEmailVerificationRateLimited(), identityEmailVerificationDeliveryFailed(), identityEmailVerificationInvalid(), identityInternal(),
 	}
 }
 
@@ -82,7 +96,7 @@ func writeIdentityError(c *gin.Context, err error, refresh bool) {
 		return
 	}
 	definition, data := classifyIdentityError(err)
-	if definition.Code == string(application.CodeLoginLocked) {
+	if code, _ := application.CodeOf(err); code == application.CodeLoginLocked || code == application.CodeEmailVerificationRateLimited {
 		if details, ok := application.DetailsOf(err); ok && details.RetryAfterSeconds > 0 {
 			c.Header("Retry-After", strconv.Itoa(details.RetryAfterSeconds))
 		}
@@ -100,6 +114,12 @@ func classifyIdentityError(err error) (httpresponse.ErrorDefinition, any) {
 			return authnCredentialsInvalid(), data
 		case application.CodeLoginLocked:
 			return authnLoginLocked(), data
+		case application.CodeEmailVerificationRateLimited:
+			return identityEmailVerificationRateLimited(), data
+		case application.CodeEmailVerificationDeliveryFailed:
+			return identityEmailVerificationDeliveryFailed(), nil
+		case application.CodeEmailVerificationInvalid:
+			return identityEmailVerificationInvalid(), nil
 		case application.CodeRefreshTokenInvalid:
 			return authnRefreshInvalid(), nil
 		case application.CodeTokenInvalid:

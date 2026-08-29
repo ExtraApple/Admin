@@ -5,18 +5,23 @@ import "errors"
 type ErrorCode string
 
 const (
-	CodeCaptchaInvalid      ErrorCode = "AUTHN_CAPTCHA_INVALID"
-	CodeCredentialsInvalid  ErrorCode = "AUTHN_CREDENTIALS_INVALID"
-	CodeLoginLocked         ErrorCode = "AUTHN_LOGIN_LOCKED"
-	CodeRefreshTokenInvalid ErrorCode = "AUTHN_REFRESH_TOKEN_INVALID"
-	CodeTokenInvalid        ErrorCode = "AUTHN_TOKEN_INVALID"
-	CodeAccountDisabled     ErrorCode = "IDENTITY_ACCOUNT_DISABLED"
-	CodeUserNotFound        ErrorCode = "IDENTITY_USER_NOT_FOUND"
-	CodePermissionDenied    ErrorCode = "IDENTITY_PERMISSION_DENIED"
-	CodeValidationInvalid   ErrorCode = "IDENTITY_VALIDATION_INVALID"
-	CodeConflict            ErrorCode = "IDENTITY_CONFLICT"
-	CodeInternalError       ErrorCode = "IDENTITY_INTERNAL_ERROR"
+	CodeCaptchaInvalid                  ErrorCode = "AUTHN_CAPTCHA_INVALID"
+	CodeCredentialsInvalid              ErrorCode = "AUTHN_CREDENTIALS_INVALID"
+	CodeLoginLocked                     ErrorCode = "AUTHN_LOGIN_LOCKED"
+	CodeRefreshTokenInvalid             ErrorCode = "AUTHN_REFRESH_TOKEN_INVALID"
+	CodeTokenInvalid                    ErrorCode = "AUTHN_TOKEN_INVALID"
+	CodeAccountDisabled                 ErrorCode = "IDENTITY_ACCOUNT_DISABLED"
+	CodeUserNotFound                    ErrorCode = "IDENTITY_USER_NOT_FOUND"
+	CodePermissionDenied                ErrorCode = "IDENTITY_PERMISSION_DENIED"
+	CodeValidationInvalid               ErrorCode = "IDENTITY_VALIDATION_INVALID"
+	CodeConflict                        ErrorCode = "IDENTITY_CONFLICT"
+	CodeEmailVerificationRateLimited    ErrorCode = "IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED"
+	CodeEmailVerificationDeliveryFailed ErrorCode = "IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED"
+	CodeEmailVerificationInvalid        ErrorCode = "IDENTITY_EMAIL_VERIFICATION_INVALID"
+	CodeInternalError                   ErrorCode = "IDENTITY_INTERNAL_ERROR"
 )
+
+var ErrEmailVerificationInvalid = NewError(CodeEmailVerificationInvalid, nil)
 
 type FieldError struct {
 	Field     string

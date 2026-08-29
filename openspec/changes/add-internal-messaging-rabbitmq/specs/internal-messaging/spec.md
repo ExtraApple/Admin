@@ -84,6 +84,12 @@
 - **THEN** 系统 SHALL 将公告置为 `published`
 - **AND** 当前符合受众规则的用户 SHALL 能在收件箱看到公告
 
+#### Scenario: 公告首次可见的已读状态
+- **WHEN** 用户首次进入公告当前受众且尚无该公告用户状态
+- **THEN** 系统 SHALL 依据当前组织成员关系的加入时间初始化状态
+- **AND** 成员加入时间晚于公告发布时间的历史公告 SHALL 初始化为已读
+- **AND** 其他首次可见公告 SHALL 初始化为未读
+
 #### Scenario: 发布后编辑公告
 - **WHEN** 管理员修改未撤销且未过期的公告
 - **THEN** 系统 SHALL 更新标题、清洗后的正文、受众、分类或有效期
@@ -126,6 +132,12 @@
 - **THEN** 系统 SHALL 拒绝创建或修改
 - **AND** 不得修改已有分类或消息引用
 
+#### Scenario: 分类不预置
+- **WHEN** 新组织尚未创建消息分类
+- **THEN** 系统 SHALL NOT 自动创建默认消息分类
+- **AND** 该组织 SHALL 不能以不存在的分类编码创建或发布消息
+
+
 ### Requirement: 动态收件箱
 
 系统 SHALL 提供已认证用户的消息收件箱、详情和未读查询。
@@ -152,6 +164,11 @@
 - **WHEN** 用户调用 `GET /api/user/messages/unread-count`
 - **THEN** 系统 SHALL 按私信、群发、公告和总数返回未读数量
 - **AND** 动态受众的未读状态 SHALL 按当前可见性懒计算并持久化
+
+#### Scenario: 成员或角色关系变化
+- **WHEN** 用户的组织成员或角色关系发生变化
+- **THEN** 系统 SHALL 在该用户下一次收件箱查询、未读查询或 WebSocket 游标恢复时重新计算群发和公告可见性
+- **AND** 系统 SHALL NOT 仅因成员或角色关系变化补发历史消息刷新事件
 
 ### Requirement: 已读与收件箱删除
 
@@ -199,6 +216,11 @@
 - **THEN** 系统 SHALL 拒绝请求
 - **AND** 系统 SHALL NOT 修改消息状态
 
+#### Scenario: 公告发布者撤销自己的公告
+- **WHEN** 发布者撤销自己发布的公告
+- **THEN** 系统 SHALL 允许撤销该公告副本并记录撤销时间和审计元数据
+- **AND** 组织管理员 SHALL NOT 仅凭组织范围撤销其他管理员发布的公告
+
 #### Scenario: 超级管理员跨组织撤销
 - **WHEN** 超级管理员撤销任意组织副本的消息
 - **THEN** 系统 SHALL 允许操作并记录审计元数据
@@ -210,6 +232,7 @@
 
 #### Scenario: Markdown 转换成功
 - **WHEN** 请求提交标题不超过 100 个 Unicode 字符且 Markdown 正文不超过 20,000 个 Unicode 字符
+- **AND** 清洗后的 HTML 不超过 128 KiB UTF-8 字节
 - **AND** 内容不包含被禁止的脚本、事件属性或危险协议
 - **THEN** 系统 SHALL 转换为受限 HTML 并只持久化清洗后的 HTML
 - **AND** 系统 SHALL NOT 持久化原始 Markdown
@@ -222,7 +245,8 @@
 #### Scenario: 消息图片上传
 - **WHEN** 用户通过消息图片专用入口上传 JPEG、PNG 或 WebP
 - **AND** 文件不超过 5 MiB、最长边不超过 4,096 像素且能被完整解码
-- **THEN** 系统 SHALL 复用 File Record 模型保存消息图片用途记录
+- **THEN** 系统 SHALL 复用 File Record 模型保存带上传者引用和 15 分钟绑定时限的临时消息图片用途记录
+- **AND** 系统 SHALL 在创建、编辑或发布消息的同一事务中，把由当前操作者持有且未过期的临时图片绑定到逻辑消息 ID
 - **AND** 普通文件列表和普通文件下载入口 SHALL NOT 暴露该消息图片
 
 #### Scenario: 图片访问服从消息可见性
@@ -268,6 +292,13 @@
 - **WHEN** 客户端游标早于 24 小时恢复缓存
 - **THEN** 系统 SHALL 返回需要全量刷新收件箱的控制事件
 - **AND** 系统 SHALL NOT 伪造完整历史事件
+
+
+#### Scenario: 慢连接关闭并恢复
+- **WHEN** WebSocket 客户端写入队列已满或单次写入超过 5 秒
+- **THEN** Gateway SHALL 关闭该连接
+- **AND** 系统 SHALL 保留 MySQL 消息事实和 Redis 恢复事件
+- **AND** 客户端 SHALL 能使用游标重连恢复，不得因慢连接阻塞其他连接
 
 ### Requirement: RabbitMQ Outbox 事件
 

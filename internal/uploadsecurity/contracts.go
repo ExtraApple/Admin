@@ -12,9 +12,10 @@ import (
 type Purpose string
 
 const (
-	PurposeManagedFile Purpose = "managed_file"
-	PurposeAvatar      Purpose = "avatar"
-	PolicyVersionV1            = "file-upload-v1"
+	PurposeManagedFile  Purpose = "managed_file"
+	PurposeAvatar       Purpose = "avatar"
+	PurposeMessageImage Purpose = "message_image"
+	PolicyVersionV1             = "file-upload-v1"
 )
 
 // CanonicalType identifies a file type after all declarations and content

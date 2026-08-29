@@ -14,6 +14,9 @@ type File struct {
 	ContentSHA256           string
 	Size                    int64
 	UploaderID              uint
+	Purpose                 string
+	LogicalMessageID        string
+	BindingExpiresAt        *time.Time
 	ValidationStatus        string
 	ValidationPolicyVersion string
 	ValidationErrorCode     string

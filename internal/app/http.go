@@ -84,11 +84,11 @@ func requestLoggingMiddleware(logger *zap.Logger) gin.HandlerFunc {
 			zap.Duration("latency", time.Since(started)), zap.String("client_ip", c.ClientIP()), zap.String("user_agent", c.Request.UserAgent()),
 		}
 		if c.Writer.Status() >= 500 {
-			if errorContext, ok := httpresponse.ErrorContextOf(c); ok && errorContext.Cause != nil {
-				logger.Error("http request failed", append(fields, zap.String("error_code", errorContext.Definition.Code), zap.Error(errorContext.Cause))...)
-			} else {
-				logger.Error("http request failed", fields...)
+			errorCode := httpresponse.InternalErrorDefinition().Code
+			if errorContext, ok := httpresponse.ErrorContextOf(c); ok && errorContext.Definition.Code != "" {
+				errorCode = errorContext.Definition.Code
 			}
+			logger.Error("http request failed", append(fields, zap.String("error_code", errorCode))...)
 			return
 		}
 		logger.Info("http request", fields...)
@@ -102,7 +102,7 @@ func recoveryMiddleware(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				logger.Error("http panic recovered", zap.Any("panic", recovered), zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
+				logger.Error("http panic recovered", zap.String("error_code", httpresponse.InternalErrorDefinition().Code), zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
 				if !c.Writer.Written() {
 					httpresponse.WriteError(c, httpresponse.InternalErrorDefinition(), nil, nil)
 				}

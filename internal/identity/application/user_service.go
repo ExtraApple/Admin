@@ -7,9 +7,10 @@ import (
 )
 
 type UpdateSelfRequest struct {
-	Nickname      string
-	Email         string
-	AvatarPresent bool
+	Nickname        string
+	Email           string
+	CurrentPassword string
+	AvatarPresent   bool
 }
 
 type ChangePasswordRequest struct {
@@ -33,17 +34,25 @@ type UserPage struct {
 }
 
 type UserService struct {
-	users        UserManagementRepository
-	passwords    PasswordHasher
-	transactions TransactionRunner
-	access       AccessManager
+	users                   UserManagementRepository
+	passwords               PasswordHasher
+	transactions            TransactionRunner
+	access                  AccessManager
+	emailVerificationIssuer EmailVerificationIssuer
+	verificationEmailSender VerificationEmailSender
 }
 
 func NewUserService(users UserManagementRepository, passwords PasswordHasher, transactions TransactionRunner, access AccessManager) *UserService {
 	return &UserService{users: users, passwords: passwords, transactions: transactions, access: access}
 }
 
+func (service *UserService) ConfigureEmailVerification(issuer EmailVerificationIssuer, sender VerificationEmailSender) {
+	service.emailVerificationIssuer = issuer
+	service.verificationEmailSender = sender
+}
+
 func (service *UserService) Get(ctx context.Context, userID uint) (domain.User, error) {
+
 	user, err := service.users.FindByID(ctx, userID)
 	if err != nil {
 		return domain.User{}, ErrUserNotFound
@@ -55,12 +64,27 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 	if request.AvatarPresent {
 		return domain.User{}, ErrAvatarFieldNotWritable
 	}
+	user, err := service.users.FindByID(ctx, userID)
+	if err != nil {
+		return domain.User{}, ErrUserNotFound
+	}
 	changes := UserChanges{}
 	if request.Nickname != "" {
 		value := request.Nickname
 		changes.Nickname = &value
 	}
-	if request.Email != "" {
+	emailRequested := request.Email != ""
+	emailChanged := emailRequested && request.Email != user.Email
+	var verificationToken string
+	if emailRequested {
+		if err := service.passwords.Compare(user.Password, request.CurrentPassword); err != nil {
+			return domain.User{}, NewValidationError([]FieldError{{Field: "current_password", ErrorCode: "IDENTITY_CURRENT_PASSWORD_INVALID", Message: "current password is invalid"}}, nil)
+		}
+	}
+	if emailChanged {
+		if service.emailVerificationIssuer == nil || service.verificationEmailSender == nil {
+			return domain.User{}, NewError(CodeInternalError, nil)
+		}
 		exists, err := service.users.EmailExists(ctx, request.Email, userID)
 		if err != nil {
 			return domain.User{}, NewError(CodeInternalError, err)
@@ -68,16 +92,51 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 		if exists {
 			return domain.User{}, NewError(CodeConflict, nil)
 		}
+		verificationToken, err = service.emailVerificationIssuer.Issue(ctx, userID, request.Email)
+		if err != nil {
+			return domain.User{}, err
+		}
 		value := request.Email
-		changes.Email = &value
+		if user.EmailVerifiedAt == nil {
+			changes.Email = &value
+			pending := ""
+			changes.PendingEmail = &pending
+			changes.ClearEmailVerifiedAt = true
+		} else {
+			changes.PendingEmail = &value
+		}
 	}
-	if changes.Nickname == nil && changes.Email == nil {
+	if changes.Nickname == nil && !emailChanged {
 		return domain.User{}, NewError(CodeValidationInvalid, nil)
 	}
-	if err := service.users.Update(ctx, userID, changes); err != nil {
+	update := func(tx context.Context) error { return service.users.Update(tx, userID, changes) }
+	if emailChanged || service.transactions == nil {
+		if service.transactions != nil {
+			if err := service.transactions.Run(ctx, update); err != nil {
+				_ = service.emailVerificationIssuer.Invalidate(ctx, userID, request.Email)
+				return domain.User{}, service.classifyEmailUpdateFailure(ctx, userID, request.Email, err)
+			}
+		} else if err := update(ctx); err != nil {
+			_ = service.emailVerificationIssuer.Invalidate(ctx, userID, request.Email)
+			return domain.User{}, service.classifyEmailUpdateFailure(ctx, userID, request.Email, err)
+		}
+	} else if err := service.users.Update(ctx, userID, changes); err != nil {
 		return domain.User{}, NewError(CodeInternalError, err)
 	}
+	if emailChanged {
+		if err := service.verificationEmailSender.SendVerification(ctx, request.Email, verificationToken); err != nil {
+			_ = service.emailVerificationIssuer.Invalidate(ctx, userID, request.Email)
+			return user, NewError(CodeEmailVerificationDeliveryFailed, err)
+		}
+	}
 	return service.Get(ctx, userID)
+}
+
+func (service *UserService) classifyEmailUpdateFailure(ctx context.Context, userID uint, email string, cause error) *Error {
+	if exists, err := service.users.EmailExists(ctx, email, userID); err == nil && exists {
+		return NewError(CodeConflict, nil)
+	}
+	return NewError(CodeInternalError, cause)
 }
 
 func (service *UserService) ChangePassword(ctx context.Context, userID uint, request ChangePasswordRequest) error {
@@ -134,6 +193,9 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 	}
 	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
 		return domain.User{}, err
+	}
+	if request.Email != "" {
+		return domain.User{}, NewValidationError([]FieldError{{Field: "email", ErrorCode: "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE", Message: "administrator email changes use the identity email flow"}}, nil)
 	}
 	changes := UserChanges{}
 	if request.Nickname != "" {

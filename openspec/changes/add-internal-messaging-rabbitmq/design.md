@@ -39,7 +39,7 @@ RabbitMQ 是新增的基础设施选择，目标不仅是承载站内消息事�
 - Messaging → Identity：当前用户 Principal、启用状态、用户基础信息，以及仅供进程内通知 Adapter 按用户 ID 解析当前渠道地址的最小 Contract。
 - Messaging → Organization：组织成员、组织树、组织及子组织范围、成员关系变化查询。
 - Messaging → Authorization：当前用户的角色关系、权限校验和消息管理范围。
-- Messaging → Files：消息图片专用上传、对象元数据和受消息可见性约束的读取能力。
+- Messaging → Files：消息图片专用上传、对象元数据和受消息可见性约束的读取能力。Files 创建由上传者持有、15 分钟内有效的临时媒体；消息创建、编辑或发布在共享事务中将其绑定到 `Message.LogicalID`，Files 清理过期未绑定记录与对象。
 - Messaging → Audit：写入受控消息操作元数据。
 - App → Messaging：注入 Repository、TransactionRunner、RabbitMQ Publisher、Redis、Logger 和调用方定义的 `MessagingMetrics` 观测 Contract。
 
@@ -62,14 +62,9 @@ Contract 不暴露 GORM Model、Gin Context、SQL、Redis Client、RabbitMQ Chan
 
 跨组织发送在一个最外层 MySQL 事务内为每个目标组织创建独立消息副本；按分类编码匹配。任一组织分类缺失或任一副本写入失败，整批回滚。同一用户同时属于多个目标组织时，系统 SHALL 将每个组织副本视为独立收件箱项、已读状态和 Outbox 事件；不得按逻辑消息去重。单一组织副本内命中多个受众规则的同一用户只保留一个用户状态和一次该副本事件投递。
 
-私信发送时校验双方共享至少一个组织；发送后组织关系变化不删除既有私信。群发和公告按当前组织成员/角色关系判断可见性；成员关系变化在下一次收件箱查询、未读查询或 WebSocket 恢复时生效。用户跨多个目标组织的各副本分别计算当前可见性和未读状态。
+私信发送时校验双方共享至少一个组织；发送后组织关系变化不删除既有私信。群发和公告按当前组织成员/角色关系判断可见性；成员或角色关系变化在用户下一次收件箱查询、未读查询或 WebSocket 游标恢复时生效，不为成员变化补发历史消息刷新事件。用户跨多个目标组织的各副本分别计算当前可见性和未读状态。
 
-为避免依赖组织成员加入时间：
-
-- 私信使用实际收件关系，默认未读。
-- 管理员群发首次进入可见范围的用户在首次收件箱/未读查询时懒创建未读状态。
-- 公告对发布前历史内容在用户首次进入可见范围时自动视为已读；发布后的公告按未读处理。
-- 群发和公告不允许收件人删除主体，只能标记已读。
+组织成员关系记录稳定的加入时间；管理员覆盖成员列表时保留仍在该组织内成员的原始加入时间，仅为新增成员写入新时间。私信使用实际收件关系，默认未读。管理员群发首次进入可见范围的用户在首次收件箱或未读查询时懒创建未读状态。公告首次进入可见范围时，成员加入时间晚于公告发布时间则初始化为已读；其他公告初始化为未读。群发和公告不允许收件人删除主体，只能标记已读。
 
 ### 3. 生命周期与权限
 
@@ -77,7 +72,7 @@ Contract 不暴露 GORM Model、Gin Context、SQL、Redis Client、RabbitMQ Chan
 
 - 私信：发送后不可编辑；发送者可撤销自己的私信；收件人可删除自己的收件关系。
 - 管理员群发：发送后不可编辑；收件人不能删除；组织管理员可在所属组织及子组织范围内撤销普通用户消息；不能撤销管理员或超级管理员消息。
-- 公告：`draft → scheduled/published → expired/revoked`；发布后允许编辑标题、正文、分类、受众和有效期；已撤销或已过期公告不可恢复为可见发布状态；收件人不能删除。
+- 公告：`draft → scheduled/published → expired/revoked`；发布后允许编辑标题、正文、分类、受众和有效期；已撤销或已过期公告不可恢复为可见发布状态；收件人不能删除。公告撤销只允许发布者撤销自己发布的公告，或超级管理员跨组织撤销；组织管理员不得仅凭组织范围撤销其他管理员发布的公告。
 
 新增稳定权限码：
 
@@ -90,6 +85,9 @@ Contract 不暴露 GORM Model、Gin Context、SQL、Redis Client、RabbitMQ Chan
 - `admin.messages.dead-letter.manage`
 
 用户收件箱和私信发送使用 `Authenticated`，管理员管理入口使用 `PermissionControlled`。超级管理员遵守现有 `admin` 角色兜底，但仍不得绕过消息状态、组织副本和审计约束。
+
+本 Change 的流程边界已确定：公告创建始终产生 `draft`，立即发布和定时发布均须调用显式 publish 动作；组织级消息分类不预置默认记录。撤销消息在收件箱和详情保留受控占位及状态元数据，但正文、图片和外链不可读取；请求不存在或当前不可见的消息仍使用统一资源不可用错误。
+
 
 ### 4. HTTP 和 WebSocket 入口
 
@@ -140,6 +138,8 @@ WebSocket 升级入口：
 
 WebSocket ticket 只允许使用一次，有效期 60 秒，服务端只存 ticket 摘要到 Redis，TTL 60 秒；访问日志、审计日志和错误日志必须对 `ticket` 查询参数脱敏。升级成功后，连接绑定用户身份，不接受 RabbitMQ 凭据或长期 JWT。
 
+Gateway 对每条连接使用有界单写入队列；队列已满或单次写入超过 5 秒即关闭连接。客户端必须通过最近游标恢复或全量收件箱查询继续工作；Gateway 不得无限等待慢客户端，也不得让单个连接阻塞同一用户的其他连接。
+
 ### 5. RabbitMQ 拓扑和 Outbox
 
 RabbitMQ 拓扑：
@@ -181,7 +181,7 @@ SMTP `timeout_seconds` 默认 10 秒且可显式覆盖；该超时约束建连�
 验证请求、发送成功或失败、确认成功或拒绝及节流拒绝都写入受控审计；日志和错误响应不得包含邮箱地址、token、token 摘要、SMTP 用户名、密码、服务器地址或 SMTP 原始错误。
 ### 7. 富文本、图片和外链
 
-消息 Markdown 编译采用 `github.com/yuin/goldmark`，使用其默认安全渲染行为，不启用原始 HTML 的不安全渲染选项。Goldmark 负责 CommonMark/GFM 语法解析和 HTML 生成；`github.com/microcosm-cc/bluemonday` 负责对生成结果执行显式白名单清洗。系统只持久化清洗后的 HTML，不持久化原始 Markdown。标题最多 100 个 Unicode 字符，Markdown 正文最多 20,000 个 Unicode 字符；HTML 大小也必须受硬上限限制。
+消息 Markdown 编译采用 `github.com/yuin/goldmark`，使用其默认安全渲染行为，不启用原始 HTML 的不安全渲染选项。Goldmark 负责 CommonMark/GFM 语法解析和 HTML 生成；`github.com/microcosm-cc/bluemonday` 负责对生成结果执行显式白名单清洗。系统只持久化清洗后的 HTML，不持久化原始 Markdown。标题最多 100 个 Unicode 字符，Markdown 正文最多 20,000 个 Unicode 字符；清洗后的 HTML 最多 128 KiB UTF-8 字节。
 
 Goldmark 适合作为 Markdown 编译器，因为它是 Go 原生、可扩展且默认不渲染原始 HTML 和危险 URL；Bluemonday 提供 deny-by-default 的 HTML 白名单，作为第二层 XSS 防护。Markdown 清洗不替代外链代理的 SSRF 防护。
 

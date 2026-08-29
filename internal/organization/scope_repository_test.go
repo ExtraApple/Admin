@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/organization"
+	"admin/testsupport/testutil"
 )
 
 func TestRepositoryAppliesOrganizationScopeSemantics(t *testing.T) {
@@ -35,5 +35,23 @@ func TestRepositoryAppliesOrganizationScopeSemantics(t *testing.T) {
 	selected, total, err := repository.ListUnits(context.Background(), 0, 10, "", nil, organization.OrganizationScope{OrganizationIDs: []uint{units[1].ID}})
 	if err != nil || total != 1 || len(selected) != 1 || selected[0].ID != units[1].ID {
 		t.Fatalf("selected scope = %d, %#v, %v; want second row", total, selected, err)
+	}
+}
+
+func TestScopeReaderListsAllOrganizationIDsForSystemWideAudience(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(organization.Models()...); err != nil {
+		t.Fatalf("migrate organization models: %v", err)
+	}
+	repository := organization.NewGORMRepository(db)
+	for _, unit := range []organization.Unit{{Name: "First", Code: "first", Status: 1}, {Name: "Second", Code: "second", Status: 1}} {
+		if err := repository.CreateUnit(context.Background(), &unit); err != nil {
+			t.Fatalf("create organization: %v", err)
+		}
+	}
+	reader := organization.NewScopeReader(repository, organization.NewHierarchy(repository))
+	ids, err := reader.AllOrganizationIDs(context.Background())
+	if err != nil || len(ids) != 2 || ids[0] == 0 || ids[1] == 0 || ids[0] == ids[1] {
+		t.Fatalf("AllOrganizationIDs() = %#v, %v", ids, err)
 	}
 }

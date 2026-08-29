@@ -9,8 +9,14 @@
 #### Scenario: 通过消息图片入口上传
 - **WHEN** 已认证用户或具备消息管理权限的管理员通过消息图片专用入口上传 JPEG、PNG 或 WebP
 - **AND** 图片通过完整解码、大小、格式和尺寸验证
-- **THEN** Files SHALL 创建带有消息图片用途和消息所有者引用的 File Record
-- **AND** 普通管理员文件上传接口 SHALL NOT 接受该图片
+- **THEN** Files SHALL 创建带有消息图片用途、上传者引用和 15 分钟绑定时限的临时 File Record
+- **AND** 该临时记录 SHALL NOT 具有消息所有者引用，且普通管理员文件上传接口 SHALL NOT 接受该图片
+
+#### Scenario: 临时消息图片绑定与过期清理
+- **WHEN** 用户或管理员在绑定时限内创建、编辑或发布消息并引用其临时消息图片
+- **THEN** Files 与消息写入 SHALL 在同一事务中将图片绑定到该消息的逻辑消息 ID，作为消息所有者引用
+- **AND** Files SHALL 拒绝将过期、已绑定或不属于操作者的临时图片绑定到消息
+- **AND** Files SHALL 清理过期且未绑定的 File Record 及其对象
 
 #### Scenario: 普通文件入口上传图片
 - **WHEN** 客户端通过 `POST /api/admin/files` 上传 JPEG、PNG、WebP、SVG 或其他图片

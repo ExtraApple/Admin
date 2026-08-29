@@ -3,7 +3,9 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +15,7 @@ const (
 	AuditCategoryOperation  = "operation"
 	AuditCategoryPermission = "permission"
 	AuditCategoryDataAccess = "data_access"
+	AuditCategoryMessage    = "message"
 
 	UploadAuditMetadataContextKey = "upload_audit_metadata"
 	UploadValidationAccepted      = "accepted"
@@ -68,8 +71,11 @@ func UploadMetadata(value any) json.RawMessage {
 }
 
 var sensitiveAuditFields = map[string]struct{}{
-	"password": {}, "old_password": {}, "new_password": {}, "confirm_password": {},
-	"captcha_code": {}, "access_token": {}, "refresh_token": {}, "token": {},
+	"password": {}, "old_password": {}, "new_password": {}, "confirm_password": {}, "current_password": {},
+	"captcha_code": {}, "access_token": {}, "refresh_token": {}, "token": {}, "authorization": {},
+	"email": {}, "pending_email": {},
+	"markdown": {}, "body": {}, "body_html": {}, "html": {}, "content": {},
+	"external_url": {}, "image_url": {}, "redirect_url": {}, "url": {},
 }
 
 func SanitizeBody(body []byte) string {
@@ -79,16 +85,37 @@ func SanitizeBody(body []byte) string {
 	if string(body) == "[multipart omitted]" {
 		return string(body)
 	}
-	var data map[string]any
+	var data any
 	if err := json.Unmarshal(body, &data); err != nil {
-		return TruncateBody(string(body))
+		return ""
 	}
-	MaskSensitiveFields(data)
+	switch data.(type) {
+	case map[string]any, []any:
+		maskSensitiveValue(data)
+	default:
+		return ""
+	}
 	sanitized, err := json.Marshal(data)
 	if err != nil {
-		return TruncateBody(string(body))
+		return ""
 	}
 	return TruncateBody(string(sanitized))
+}
+
+func SanitizeQuery(rawQuery string) string {
+	if strings.TrimSpace(rawQuery) == "" {
+		return ""
+	}
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return ""
+	}
+	for key := range values {
+		if _, sensitive := sensitiveAuditFields[strings.ToLower(key)]; sensitive || strings.EqualFold(key, "ticket") {
+			values[key] = []string{"***"}
+		}
+	}
+	return values.Encode()
 }
 
 func TruncateBody(body string) string {
@@ -99,20 +126,22 @@ func TruncateBody(body string) string {
 }
 
 func MaskSensitiveFields(data map[string]any) {
-	for key, value := range data {
-		if _, ok := sensitiveAuditFields[strings.ToLower(key)]; ok {
-			data[key] = "***"
-			continue
-		}
-		switch nested := value.(type) {
-		case map[string]any:
-			MaskSensitiveFields(nested)
-		case []any:
-			for _, item := range nested {
-				if object, ok := item.(map[string]any); ok {
-					MaskSensitiveFields(object)
-				}
+	maskSensitiveValue(data)
+}
+
+func maskSensitiveValue(value any) {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, nested := range current {
+			if _, ok := sensitiveAuditFields[strings.ToLower(key)]; ok {
+				current[key] = "***"
+				continue
 			}
+			maskSensitiveValue(nested)
+		}
+	case []any:
+		for _, nested := range current {
+			maskSensitiveValue(nested)
 		}
 	}
 }
@@ -122,6 +151,9 @@ func Classify(method, path string) string {
 	normalized := strings.ToLower(strings.TrimSpace(path))
 	if normalized != "/" {
 		normalized = strings.TrimRight(normalized, "/")
+	}
+	if strings.HasPrefix(normalized, "/api/user/messages") || strings.HasPrefix(normalized, "/api/admin/messages") || strings.HasPrefix(normalized, "/api/admin/announcements") || strings.HasPrefix(normalized, "/api/admin/message-categories") {
+		return AuditCategoryMessage
 	}
 	if normalized == "/api/login" {
 		return AuditCategoryLogin
@@ -139,6 +171,59 @@ func Classify(method, path string) string {
 		return AuditCategoryOperation
 	}
 	return AuditCategoryAPI
+}
+func MessageMetadata(method, path string) json.RawMessage {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	path = strings.TrimRight(strings.TrimSpace(path), "/")
+	if !strings.HasPrefix(path, "/api/user/messages") && !strings.HasPrefix(path, "/api/admin/messages") && !strings.HasPrefix(path, "/api/admin/announcements") && !strings.HasPrefix(path, "/api/admin/message-categories") {
+		return nil
+	}
+	action := "message.operation"
+	switch {
+	case method == "POST" && path == "/api/user/messages/private":
+		action = "message.send"
+	case method == "POST" && strings.HasSuffix(path, "/ws-ticket"):
+		action = "websocket.ticket"
+	case method == "GET" && strings.HasSuffix(path, "/ws"):
+		action = "websocket.upgrade"
+	case method == "PUT" && strings.HasSuffix(path, "/read"):
+		action = "message.read"
+	case method == "DELETE" && strings.HasSuffix(path, "/inbox"):
+		action = "message.inbox.delete"
+	case method == "POST" && strings.HasSuffix(path, "/revoke"):
+		action = "message.revoke"
+	case method == "POST" && path == "/api/admin/announcements":
+		action = "announcement.create"
+	case method == "PUT" && strings.HasPrefix(path, "/api/admin/announcements/"):
+		action = "announcement.edit"
+	case method == "POST" && strings.HasSuffix(path, "/publish"):
+		action = "announcement.publish"
+	case method == "POST" && path == "/api/admin/messages/broadcast":
+		action = "broadcast.create"
+	case method == "POST" && strings.HasSuffix(path, "/images"):
+		action = "message.image.upload"
+	case strings.Contains(path, "/message-categories"):
+		action = "category.change"
+	}
+	metadata := struct {
+		Action     string `json:"action"`
+		ResourceID uint   `json:"resource_id,omitempty"`
+	}{Action: action, ResourceID: messageResourceID(path)}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+func messageResourceID(path string) uint {
+	parts := strings.Split(path, "/")
+	for index := len(parts) - 1; index >= 0; index-- {
+		if id, err := strconv.ParseUint(parts[index], 10, 0); err == nil && id > 0 {
+			return uint(id)
+		}
+	}
+	return 0
 }
 
 // Worker is the queue consumer seam used by process composition.

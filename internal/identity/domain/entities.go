@@ -16,6 +16,18 @@ type User struct {
 	Role                   string
 	Status                 int
 	Email                  string
+	PendingEmail           string
+	EmailVerifiedAt        *time.Time
+}
+
+type EmailVerificationCredential struct {
+	ID        uint
+	UserID    uint
+	Email     string
+	TokenHash string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	UsedAt    *time.Time
 }
 
 func (user User) Enabled() bool { return user.Status == 1 }

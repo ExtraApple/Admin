@@ -42,10 +42,12 @@ type UserDirectory interface {
 }
 
 type UserChanges struct {
-	Nickname *string
-	Email    *string
-	Role     *string
-	Status   *int
+	Nickname             *string
+	Email                *string
+	PendingEmail         *string
+	ClearEmailVerifiedAt bool
+	Role                 *string
+	Status               *int
 }
 
 type UserManagementRepository interface {
@@ -108,4 +110,24 @@ type NavigationReader interface {
 type OrganizationReader interface {
 	MemberOrganizationIDs(context.Context, uint) ([]uint, error)
 	ExistingUserIDs(context.Context, []uint) ([]uint, error)
+}
+type EmailVerificationConfirmation struct {
+	Conflict bool
+}
+
+type EmailVerificationRepository interface {
+	CountIssuedSince(context.Context, uint, time.Time) (int, error)
+	ReplaceActive(context.Context, domain.EmailVerificationCredential) error
+	InvalidateActive(context.Context, uint, string, time.Time) error
+	Confirm(context.Context, uint, string, time.Time) (EmailVerificationConfirmation, error)
+	DeleteTerminalBefore(context.Context, time.Time) error
+}
+
+type EmailVerificationIssuer interface {
+	Issue(context.Context, uint, string) (string, error)
+	Invalidate(context.Context, uint, string) error
+}
+
+type VerificationEmailSender interface {
+	SendVerification(context.Context, string, string) error
 }

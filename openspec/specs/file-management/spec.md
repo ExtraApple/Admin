@@ -295,3 +295,16 @@
 - **AND** 系统继续处理后续文件
 
 
+
+### Requirement: 消息图片专用用途与可见性
+系统 SHALL 支持内部消息调用的专用 JPEG、PNG、WebP 临时图片用途，并按消息当前可见性控制读取；该能力 SHALL NOT 放宽普通管理员文件入口的拒绝策略。
+
+#### Scenario: 临时消息图片绑定
+- **WHEN** 图片通过完整格式、大小和尺寸验证且在 15 分钟绑定期内被消息创建、编辑或发布引用
+- **THEN** Files SHALL 在同一事务中绑定当前操作者持有的临时记录到逻辑消息
+- **AND** 过期、已绑定或不属于操作者的记录 SHALL 被拒绝
+
+#### Scenario: 消息图片读取和审计
+- **WHEN** 用户读取消息图片
+- **THEN** Files SHALL 先验证消息当前可见性并只返回规范 MIME 的图片
+- **AND** 响应和 Audit metadata SHALL NOT 包含图片内容、MinIO bucket、object key、签名 URL、存储凭据或解析器原始错误

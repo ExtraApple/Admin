@@ -10,19 +10,39 @@ import (
 
 type managementRepositoryFake struct {
 	userRepositoryFake
-	password string
-	changes  application.UserChanges
-	deleted  bool
+	password          string
+	changes           application.UserChanges
+	deleted           bool
+	emailExists       bool
+	emailExistsValues []bool
+	updateErr         error
 }
 
 func (fake *managementRepositoryFake) List(context.Context, int, int, domain.UserScope) ([]domain.User, int64, error) {
 	return []domain.User{fake.user}, 1, nil
 }
-func (*managementRepositoryFake) EmailExists(context.Context, string, uint) (bool, error) {
-	return false, nil
+func (fake *managementRepositoryFake) EmailExists(_ context.Context, _ string, _ uint) (bool, error) {
+	if len(fake.emailExistsValues) > 0 {
+		exists := fake.emailExistsValues[0]
+		fake.emailExistsValues = fake.emailExistsValues[1:]
+		return exists, nil
+	}
+	return fake.emailExists, nil
 }
 func (fake *managementRepositoryFake) Update(_ context.Context, _ uint, changes application.UserChanges) error {
+	if fake.updateErr != nil {
+		return fake.updateErr
+	}
 	fake.changes = changes
+	if changes.Email != nil {
+		fake.user.Email = *changes.Email
+	}
+	if changes.PendingEmail != nil {
+		fake.user.PendingEmail = *changes.PendingEmail
+	}
+	if changes.ClearEmailVerifiedAt {
+		fake.user.EmailVerifiedAt = nil
+	}
 	return nil
 }
 func (fake *managementRepositoryFake) UpdatePassword(_ context.Context, _ uint, password string) error {

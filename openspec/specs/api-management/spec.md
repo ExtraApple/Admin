@@ -199,3 +199,16 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 #### Scenario: 公开 API 不能生成按钮权限
 - **WHEN** 管理员尝试从 `need_auth = 0` 的 API 生成按钮菜单
 - **THEN** 系统拒绝请求
+
+### Requirement: 消息与邮箱接口元数据
+系统 SHALL 将消息、WebSocket ticket/upgrade、死信管理和邮箱验证接口纳入 Route Catalog Snapshot、API Metadata 和统一错误契约。
+
+#### Scenario: WebSocket 原生协议文档
+- **WHEN** Route Catalog 声明已认证的 WebSocket upgrade 入口
+- **THEN** OpenAPI operation SHALL 标记 `x-native-protocol: websocket`
+- **AND** 请求 SHALL 声明无 body，101 Switching Protocols SHALL 声明无 JSON body，升级前错误 SHALL 使用统一四字段错误信封
+
+#### Scenario: 受保护消息和邮箱入口同步
+- **WHEN** App 同步 Route Catalog
+- **THEN** 消息、死信和邮箱验证入口 SHALL 具有稳定默认 Permission Code、认证等级和审计分类
+- **AND** API Metadata 或权限同步 SHALL NOT 从 Gin Engine 动态发现路由

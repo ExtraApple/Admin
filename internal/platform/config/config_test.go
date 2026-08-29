@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -176,7 +177,7 @@ file_upload:
 		t.Fatalf("rabbitmq secret resolution changed: %+v", got.RabbitMQ)
 	}
 	if got.Admin.Username != "admin-from-env" || got.Admin.Password != "admin-password-from-env" || got.Admin.Email != "admin-from-env@example.com" || got.Admin.Nickname != "Administrator" {
-		t.Fatalf("admin secret resolution changed: %+v", got.Admin)
+		t.Fatalf("admin config changed: %+v", got.Admin)
 	}
 }
 
@@ -239,5 +240,158 @@ file_upload:
 	}
 	if got.Jwt.Secret != "dotenv-secret" {
 		t.Fatalf("jwt secret = %q, want dotenv-secret", got.Jwt.Secret)
+	}
+}
+
+func TestLoadReadsRabbitMQTLSAndMessagingLimits(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte(`
+rabbitmq:
+  host: rabbitmq.local
+  port: 5671
+  username: rabbit-user
+  password: rabbit-secret
+  vhost: admin
+  tls: true
+  ca_file: certs/ca.pem
+  server_name: rabbitmq.local
+  connection_timeout_seconds: 7
+  confirm_timeout_seconds: 12
+  worker_lease_seconds: 45
+messaging:
+  max_audience_users: 100000
+  max_title_runes: 120
+  max_body_runes: 25000
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	got, err := platformconfig.Load(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !got.RabbitMQ.TLS || got.RabbitMQ.CAFile != "certs/ca.pem" || got.RabbitMQ.ServerName != "rabbitmq.local" {
+		t.Fatalf("rabbitmq TLS config = %+v", got.RabbitMQ)
+	}
+	if got.RabbitMQ.ConnectionTimeoutSeconds != 7 || got.RabbitMQ.ConfirmTimeoutSeconds != 12 || got.RabbitMQ.WorkerLeaseSeconds != 45 || got.RabbitMQ.MaxRetries != 5 || got.RabbitMQ.DLQRetentionDays != 7 || strings.Join(intsToStrings(got.RabbitMQ.RetryDelaysSeconds), ",") != "1,2,4,8,16" {
+		t.Fatalf("rabbitmq retry config = %+v", got.RabbitMQ)
+	}
+	if got.Messaging.MaxAudienceUsers != 100000 || got.Messaging.MaxTitleRunes != 120 || got.Messaging.MaxBodyRunes != 25000 {
+		t.Fatalf("messaging limits = %+v", got.Messaging)
+	}
+}
+
+func TestLoadReadsSMTPConfigurationAndAppliesSafeDefaults(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte(`
+smtp:
+  host: smtp.example.test
+  port: 2525
+  username_env: TEST_SMTP_USERNAME
+  password_env: TEST_SMTP_PASSWORD
+  from_env: TEST_SMTP_FROM
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("TEST_SMTP_USERNAME", "mailer")
+	t.Setenv("TEST_SMTP_PASSWORD", "smtp-secret")
+	t.Setenv("TEST_SMTP_FROM", "no-reply@example.test")
+
+	got, err := platformconfig.Load(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got.SMTP.Host != "smtp.example.test" || got.SMTP.Port != 2525 || got.SMTP.Username != "mailer" || got.SMTP.Password != "smtp-secret" || got.SMTP.From != "no-reply@example.test" {
+		t.Fatalf("smtp config = %+v", got.SMTP)
+	}
+	if got.SMTP.TimeoutSeconds != 10 || got.SMTP.TLSMode != "starttls_required" {
+		t.Fatalf("smtp defaults = %+v", got.SMTP)
+	}
+}
+
+func TestLoadRejectsInvalidSMTPConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{name: "invalid tls mode", yaml: "host: smtp.example.test\nport: 587\nfrom: no-reply@example.test\ntls_mode: opportunistic\n"},
+		{name: "invalid port", yaml: "host: smtp.example.test\nport: 0\nfrom: no-reply@example.test\n"},
+		{name: "missing sender", yaml: "host: smtp.example.test\nport: 587\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			data := []byte("smtp:\n  " + strings.ReplaceAll(test.yaml, "\n", "\n  ") + "file_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
+			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			if _, err := platformconfig.Load(configPath); err == nil {
+				t.Fatal("load config succeeded for invalid smtp configuration")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsSMTPPasswordInConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte(`
+smtp:
+  host: smtp.example.test
+  port: 587
+  username: mailer
+  password: plain-secret
+  from: no-reply@example.test
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := platformconfig.Load(configPath); err == nil {
+		t.Fatal("Load() accepted SMTP password from configuration")
+	}
+}
+
+func intsToStrings(values []int) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = fmt.Sprint(value)
+	}
+	return result
+}
+
+func TestLoadAppliesMessagingOperationalDefaults(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte(`
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	got, err := platformconfig.Load(configPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got.RabbitMQ.ConnectionTimeoutSeconds != 5 || got.RabbitMQ.ConfirmTimeoutSeconds != 10 || got.RabbitMQ.WorkerLeaseSeconds != 30 {
+		t.Fatalf("rabbitmq defaults = %+v", got.RabbitMQ)
+	}
+	if got.Messaging.MaxAudienceUsers != 100000 || got.Messaging.MaxTitleRunes != 100 || got.Messaging.MaxBodyRunes != 20000 {
+		t.Fatalf("messaging defaults = %+v", got.Messaging)
 	}
 }

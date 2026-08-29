@@ -4,20 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"admin/internal/identity"
 	identityapplication "admin/internal/identity/application"
 	identitydomain "admin/internal/identity/domain"
+	"admin/testsupport/testutil"
 )
 
 func TestIdentityOwnsUsersTableAndAuthenticationDTOs(t *testing.T) {
 	models := identity.Models()
-	if len(models) != 1 {
-		t.Fatalf("Identity models = %d, want one User model", len(models))
+	if len(models) != 2 {
+		t.Fatalf("Identity models = %d, want user and email credential models", len(models))
 	}
-	if reflect.TypeOf(models[0]) != reflect.TypeOf(identity.User{}) {
-		t.Fatalf("Identity model = %T, want identity.User", models[0])
+	if reflect.TypeOf(models[0]) != reflect.TypeOf(identity.User{}) || reflect.TypeOf(models[1]) != reflect.TypeOf(identity.EmailVerificationCredential{}) {
+		t.Fatalf("Identity models = %T, %T", models[0], models[1])
 	}
 
 	request := identity.RegisterRequest{
@@ -158,5 +161,57 @@ func TestIdentityPublicUserProjectionStaysConsistentAcrossFormalPaths(t *testing
 				t.Fatalf("UserDirectory projection = %#v, want %#v", directoryProjection, want)
 			}
 		})
+	}
+}
+
+func TestIdentityModelsPersistEmailVerificationStateAndCredential(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(identity.Models()...); err != nil {
+		t.Fatalf("migrate identity models: %v", err)
+	}
+	if !db.Migrator().HasTable("users") || !db.Migrator().HasTable("email_verification_credentials") {
+		t.Fatal("identity migration did not create email verification tables")
+	}
+	verifiedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	user := identity.User{Username: "alice", Password: "hash", Email: "alice@example.com", PendingEmail: "new@example.com", EmailVerifiedAt: &verifiedAt, Role: "user", Status: 1}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	credential := identity.EmailVerificationCredential{UserID: user.ID, Email: "new@example.com", TokenHash: "hash-of-token", ExpiresAt: verifiedAt.Add(15 * time.Minute)}
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+	var loaded identity.User
+	if err := db.First(&loaded, user.ID).Error; err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	if loaded.PendingEmail != "new@example.com" || loaded.EmailVerifiedAt == nil || !loaded.EmailVerifiedAt.Equal(verifiedAt) {
+		t.Fatalf("email state = %+v", loaded)
+	}
+	var loadedCredential identity.EmailVerificationCredential
+	if err := db.First(&loadedCredential, credential.ID).Error; err != nil {
+		t.Fatalf("load credential: %v", err)
+	}
+	if loadedCredential.UserID != user.ID || loadedCredential.Email != "new@example.com" || loadedCredential.TokenHash != "hash-of-token" || loadedCredential.UsedAt != nil {
+		t.Fatalf("credential = %+v", loadedCredential)
+	}
+}
+
+func TestUserInfoIncludesEmailVerificationStateWithoutCredentialFields(t *testing.T) {
+	verifiedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	data, err := json.Marshal(identity.UserInfoFromDomain(identitydomain.User{ID: 7, Email: "old@example.com", PendingEmail: "new@example.com", EmailVerifiedAt: &verifiedAt}))
+	if err != nil {
+		t.Fatalf("marshal user info: %v", err)
+	}
+	encoded := string(data)
+	for _, field := range []string{`"email":"old@example.com"`, `"pending_email":"new@example.com"`, `"email_verified":true`} {
+		if !strings.Contains(encoded, field) {
+			t.Fatalf("user info missing %s: %s", field, encoded)
+		}
+	}
+	for _, secret := range []string{"token", "expires_at", "smtp", "password"} {
+		if strings.Contains(encoded, secret) {
+			t.Fatalf("user info leaked %s: %s", secret, encoded)
+		}
 	}
 }

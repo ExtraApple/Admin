@@ -49,6 +49,7 @@
 | [`database-migration-and-seeding.md`](runbooks/database-migration-and-seeding.md) | AutoMigrate、Seed 和启动初始化 |
 | [`file-management.md`](runbooks/file-management.md) | 文件安全、状态和存储 |
 | [`runtime-logging.md`](runbooks/runtime-logging.md) | Zap 运行日志 |
+| [`messaging.md`](runbooks/messaging.md) | RabbitMQ、Outbox 和 DLQ Recorder 处置 |
 | [`audit-logging.md`](runbooks/audit-logging.md) | 审计日志和冷热归档 |
 | [`api-documentation.md`](runbooks/api-documentation.md) | Swagger UI 和 OpenAPI 维护 |
 | [`access-version-storage-switch.md`](runbooks/access-version-storage-switch.md) | 授权版本迁移历史 |

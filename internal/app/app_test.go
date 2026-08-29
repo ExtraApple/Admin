@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -64,8 +64,8 @@ func TestNewAssemblesPlatformRoutesSeedAndBackgroundJobs(t *testing.T) {
 	}
 	select {
 	case snapshot := <-seededRoutes:
-		if len(snapshot) != 88 || snapshot[0].Path != "/api/dicts/:type_code/items" || snapshot[9].Path != "/api/admin/organizations" || snapshot[16].Path != "/api/admin/menus" || snapshot[25].Path != "/api/admin/api-groups" || snapshot[27].Path != "/api/admin/apis" || snapshot[35].Path != "/api/health" || snapshot[36].Path != "/api/admin/roles" || snapshot[56].Path != "/api/captcha" || snapshot[73].Path != "/api/admin/users/:id/kick" || snapshot[74].Path != "/api/admin/files" || snapshot[82].Path != "/api/admin/files-browse" || snapshot[83].Path != "/api/admin/audit-logs" || snapshot[87].Path != "/api/admin/data-access-logs" {
-			t.Fatalf("Seed Route Catalog Snapshot has %d routes; want Dictionary, Organization, Navigation, API Metadata, health, Authorization, Identity, Files, then Audit", len(snapshot))
+		if len(snapshot) != 121 || snapshot[0].Path != "/api/dicts/:type_code/items" || snapshot[9].Path != "/api/admin/organizations" || snapshot[16].Path != "/api/admin/menus" || snapshot[25].Path != "/api/admin/api-groups" || snapshot[27].Path != "/api/admin/apis" || snapshot[65].Path != "/api/health" || snapshot[66].Path != "/api/admin/roles" || snapshot[86].Path != "/api/captcha" || snapshot[105].Path != "/api/admin/users/:id/kick" || snapshot[106].Path != "/api/admin/files" || snapshot[114].Path != "/api/admin/files-browse" || snapshot[115].Path != "/api/admin/audit-logs" || snapshot[119].Path != "/api/admin/data-access-logs" || snapshot[120].Path != "/api/ready" {
+			t.Fatalf("Seed Route Catalog Snapshot has %d routes; want Dictionary, Organization, Navigation, API Metadata, health, Authorization, Identity, Files, Audit, then readiness", len(snapshot))
 		}
 	default:
 		t.Fatal("App did not run Seed with Route Catalog Snapshot")

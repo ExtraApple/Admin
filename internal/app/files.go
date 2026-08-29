@@ -30,10 +30,13 @@ func newFilesComposition(resources Resources, config platformconfig.Config) (fil
 	}
 	provider := platformobjectstorage.NewStore(resources.MinIO)
 	storage := filesstorage.New(provider)
+	filesRepository := filesgorm.NewRepository(resources.DB)
 	service := filesapplication.NewService(filesapplication.Dependencies{
-		Repository:               filesgorm.NewRepository(resources.DB),
+		Repository:               filesRepository,
+		MessageImages:            filesRepository,
 		Storage:                  storage,
 		Validator:                uploadsecurity.NewManagedFileValidator(),
+		MessageImageValidator:    uploadsecurity.NewMessageImageValidator(),
 		Transactions:             platformdatabase.NewTransactionRunner(resources.DB),
 		Signer:                   signer,
 		DownloadURLExpireSeconds: config.FileUpload.DownloadURLExpireSeconds,

@@ -47,7 +47,7 @@ func buildWithOpener(ctx context.Context, conf platformconfig.Config, options Op
 	if err != nil {
 		return nil, errors.Join(err, closePlatform(platform.closers))
 	}
-	application.closers = platform.closers
+	application.closers = append(application.closers, platform.closers...)
 	return application, nil
 }
 

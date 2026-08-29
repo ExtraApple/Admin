@@ -27,6 +27,9 @@ type File struct {
 	ContentSHA256           string     `gorm:"type:varchar(64);comment:服务端计算的内容 SHA-256 摘要"`
 	Size                    int64      `gorm:"comment:文件大小（字节）"`
 	UploaderID              uint       `gorm:"index;comment:上传者 ID"`
+	Purpose                 string     `gorm:"type:varchar(32);not null;default:managed_file;index;comment:文件用途"`
+	LogicalMessageID        string     `gorm:"type:char(36);index;comment:绑定的逻辑消息 ID"`
+	BindingExpiresAt        *time.Time `gorm:"index;comment:消息图片绑定截止时间"`
 	ValidationStatus        string     `gorm:"type:varchar(32);not null;default:legacy_unverified;index;comment:文件验证状态"`
 	ValidationPolicyVersion string     `gorm:"type:varchar(64);comment:验证策略版本"`
 	ValidationErrorCode     string     `gorm:"type:varchar(64);comment:稳定验证失败原因"`

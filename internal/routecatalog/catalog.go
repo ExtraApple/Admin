@@ -1,11 +1,11 @@
 package routecatalog
 
 import (
+	"admin/internal/platform/httpresponse"
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
-
-	"admin/internal/platform/httpresponse"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,6 +47,7 @@ type Response struct {
 type Operation struct {
 	Summary     string
 	Description string
+	Protocol    string
 	Request     RequestBody
 	Responses   map[int]Response
 }
@@ -180,9 +181,13 @@ func validateDescriptor(descriptor Descriptor) error {
 	if err := validateRequest(descriptor.OpenAPI.Request); err != nil {
 		return err
 	}
+	if err := validateProtocol(descriptor); err != nil {
+		return err
+	}
 	if len(descriptor.OpenAPI.Responses) == 0 {
 		return fmt.Errorf("OpenAPI responses are required")
 	}
+
 	for status, response := range descriptor.OpenAPI.Responses {
 		if status < 100 || status > 599 {
 			return fmt.Errorf("response status %d is invalid", status)
@@ -226,6 +231,23 @@ func validateDescriptor(descriptor Descriptor) error {
 		}
 	}
 	return nil
+}
+
+func validateProtocol(descriptor Descriptor) error {
+	switch strings.ToLower(strings.TrimSpace(descriptor.OpenAPI.Protocol)) {
+	case "":
+		return nil
+	case "websocket":
+		if descriptor.Method != http.MethodGet {
+			return fmt.Errorf("WebSocket protocol requires GET method")
+		}
+		if response, ok := descriptor.OpenAPI.Responses[http.StatusSwitchingProtocols]; !ok || response.Kind != NoBody {
+			return fmt.Errorf("WebSocket protocol requires a no-body 101 response")
+		}
+		return nil
+	default:
+		return fmt.Errorf("protocol %q is unknown", descriptor.OpenAPI.Protocol)
+	}
 }
 
 func validateRequest(request RequestBody) error {

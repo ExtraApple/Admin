@@ -1,16 +1,17 @@
 package app
 
 import (
-	"fmt"
-
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	auditmodule "admin/internal/audit"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	"admin/internal/dictionary"
 	filesmodule "admin/internal/files"
 	"admin/internal/identity"
+	messaginggorm "admin/internal/messaging/adapters/gorm"
 	"admin/internal/navigation"
 	"admin/internal/organization"
+	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -22,6 +23,7 @@ var migrationModels = func() []any {
 	models = append(models, apigorm.Models()...)
 	models = append(models, filesmodule.Models()...)
 	models = append(models, auditmodule.Models()...)
+	models = append(models, messaginggorm.Models()...)
 	models = append(models,
 		dictionary.Type{},
 		dictionary.Item{},
@@ -40,6 +42,12 @@ func Migrate(db *gorm.DB) error {
 	}
 	if err := downgradeValidatedManagedFilesOutsideV1Policy(db); err != nil {
 		return fmt.Errorf("downgrade validated managed files outside V1 policy: %w", err)
+	}
+	if err := backfillMembershipJoinedAt(db); err != nil {
+		return fmt.Errorf("backfill organization membership joined at: %w", err)
+	}
+	if err := backfillMessagingDeadLetterOccurredAt(db); err != nil {
+		return fmt.Errorf("backfill messaging dead letter occurred at: %w", err)
 	}
 	return nil
 }
@@ -61,6 +69,17 @@ func backfillUploadValidationStatus(db *gorm.DB) error {
 	return nil
 }
 
+func backfillMembershipJoinedAt(db *gorm.DB) error {
+	return db.Model(&organization.Membership{}).
+		Where("created_at IS NULL").
+		Update("created_at", time.Now().UTC()).Error
+}
+
+func backfillMessagingDeadLetterOccurredAt(db *gorm.DB) error {
+	return db.Model(&messaginggorm.MessageConsumerDeadLetter{}).
+		Where("occurred_at IS NULL").
+		Update("occurred_at", gorm.Expr("created_at")).Error
+}
 func downgradeValidatedManagedFilesOutsideV1Policy(db *gorm.DB) error {
 	allowedMIMEs := []string{
 		"application/pdf",

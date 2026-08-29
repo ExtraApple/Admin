@@ -75,13 +75,15 @@ type LoginResult struct {
 // Service owns authentication and token lifecycle use cases without exposing
 // persistence, Redis, JWT, or HTTP implementation details.
 type Service struct {
-	users         UserRepository
-	captcha       CaptchaVerifier
-	passwords     PasswordHasher
-	attempts      LoginAttemptStore
-	blacklist     BlacklistStore
-	authorization AuthorizationReader
-	tokens        TokenService
+	users                   UserRepository
+	captcha                 CaptchaVerifier
+	passwords               PasswordHasher
+	attempts                LoginAttemptStore
+	blacklist               BlacklistStore
+	authorization           AuthorizationReader
+	tokens                  TokenService
+	emailVerificationIssuer EmailVerificationIssuer
+	verificationEmailSender VerificationEmailSender
 }
 
 func NewService(
@@ -94,6 +96,11 @@ func NewService(
 	tokens TokenService,
 ) *Service {
 	return &Service{users: users, captcha: captcha, passwords: passwords, attempts: attempts, blacklist: blacklist, authorization: authorization, tokens: tokens}
+}
+
+func (service *Service) ConfigureEmailVerification(issuer EmailVerificationIssuer, sender VerificationEmailSender) {
+	service.emailVerificationIssuer = issuer
+	service.verificationEmailSender = sender
 }
 
 func (service *Service) Register(ctx context.Context, request RegisterRequest) (domain.User, error) {
@@ -117,6 +124,16 @@ func (service *Service) Register(ctx context.Context, request RegisterRequest) (
 	user := domain.User{Username: request.Username, Password: hashed, Email: request.Email, Nickname: request.Nickname, Role: "user", Status: 1}
 	if err := service.users.Create(ctx, &user); err != nil {
 		return domain.User{}, NewError(CodeInternalError, err)
+	}
+	if service.emailVerificationIssuer != nil && service.verificationEmailSender != nil {
+		token, err := service.emailVerificationIssuer.Issue(ctx, user.ID, user.Email)
+		if err != nil {
+			return user, err
+		}
+		if err := service.verificationEmailSender.SendVerification(ctx, user.Email, token); err != nil {
+			_ = service.emailVerificationIssuer.Invalidate(ctx, user.ID, user.Email)
+			return user, NewError(CodeEmailVerificationDeliveryFailed, err)
+		}
 	}
 	return user, nil
 }

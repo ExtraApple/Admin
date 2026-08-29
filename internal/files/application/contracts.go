@@ -95,6 +95,43 @@ type Repository interface {
 	FindRotationCandidates(context.Context, time.Time, string, int) ([]domain.File, error)
 	UpdateBucket(context.Context, uint, string) error
 }
+type MessageImageRepository interface {
+	CreateMessageImage(context.Context, *domain.File) error
+	FindMessageImage(context.Context, uint) (domain.File, error)
+	BindMessageImages(context.Context, MessageImageBindRequest) error
+	DeleteExpiredMessageImages(context.Context, time.Time, int) ([]domain.File, error)
+}
+
+type MessageImageBindRequest struct {
+	ActorID          uint
+	MessageLogicalID string
+	ImageIDs         []uint
+	Now              time.Time
+}
+
+type MessageImageUploadInput struct {
+	UploaderID            uint
+	FileName, ContentType string
+	Size                  int64
+	Reader                io.Reader
+}
+
+type TemporaryMessageImage struct {
+	ID        uint
+	ExpiresAt time.Time
+}
+
+type MessageImageOpenRequest struct {
+	ID               uint
+	MessageLogicalID string
+}
+
+type MessageImageContent struct {
+	Reader      io.ReadCloser
+	ContentType string
+	Size        int64
+}
+
 type ValidationUpdate struct {
 	ContentType, DetectedContentType, ContentSHA256, Status, PolicyVersion, ErrorCode string
 	ValidatedAt                                                                       *time.Time
@@ -198,6 +235,8 @@ type Dependencies struct {
 	Repository               Repository
 	Storage                  ObjectStorage
 	Validator                UploadValidator
+	MessageImages            MessageImageRepository
+	MessageImageValidator    UploadValidator
 	Authorization            AuthorizationScope
 	Transactions             TransactionRunner
 	Signer                   Signer

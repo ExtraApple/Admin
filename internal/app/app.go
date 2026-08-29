@@ -13,6 +13,8 @@ import (
 	"admin/internal/dictionary"
 	identityhttp "admin/internal/identity/adapters/http"
 	identityapplication "admin/internal/identity/application"
+	messaginghttp "admin/internal/messaging/adapters/http"
+	messagingapplication "admin/internal/messaging/application"
 	navigationmodule "admin/internal/navigation"
 	platformconfig "admin/internal/platform/config"
 	platformdatabase "admin/internal/platform/database"
@@ -55,6 +57,9 @@ type Application struct {
 	navigation  *navigationmodule.Service
 	apiMetadata *apiapplication.Service
 	identity    *identityapplication.Service
+	messaging   *messagingapplication.Service
+	tickets     *messagingapplication.WebSocketTicketService
+	websocket   *messagingapplication.WebSocketGateway
 	jobs        []BackgroundJob
 	closers     []func() error
 
@@ -79,15 +84,23 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	routeSource := &catalogRouteSource{}
 	modules := newNavigationComposition(resources, authorizationApplication, routeSource, identityCore.directory)
 	organizationRoutes := organizationDescriptorsWithVisibility(resources, authorizationOrganizationVisibility{authorization: authorizationApplication}, identityCore.directory)
-	identityModule := newIdentityComposition(resources, conf, authorizationApplication, identityNavigation{navigation: modules.Navigation}, identityCore)
+	identityModule, err := newIdentityComposition(resources, conf, authorizationApplication, identityNavigation{navigation: modules.Navigation}, identityCore)
+	if err != nil {
+		return nil, fmt.Errorf("build Identity module: %w", err)
+	}
 	auditModule := newAuditComposition(resources, conf, identityModule.repository)
+	messagingModule := newMessagingComposition(resources, conf, identityCore, authorizationApplication, filesModule)
 	navigationRoutes := navigationmodule.Routes(modules.Navigation)
 	apiRoutes := apihttp.Routes(modules.APIService)
-	existingRoutes := make([]routecatalog.Descriptor, 0, len(dictionaryRoutes)+len(organizationRoutes)+len(navigationRoutes)+len(apiRoutes)+len(options.Descriptors))
+	messagingRoutes := messaginghttp.Routes(messagingModule.service)
+	messagingRoutes = append(messagingRoutes, messaginghttp.WebSocketRoutes(messagingModule.tickets, messagingModule.gateway)...)
+	messagingRoutes = append(messagingRoutes, messaginghttp.AdminRoutes(messagingModule.service)...)
+	existingRoutes := make([]routecatalog.Descriptor, 0, len(dictionaryRoutes)+len(organizationRoutes)+len(navigationRoutes)+len(apiRoutes)+len(messagingRoutes)+len(options.Descriptors))
 	existingRoutes = append(existingRoutes, dictionaryRoutes...)
 	existingRoutes = append(existingRoutes, organizationRoutes...)
 	existingRoutes = append(existingRoutes, navigationRoutes...)
 	existingRoutes = append(existingRoutes, apiRoutes...)
+	existingRoutes = append(existingRoutes, messagingRoutes...)
 	existingRoutes = append(existingRoutes, options.Descriptors...)
 	identityRoutes := identityDescriptors(identityModule, conf)
 	authorizationCatalogInputs := make([]routecatalog.Descriptor, 0, len(existingRoutes)+len(identityRoutes)+len(filesModule.routes)+len(auditModule.routes))
@@ -96,13 +109,15 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	authorizationCatalogInputs = append(authorizationCatalogInputs, filesModule.routes...)
 	authorizationCatalogInputs = append(authorizationCatalogInputs, auditModule.routes...)
 	authorizationRoutes := authorizationDescriptors(authorizationApplication, authorizationCatalogInputs)
-	descriptors := make([]routecatalog.Descriptor, 0, len(existingRoutes)+len(authorizationRoutes)+len(identityRoutes)+len(filesModule.routes)+len(auditModule.routes))
+	auditRoutes := auditModule.routes
+	readyRoute := readyDescriptor(messagingModule.readiness)
+	descriptors := make([]routecatalog.Descriptor, 0, len(existingRoutes)+len(authorizationRoutes)+len(identityRoutes)+len(filesModule.routes)+len(auditRoutes)+1)
 	descriptors = append(descriptors, existingRoutes...)
 	descriptors = append(descriptors, authorizationRoutes...)
 	descriptors = append(descriptors, identityRoutes...)
 	descriptors = append(descriptors, filesModule.routes...)
-	descriptors = append(descriptors, auditModule.routes...)
-	descriptors = addMiddlewareErrorDefinitions(descriptors)
+	descriptors = append(descriptors, auditRoutes...)
+	descriptors = append(descriptors, readyRoute)
 	catalog, err := routecatalog.New(descriptors)
 	if err != nil {
 		return nil, fmt.Errorf("build Route Catalog: %w", err)
@@ -149,11 +164,22 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	}
 	RegisterHTTP(engine, catalog, httpMiddleware)
 	RegisterTechnicalHTTP(engine, technicalHTTP)
+	closers := make([]func() error, 0, 2)
+	if messagingModule.close != nil {
+		closers = append(closers, messagingModule.close)
+	}
+	if messagingModule.gateway != nil {
+		closers = append(closers, messagingModule.gateway.Close)
+	}
+	identityJobs := []BackgroundJob{{Name: "identity-email-verification-cleanup", Run: func(ctx context.Context) {
+		runIdentityEmailVerificationCleanup(ctx, identityModule.emailVerification, resources.Logger)
+	}}}
 	application := &Application{
 		resources: resources, catalog: catalog, engine: engine,
-		address: fmt.Sprintf(":%d", conf.Server.Port), identity: identityModule.service,
+		address: fmt.Sprintf(":%d", conf.Server.Port), identity: identityModule.service, messaging: messagingModule.service, tickets: messagingModule.tickets, websocket: messagingModule.gateway,
 		navigation: modules.Navigation, apiMetadata: modules.APIService,
-		jobs: append(append(append([]BackgroundJob(nil), options.BackgroundJobs...), filesModule.jobs...), auditModule.jobs...),
+		jobs:    append(append(append(append(append([]BackgroundJob(nil), options.BackgroundJobs...), identityJobs...), filesModule.jobs...), auditModule.jobs...), messagingModule.jobs...),
+		closers: closers,
 	}
 	return application, nil
 }

@@ -6,8 +6,10 @@ import "context"
 // caller-owned authorization contract. It does not expose GORM or model types.
 type ScopeReader interface {
 	MemberOrganizationIDs(context.Context, uint) ([]uint, error)
+	Memberships(context.Context, uint) ([]MembershipFact, error)
 	DescendantOrganizationIDs(context.Context, []uint) ([]uint, error)
 	ExistingOrganizationIDs(context.Context, []uint) ([]uint, error)
+	AllOrganizationIDs(context.Context) ([]uint, error)
 	MemberUserIDs(context.Context, uint) ([]uint, error)
 }
 
@@ -22,6 +24,10 @@ func NewScopeReader(repository Repository, hierarchy HierarchyReader) ScopeReade
 
 func (reader *scopeReader) MemberOrganizationIDs(ctx context.Context, userID uint) ([]uint, error) {
 	return reader.hierarchy.MemberOrganizationIDs(ctx, userID)
+}
+
+func (reader *scopeReader) Memberships(ctx context.Context, userID uint) ([]MembershipFact, error) {
+	return reader.repository.MemberOrganizationMemberships(ctx, userID)
 }
 
 func (reader *scopeReader) DescendantOrganizationIDs(ctx context.Context, ids []uint) ([]uint, error) {
@@ -41,6 +47,18 @@ func (reader *scopeReader) ExistingOrganizationIDs(ctx context.Context, ids []ui
 		result[index] = units[index].ID
 	}
 	return uniqueIDs(result), nil
+}
+
+func (reader *scopeReader) AllOrganizationIDs(ctx context.Context) ([]uint, error) {
+	units, err := reader.repository.ListAllUnits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uint, len(units))
+	for index := range units {
+		ids[index] = units[index].ID
+	}
+	return uniqueIDs(ids), nil
 }
 
 func (reader *scopeReader) MemberUserIDs(ctx context.Context, organizationID uint) ([]uint, error) {

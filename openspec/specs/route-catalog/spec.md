@@ -182,3 +182,16 @@ Route Catalog SHALL 确保业务 JSON 错误响应使用统一信封，并允许
 - **WHEN** Descriptor 声明 HTML、原始 OpenAPI JSON 或二进制成功响应
 - **THEN** Route Catalog SHALL 保留对应 Content-Type 和原生 Schema
 - **AND** Route Catalog SHALL NOT 要求成功内容使用业务 JSON 信封
+
+### Requirement: WebSocket 与 Messaging 入口声明
+系统 SHALL 将内部消息 WebSocket ticket/upgrade、消息 HTTP 入口和 `/api/ready` 纳入同一份已校验 Route Catalog Snapshot。
+
+#### Scenario: 原生 WebSocket upgrade
+- **WHEN** Catalog 声明 `GET /api/user/messages/ws`
+- **THEN** 该路由 SHALL 为 Authenticated、声明无请求体和 101 NoBody 成功响应，并标记原生 `websocket` 协议
+- **AND** 升级前错误 SHALL 使用统一四字段错误信封
+
+#### Scenario: RabbitMQ 就绪
+- **WHEN** App 声明 `/api/ready`
+- **THEN** 该入口 SHALL 与 `/api/health` 的进程存活语义分离
+- **AND** Broker 不可用时只报告受控 RabbitMQ 状态，不以 Consumer DLQ 告警改变 HTTP 路由或响应集合

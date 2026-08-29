@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"admin/testsupport/testutil"
 	"admin/internal/files"
 	gormadapter "admin/internal/files/adapters/gorm"
 	"admin/internal/files/application"
 	"admin/internal/files/domain"
+	"admin/internal/uploadsecurity"
+	"admin/testsupport/testutil"
 )
 
 func TestRepositoryPersistsFilesWithoutLegacyModels(t *testing.T) {
@@ -59,5 +60,39 @@ func TestRepositoryPersistsFilesWithoutLegacyModels(t *testing.T) {
 	}
 	if _, err := repository.FindByID(ctx, file.ID); err != application.ErrFileNotFound {
 		t.Fatalf("find deleted error = %v", err)
+	}
+}
+
+func TestRepositoryExcludesMessageImagesFromOrdinaryFileList(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(files.Models()...); err != nil {
+		t.Fatalf("migrate Files models: %v", err)
+	}
+	repository := gormadapter.NewRepository(db)
+	managed := domain.File{Name: "report.pdf", Bucket: "files", ObjectName: "report.pdf", ContentType: "application/pdf", Purpose: string(uploadsecurity.PurposeManagedFile), ValidationStatus: domain.ValidationStatusValidated}
+	if err := repository.Create(context.Background(), &managed); err != nil {
+		t.Fatalf("create managed file: %v", err)
+	}
+	image := domain.File{Name: "notice.png", Bucket: "files", ObjectName: "message-images/notice.png", ContentType: "image/png", Purpose: string(uploadsecurity.PurposeMessageImage), ValidationStatus: domain.ValidationStatusValidated}
+	if err := repository.CreateMessageImage(context.Background(), &image); err != nil {
+		t.Fatalf("create message image: %v", err)
+	}
+	list, total, err := repository.List(context.Background(), 1, 10, "")
+	if err != nil || total != 1 || len(list) != 1 || list[0].ID != managed.ID {
+		t.Fatalf("ordinary file list = %#v total=%d err=%v", list, total, err)
+	}
+}
+func TestRepositoryHidesMessageImagesFromOrdinaryFindByID(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(files.Models()...); err != nil {
+		t.Fatalf("migrate Files models: %v", err)
+	}
+	repository := gormadapter.NewRepository(db)
+	image := domain.File{Name: "notice.png", Bucket: "files", ObjectName: "message-images/notice.png", ContentType: "image/png", Purpose: string(uploadsecurity.PurposeMessageImage), ValidationStatus: domain.ValidationStatusValidated}
+	if err := repository.CreateMessageImage(context.Background(), &image); err != nil {
+		t.Fatalf("create message image: %v", err)
+	}
+	if _, err := repository.FindByID(context.Background(), image.ID); err != application.ErrFileNotFound {
+		t.Fatalf("ordinary find error = %v, want ErrFileNotFound", err)
 	}
 }

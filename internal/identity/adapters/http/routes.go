@@ -38,13 +38,14 @@ type refreshResponse struct {
 }
 
 type routeHandler struct {
-	service        *application.Service
-	users          *application.UserService
-	context        *application.ContextService
-	avatars        *application.AvatarService
-	captcha        CaptchaGenerator
-	avatarMaxBytes int64
-	logoutExpires  time.Duration
+	service           *application.Service
+	users             *application.UserService
+	context           *application.ContextService
+	avatars           *application.AvatarService
+	emailVerification *application.EmailVerificationService
+	captcha           CaptchaGenerator
+	avatarMaxBytes    int64
+	logoutExpires     time.Duration
 }
 
 func Routes(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires ...time.Duration) []routecatalog.Descriptor {
@@ -52,7 +53,15 @@ func Routes(service *application.Service, users *application.UserService, contex
 	if len(logoutExpires) > 0 {
 		expires = logoutExpires[0]
 	}
-	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, logoutExpires: expires}
+	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, expires, nil)
+}
+
+func RoutesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires time.Duration, verification *application.EmailVerificationService) []routecatalog.Descriptor {
+	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, logoutExpires, verification)
+}
+
+func routesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires time.Duration, verification *application.EmailVerificationService) []routecatalog.Descriptor {
+	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, logoutExpires: logoutExpires}
 	return []routecatalog.Descriptor{
 		identityRoute(http.MethodGet, "/api/captcha", "Generate Captcha", routecatalog.Public, handler.captchaHandler, nil, captchaResponse{}),
 		identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{}),
@@ -62,8 +71,10 @@ func Routes(service *application.Service, users *application.UserService, contex
 		avatarContentRoute("/api/avatars/default", "Get Default Avatar", handler.getDefaultAvatar),
 		avatarContentRoute("/api/avatars/:user_id", "Get User Avatar", handler.getAvatar),
 		identityRoute(http.MethodGet, "/api/user/info", "Get User Info", routecatalog.Authenticated, handler.getInfo, nil, userResponse{}),
-		identityRoute(http.MethodPut, "/api/user/info", "Update User Info", routecatalog.Authenticated, handler.updateSelf, identity.UpdateSelfRequest{}, userResponse{}),
+		identityRoute(http.MethodPut, "/api/user/info", "Update User Info", routecatalog.Authenticated, handler.updateSelf, identity.UpdateSelfRequestSchema{}, userResponse{}),
 		identityRoute(http.MethodPut, "/api/user/password", "Change Password", routecatalog.Authenticated, handler.changePassword, identity.ChangePasswordRequest{}, nil),
+		identityRoute(http.MethodPost, "/api/user/email-verifications", "Resend Email Verification", routecatalog.Authenticated, handler.resendEmailVerification, nil, nil),
+		identityRoute(http.MethodPost, "/api/user/email-verifications/confirm", "Confirm Email Verification", routecatalog.Authenticated, handler.confirmEmailVerification, identity.EmailVerificationRequest{}, userResponse{}),
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
 		identityRoute(http.MethodPost, "/api/user/logout", "Logout", routecatalog.Authenticated, handler.logout, nil, nil),
@@ -84,7 +95,7 @@ func identityRoute(method, path, name string, access routecatalog.AccessLevel, h
 	responses := map[int]routecatalog.Response{
 		http.StatusOK: routecatalog.JSONResponse("success", routecatalog.DataSchemaOf(response)),
 	}
-	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusTooManyRequests, http.StatusInternalServerError} {
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict, http.StatusUnprocessableEntity, http.StatusTooManyRequests, http.StatusServiceUnavailable, http.StatusInternalServerError} {
 		responses[status] = identityErrorResponse(status)
 	}
 	for _, code := range []string{"REQUEST_INVALID", "AVATAR_FIELD_NOT_WRITABLE", "UPLOAD_BODY_INVALID", "UPLOAD_BODY_TOO_LARGE", "UPLOAD_FILE_MISSING", "UPLOAD_MULTIPLE_FILES", "FILE_EMPTY", "FILE_TOO_LARGE", "FILE_TYPE_NOT_ALLOWED", "FILE_TYPE_MISMATCH", "FILE_ENCODING_INVALID", "FILE_CONTENT_INVALID", "IMAGE_DIMENSION_LIMIT", "IMAGE_DECODE_INVALID", "STORAGE_OBJECT_NOT_FOUND", "STORAGE_UNAVAILABLE", "PERSISTENCE_FAILED", "INTERNAL_ERROR"} {
@@ -195,7 +206,7 @@ func (handler *routeHandler) updateSelf(c *gin.Context) {
 		identityRequestError(c, err)
 		return
 	}
-	user, err := handler.users.UpdateSelf(c.Request.Context(), c.GetUint("userID"), application.UpdateSelfRequest{Nickname: request.Nickname, Email: request.Email, AvatarPresent: request.HasAvatarField()})
+	user, err := handler.users.UpdateSelf(c.Request.Context(), c.GetUint("userID"), application.UpdateSelfRequest{Nickname: request.Nickname, Email: request.Email, CurrentPassword: request.CurrentPassword, AvatarPresent: request.HasAvatarField()})
 	if err != nil {
 		writeIdentityError(c, err, false)
 		return
@@ -230,6 +241,40 @@ func (handler *routeHandler) listUsers(c *gin.Context) {
 		list[index] = identity.UserInfoFromDomain(result.List[index])
 	}
 	identitySuccess(c, identity.UserListResponse{List: list, Total: result.Total, Page: page, Size: size})
+}
+
+func (handler *routeHandler) resendEmailVerification(c *gin.Context) {
+	if handler.emailVerification == nil {
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil), false)
+		return
+	}
+	if err := handler.emailVerification.Resend(c.Request.Context(), c.GetUint("userID")); err != nil {
+		writeIdentityError(c, err, false)
+		return
+	}
+	identitySuccess(c, nil)
+}
+
+func (handler *routeHandler) confirmEmailVerification(c *gin.Context) {
+	if handler.emailVerification == nil {
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil), false)
+		return
+	}
+	var request identity.EmailVerificationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		identityRequestError(c, err)
+		return
+	}
+	if err := handler.emailVerification.Confirm(c.Request.Context(), c.GetUint("userID"), request.Token); err != nil {
+		writeIdentityError(c, err, false)
+		return
+	}
+	user, err := handler.users.Get(c.Request.Context(), c.GetUint("userID"))
+	if err != nil {
+		writeIdentityError(c, err, false)
+		return
+	}
+	identitySuccess(c, identity.UserInfoFromDomain(user))
 }
 
 func (handler *routeHandler) updateUser(c *gin.Context) {

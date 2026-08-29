@@ -1,6 +1,10 @@
 package organization
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type Unit struct {
 	gorm.Model
@@ -15,8 +19,9 @@ type Unit struct {
 func (Unit) TableName() string { return "organizations" }
 
 type Membership struct {
-	UserID         uint `gorm:"primaryKey;comment:用户ID"`
-	OrganizationID uint `gorm:"primaryKey;index;comment:组织ID"`
+	UserID         uint      `gorm:"primaryKey;comment:用户ID"`
+	OrganizationID uint      `gorm:"primaryKey;index;comment:组织ID"`
+	CreatedAt      time.Time `gorm:"index;comment:加入组织时间"`
 }
 
 func (Membership) TableName() string { return "user_organizations" }

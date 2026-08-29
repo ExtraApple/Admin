@@ -23,6 +23,7 @@
 | `internal/dictionary` | 字典类型、字典条目及公开读取 | `service.go`、`http.go` |
 | `internal/files` | 管理员文件记录、存取、轮转和重新验证 | `application/service.go`、`adapters/http/routes.go` |
 | `internal/audit` | 请求审计、脱敏、异步记录和冷热归档 | `service.go`、`adapters/http/routes.go` |
+| `internal/messaging` | 私信、群发、公告、动态受众、收件箱、WebSocket 刷新、Outbox、RabbitMQ Consumer、Consumer DLQ | `application/service.go`、`application/event_consumer.go`、`adapters/http/routes.go`、`adapters/rabbitmq/topology.go` |
 | `internal/uploadsecurity` | 文件内容检测、重编码、摘要和安全策略 | `stage.go`、`content.go` |
 | `internal/routecatalog` | 静态路由事实、Descriptor 校验和只读快照 | `catalog.go` |
 | `internal/apidoc` | 基于 Route Catalog 与 API Metadata 的 OpenAPI 文档 | `service.go` |
@@ -32,6 +33,8 @@
 ## 模块内依赖
 
 复杂模块使用 `adapters -> application -> domain` 方向；简单模块保持扁平。Application 所需的跨模块能力由调用方在 `contracts.go` 声明最小接口，再由 App 注入实现。业务模块不得导入其他模块的 Adapter、`internal/app` 或全局运行时状态。
+
+- Messaging RabbitMQ、Outbox 和 DLQ Recorder 处置见 [`runbooks/messaging.md`](runbooks/messaging.md)。
 
 Route Descriptor 是业务 HTTP 入口的唯一声明。新增或修改接口时，同时更新 Handler、访问等级、默认权限码、审计分类和完整 OpenAPI operation；App 从 Route Catalog Snapshot 统一执行 Gin 注册、启动 Seed、API/权限同步和文档生成。
 

@@ -1,11 +1,14 @@
 package app
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"admin/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -43,6 +46,30 @@ func TestRequestLoggingExcludesSensitiveFieldsAndRecoveryUsesEnvelope(t *testing
 	requestEntry := entries[len(entries)-1]
 	if fields := requestEntry.ContextMap(); fields["method"] != http.MethodPost || fields["path"] != "/api/panic" || fields["status"] != int64(500) {
 		t.Fatalf("request fields = %#v", fields)
+	}
+}
+
+func TestRequestLoggingOmitsRawCauseAndRecoveryValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	core, logs := observer.New(zap.InfoLevel)
+	logger := zap.New(core)
+	engine := gin.New()
+	engine.Use(requestLoggingMiddleware(logger), recoveryMiddleware(logger))
+	engine.GET("/api/failure", func(c *gin.Context) {
+		httpresponse.WriteError(c, httpresponse.InternalErrorDefinition(), errors.New("token=private url=https://secret.example/path"), nil)
+	})
+	engine.GET("/api/panic", func(c *gin.Context) { panic("password=secret token=private") })
+	for _, path := range []string{"/api/failure", "/api/panic"} {
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path+"?ticket=secret", nil))
+	}
+	for _, entry := range logs.All() {
+		serialized := fmt.Sprintf("%v", entry.ContextMap())
+		for _, forbidden := range []string{"secret", "private", "https://secret.example/path", "password"} {
+			if strings.Contains(serialized, forbidden) {
+				t.Fatalf("log context leaked %q: %#v", forbidden, entry.ContextMap())
+			}
+		}
 	}
 }
 

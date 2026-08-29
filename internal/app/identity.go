@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	authgorm "admin/internal/authorization/adapters/gorm"
@@ -10,6 +11,7 @@ import (
 	identitygorm "admin/internal/identity/adapters/gorm"
 	identityhttp "admin/internal/identity/adapters/http"
 	identityjwt "admin/internal/identity/adapters/jwt"
+	identitymail "admin/internal/identity/adapters/mail"
 	identitypassword "admin/internal/identity/adapters/password"
 	identityredis "admin/internal/identity/adapters/redis"
 	identityapplication "admin/internal/identity/application"
@@ -18,6 +20,7 @@ import (
 	platformconfig "admin/internal/platform/config"
 	platformdatabase "admin/internal/platform/database"
 	"admin/internal/routecatalog"
+	"go.uber.org/zap"
 )
 
 type identityCore struct {
@@ -31,15 +34,16 @@ func newIdentityCore(resources Resources) identityCore {
 }
 
 type identityComposition struct {
-	service    *identityapplication.Service
-	users      *identityapplication.UserService
-	context    *identityapplication.ContextService
-	avatars    *identityapplication.AvatarService
-	store      *identityredis.Store
-	repository identityapplication.UserRepository
+	service           *identityapplication.Service
+	users             *identityapplication.UserService
+	context           *identityapplication.ContextService
+	avatars           *identityapplication.AvatarService
+	store             *identityredis.Store
+	emailVerification *identityapplication.EmailVerificationService
+	repository        identityapplication.UserRepository
 }
 
-func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore) identityComposition {
+func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore) (identityComposition, error) {
 	store := identityredis.NewStore(resources.Redis)
 	tokens := identityjwt.NewService(identityjwt.Config{
 		Secret:                  config.Jwt.Secret,
@@ -58,15 +62,28 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 		authorizationReader,
 		tokens,
 	)
+	emailVerification := identityapplication.NewEmailVerificationService(core.repository, platformdatabase.NewTransactionRunner(resources.DB), identityapplication.WithEmailVerificationUserRepository(core.repository))
+	var emailSender identityapplication.VerificationEmailSender
+	if config.SMTP.Host != "" {
+		sender, err := identitymail.NewSender(config.SMTP)
+		if err != nil {
+			return identityComposition{}, fmt.Errorf("build identity SMTP sender: %w", err)
+		}
+		emailSender = sender
+		service.ConfigureEmailVerification(emailVerification, sender)
+		emailVerification.ConfigureSender(sender)
+	}
 	access := &identityAccessManager{authorization: authorization, roles: authgorm.NewRepository(resources.DB), versions: authgorm.NewAccessVersions(resources.DB)}
 	users := identityapplication.NewUserService(core.repository, identitypassword.Bcrypt{}, platformdatabase.NewTransactionRunner(resources.DB), access)
+	if emailSender != nil {
+		users.ConfigureEmailVerification(emailVerification, emailSender)
+	}
 	contextService := identityapplication.NewContextService(core.repository, authorizationReader, navigation)
 	avatars := newAvatarService(resources, core.repository)
-	return identityComposition{service: service, users: users, context: contextService, avatars: avatars, store: store, repository: core.repository}
+	return identityComposition{service: service, users: users, context: contextService, avatars: avatars, store: store, emailVerification: emailVerification, repository: core.repository}, nil
 }
-
 func identityDescriptors(composition identityComposition, config platformconfig.Config) []routecatalog.Descriptor {
-	return identityhttp.Routes(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, durationMinutes(config.Jwt.Expire))
+	return identityhttp.RoutesWithEmailVerification(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, durationMinutes(config.Jwt.Expire), composition.emailVerification)
 }
 
 func durationMinutes(minutes int) time.Duration { return time.Duration(minutes) * time.Minute }
@@ -136,6 +153,21 @@ func (adapter *identityAccessManager) IsAdministrator(ctx context.Context, userI
 		}
 	}
 	return false, nil
+}
+
+func runIdentityEmailVerificationCleanup(ctx context.Context, service *identityapplication.EmailVerificationService, logger *zap.Logger) {
+	cleanup := func() {
+		if service == nil {
+			return
+		}
+		if err := service.Cleanup(ctx); err != nil && ctx.Err() == nil && logger != nil {
+			logger.Warn("identity email verification cleanup deferred", zap.String("component", "identity"), zap.String("error_code", "email_verification_cleanup_failed"))
+		}
+	}
+	cleanup()
+	for waitMessagingInterval(ctx, time.Hour) {
+		cleanup()
+	}
 }
 
 var _ identityapplication.AccessManager = (*identityAccessManager)(nil)

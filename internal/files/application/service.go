@@ -102,7 +102,7 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (*FileInfo, err
 		return nil, classifyStorageError(err)
 	}
 	validatedAt := s.deps.Clock.Now().UTC()
-	file := domain.File{Name: result.FileName, Bucket: "files", ObjectName: name, ContentType: result.CanonicalMIME, DetectedContentType: result.DetectedMIME, ContentSHA256: result.ContentSHA256, Size: result.Size, UploaderID: input.UploaderID, ValidationStatus: domain.ValidationStatusValidated, ValidationPolicyVersion: result.PolicyVersion, ValidatedAt: &validatedAt}
+	file := domain.File{Name: result.FileName, Bucket: "files", ObjectName: name, ContentType: result.CanonicalMIME, DetectedContentType: result.DetectedMIME, ContentSHA256: result.ContentSHA256, Size: result.Size, UploaderID: input.UploaderID, Purpose: string(uploadsecurity.PurposeManagedFile), ValidationStatus: domain.ValidationStatusValidated, ValidationPolicyVersion: result.PolicyVersion, ValidatedAt: &validatedAt}
 	if err := s.tx(ctx, func(tx context.Context) error { return s.deps.Repository.Create(tx, &file) }); err != nil {
 		_ = s.deps.Storage.Delete(ctx, file.Bucket, file.ObjectName)
 		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
@@ -110,6 +110,123 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (*FileInfo, err
 	info := toFileInfo(&file)
 	s.recordAudit(ctx, AuditMetadata{Purpose: string(uploadsecurity.PurposeManagedFile), FileName: info.Name, FileSize: info.Size, DeclaredMIME: input.ContentType, DetectedMIME: info.DetectedContentType, ValidationResult: UploadValidationAccepted, PolicyVersion: info.ValidationPolicyVersion})
 	return info, nil
+}
+func (s *Service) UploadMessageImage(ctx context.Context, input MessageImageUploadInput) (TemporaryMessageImage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := s.repository(); err != nil {
+		return TemporaryMessageImage{}, err
+	}
+	if s.deps.MessageImages == nil || s.deps.MessageImageValidator == nil {
+		return TemporaryMessageImage{}, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
+	}
+	result, err := s.deps.MessageImageValidator.Validate(ctx, uploadsecurity.Input{Purpose: uploadsecurity.PurposeMessageImage, FileName: input.FileName, DeclaredMIME: input.ContentType, Size: input.Size, MaxBytes: uploadsecurity.MaxMessageImageBytes, Reader: input.Reader})
+	if err != nil {
+		return TemporaryMessageImage{}, err
+	}
+	if result.Reader == nil {
+		return TemporaryMessageImage{}, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
+	}
+	if closer, ok := result.Reader.(io.Closer); ok {
+		defer closer.Close()
+	}
+	name, err := s.deps.ObjectNames.ManagedFileName(result.CanonicalType, result.CanonicalExtension)
+	if err != nil {
+		return TemporaryMessageImage{}, uploadsecurity.NewError(uploadsecurity.CodeInternalError, err)
+	}
+	name = "message-images/" + name
+	if err := s.deps.Storage.Put(ctx, ObjectInput{Bucket: "files", Name: name, Reader: result.Reader, Size: result.Size, ContentType: result.CanonicalMIME}); err != nil {
+		return TemporaryMessageImage{}, classifyStorageError(err)
+	}
+	now := s.deps.Clock.Now().UTC()
+	expiresAt := now.Add(15 * time.Minute)
+	file := domain.File{Name: result.FileName, Bucket: "files", ObjectName: name, ContentType: result.CanonicalMIME, DetectedContentType: result.DetectedMIME, ContentSHA256: result.ContentSHA256, Size: result.Size, UploaderID: input.UploaderID, Purpose: string(uploadsecurity.PurposeMessageImage), BindingExpiresAt: &expiresAt, ValidationStatus: domain.ValidationStatusValidated, ValidationPolicyVersion: result.PolicyVersion, ValidatedAt: &now}
+	if err := s.tx(ctx, func(tx context.Context) error { return s.deps.MessageImages.CreateMessageImage(tx, &file) }); err != nil {
+		_ = s.deps.Storage.Delete(ctx, file.Bucket, file.ObjectName)
+		return TemporaryMessageImage{}, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+	}
+	s.recordAudit(ctx, AuditMetadata{Purpose: string(uploadsecurity.PurposeMessageImage), FileName: file.Name, FileSize: file.Size, DeclaredMIME: input.ContentType, DetectedMIME: file.DetectedContentType, ValidationResult: UploadValidationAccepted, PolicyVersion: file.ValidationPolicyVersion})
+	return TemporaryMessageImage{ID: file.ID, ExpiresAt: expiresAt}, nil
+}
+
+func (s *Service) BindMessageImages(ctx context.Context, request MessageImageBindRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s == nil || s.deps.MessageImages == nil || request.ActorID == 0 || request.MessageLogicalID == "" || len(request.ImageIDs) == 0 {
+		return uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, nil)
+	}
+	if request.Now.IsZero() {
+		request.Now = s.deps.Clock.Now().UTC()
+	}
+	if err := s.tx(ctx, func(tx context.Context) error { return s.deps.MessageImages.BindMessageImages(tx, request) }); err != nil {
+		if errors.Is(err, ErrFileNotFound) || errors.Is(err, ErrStateConflict) {
+			return uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, err)
+		}
+		return uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+	}
+	return nil
+}
+
+func (s *Service) OpenMessageImage(ctx context.Context, request MessageImageOpenRequest) (MessageImageContent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s == nil || s.deps.MessageImages == nil || request.ID == 0 || request.MessageLogicalID == "" {
+		return MessageImageContent{}, uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, nil)
+	}
+	file, err := s.deps.MessageImages.FindMessageImage(ctx, request.ID)
+	if err != nil {
+		if errors.Is(err, ErrFileNotFound) {
+			return MessageImageContent{}, uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, err)
+		}
+		return MessageImageContent{}, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+	}
+	if file.Purpose != string(uploadsecurity.PurposeMessageImage) || file.LogicalMessageID != request.MessageLogicalID || file.ValidationStatus != domain.ValidationStatusValidated || !isMessageImageMIME(file.ContentType) {
+		return MessageImageContent{}, uploadsecurity.NewError(uploadsecurity.CodeFileAccessInvalid, nil)
+	}
+	reader, err := s.deps.Storage.Open(ctx, file.Bucket, file.ObjectName)
+	if err != nil {
+		return MessageImageContent{}, classifyStorageError(err)
+	}
+	return MessageImageContent{Reader: reader, ContentType: file.ContentType, Size: file.Size}, nil
+}
+
+func (s *Service) CleanupExpiredMessageImages(ctx context.Context, now time.Time, limit int) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s == nil || s.deps.MessageImages == nil {
+		return uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
+	}
+	if now.IsZero() {
+		now = s.deps.Clock.Now().UTC()
+	}
+	files, err := s.deps.MessageImages.DeleteExpiredMessageImages(ctx, now, limit)
+	if err != nil {
+		return uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
+	}
+	for _, file := range files {
+		if err := s.deps.Storage.Delete(ctx, file.Bucket, file.ObjectName); err != nil {
+			return classifyStorageError(err)
+		}
+	}
+	return nil
+}
+
+func isMessageImageMIME(value string) bool {
+	canonicalType, ok := uploadsecurity.LookupTypeByMIME(value)
+	return ok && isMessageImageCanonicalType(canonicalType)
+}
+
+func isMessageImageCanonicalType(value uploadsecurity.CanonicalType) bool {
+	switch value {
+	case uploadsecurity.TypeJPEG, uploadsecurity.TypePNG, uploadsecurity.TypeWebP:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) List(ctx context.Context, actor uint, page, size int, prefix string) ([]FileInfo, int64, error) {
@@ -245,9 +362,12 @@ func (s *Service) Browse(ctx context.Context, actor uint, prefix string) ([]File
 	if err != nil {
 		return nil, classifyStorageError(err)
 	}
-	result := make([]FileObjectInfo, len(objects))
+	result := make([]FileObjectInfo, 0, len(objects))
 	for i := range objects {
-		result[i] = FileObjectInfo{Name: objects[i].Name, Size: objects[i].Size, ContentType: objects[i].ContentType, LastModified: objects[i].LastModified}
+		if strings.HasPrefix(objects[i].Name, "message-images/") {
+			continue
+		}
+		result = append(result, FileObjectInfo{Name: objects[i].Name, Size: objects[i].Size, ContentType: objects[i].ContentType, LastModified: objects[i].LastModified})
 	}
 	return result, nil
 }
