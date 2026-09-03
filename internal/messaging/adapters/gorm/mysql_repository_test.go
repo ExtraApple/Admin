@@ -30,16 +30,17 @@ func TestMySQLClaimOutboxSkipsLockedEarlierRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get MySQL database: %v", err)
 	}
-	defer sqlDB.Close()
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&messaginggorm.MessageOutbox{}); err != nil {
 		t.Fatalf("migrate outbox: %v", err)
 	}
 	now := time.Now().UTC()
+	copyID := uint(time.Now().UnixNano())
 	lockedID := "skipa-" + now.Format("20060102150405.000000000")
 	availableID := "skipb-" + now.Format("20060102150405.000000000")
 	records := []messaginggorm.MessageOutbox{
-		{EventID: lockedID, EventName: domain.EventNameMessageCreated, EventVersion: 1, MessageCopyID: 910001, OrganizationID: 1, AggregateVersion: 1, OccurredAt: now, Status: domain.OutboxStatusPending},
-		{EventID: availableID, EventName: domain.EventNameMessageCreated, EventVersion: 1, MessageCopyID: 910002, OrganizationID: 1, AggregateVersion: 1, OccurredAt: now, Status: domain.OutboxStatusPending},
+		{EventID: lockedID, EventName: domain.EventNameMessageCreated, EventVersion: 1, MessageCopyID: copyID, OrganizationID: 1, AggregateVersion: 1, OccurredAt: now, Status: domain.OutboxStatusPending},
+		{EventID: availableID, EventName: domain.EventNameMessageCreated, EventVersion: 1, MessageCopyID: copyID + 1, OrganizationID: 1, AggregateVersion: 1, OccurredAt: now, Status: domain.OutboxStatusPending},
 	}
 	if err := db.Create(&records).Error; err != nil {
 		t.Fatalf("create outboxes: %v", err)

@@ -139,4 +139,4 @@
 - [x] 13.11 评估 RabbitMQ Publisher 的重复发布流程，抽取共享实现或记录明确保留重复的理由
 - [x] 13.12 运行整改回归测试、完整 Go 测试和严格 OpenSpec 校验
 - [x] 13.13 处理非法 RabbitMQ 事件：按受控五级重试进入 Consumer DLQ Projection；仅保存安全元数据和稳定 fingerprint，不保存原始 payload；非法事件 Projection 仅允许查询和丢弃，不允许重放，并补充 RabbitMQ、Repository 和 HTTP 契约测试
-- [ ] 13.14 在隔离 RabbitMQ vhost 和 MySQL 数据库中执行 `rabbitmq_integration`、`mysql_integration` 门禁，并记录命令、环境前置条件和通过结果
+- [x] 13.14 在隔离 RabbitMQ vhost 和 MySQL 数据库中执行 `rabbitmq_integration`、`mysql_integration` 门禁，并记录命令、环境前置条件和通过结果
