@@ -149,3 +149,35 @@
 - **WHEN** 请求包含 Authorization、ticket、消息正文、图片或外链参数
 - **THEN** 请求日志和审计记录 SHALL 省略或替换敏感值
 - **AND** HTTP 错误响应 SHALL 只返回稳定错误码和安全提示
+
+### Requirement: 内部消息操作审计
+系统 SHALL 将内部消息关键业务操作、权限拒绝及 RabbitMQ/Outbox/DLQ 处置写入现有 Audit Log 或受控运行日志，并仅保存稳定安全元数据。
+
+#### Scenario: 消息操作和拒绝审计
+- **WHEN** 用户或管理员发送、编辑、发布、撤销消息、修改分类，或因权限、组织范围、受众、分类或状态规则被拒绝
+- **THEN** Audit SHALL 记录操作者、目标消息副本、组织、动作、结果、稳定原因码和时间
+- **AND** Audit SHALL NOT 记录 Markdown、HTML、图片内容或完整外链 URL
+
+#### Scenario: RabbitMQ、Outbox 和 DLQ 失败日志
+- **WHEN** Outbox 发布、RabbitMQ 消费、重试、死信处理、DLQ Recorder 持久化或 Consumer DLQ 重放失败
+- **THEN** 运行日志 SHALL 包含事件或投影引用、消费者或发布阶段、稳定失败分类和受控重试信息
+- **AND** 日志 SHALL NOT 包含正文、HTML、图片、Token、凭据、外链 URL 或 Broker/数据库原始错误
+
+#### Scenario: Consumer DLQ pending 观测
+- **WHEN** 同一 Consumer 和稳定失败码的 pending 投影从零变为非零且 MySQL 提交成功
+- **THEN** Messaging SHALL best-effort 调用无返回值 `RecordConsumerDLQPending`
+- **AND** Observation 只包含 Consumer、失败码、pending 计数和最旧年龄
+- **AND** Adapter 异常 SHALL 只记受控日志，不阻塞 ACK 或触发 AMQP 重试
+
+#### Scenario: 邮箱验证审计
+- **WHEN** 用户请求、重发或确认邮箱验证，或 SMTP 投递成功、失败、节流拒绝
+- **THEN** Audit SHALL 记录用户 ID、操作、结果、稳定原因码和时间
+- **AND** Audit 与运行日志 SHALL NOT 记录邮箱地址、token、token 摘要、SMTP 用户名、密码、服务器地址或原始 SMTP 错误
+
+### Requirement: WebSocket ticket 脱敏
+系统 SHALL 防止 WebSocket ticket 进入普通请求日志、审计日志和错误响应。
+
+#### Scenario: 请求携带 WebSocket ticket
+- **WHEN** 客户端调用 WebSocket ticket 签发或升级接口
+- **THEN** 请求日志 SHALL 对 ticket 查询参数和协议字段脱敏
+- **AND** 审计和错误响应 SHALL NOT 回显 ticket

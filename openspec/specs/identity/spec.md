@@ -53,3 +53,69 @@ Identity 负责用户身份、资料、认证和邮箱所有权验证。邮箱�
 #### Scenario: 敏感邮箱验证数据脱敏
 - **WHEN** 邮箱验证请求或 SMTP 投递失败
 - **THEN** HTTP 响应、审计日志和运行日志 SHALL 不包含邮箱凭据或原始 SMTP 错误
+
+#### Scenario: 新注册邮箱未验证但可登录
+- **WHEN** 用户注册并提交有效邮箱
+- **THEN** Identity SHALL 创建用户且 `email_verified_at` 为空并允许登录
+- **AND** Messaging 或通知 Consumer SHALL NOT 将该邮箱作为可投递渠道
+
+#### Scenario: 注册验证邮件投递失败
+- **WHEN** 新用户已创建且注册验证邮件 SMTP 投递失败
+- **THEN** Identity SHALL 保留用户、使刚签发凭据失效并返回 HTTP 503 稳定 Identity 错误
+- **AND** 用户 SHALL 能登录并在节流允许后请求重发
+- **AND** 响应 data SHALL NOT 包含 `account_created`、用户 ID、邮箱或 token
+
+#### Scenario: 已验证邮箱通知渠道查询
+- **WHEN** 通知 Adapter 通过 Identity Contract 查询启用用户渠道
+- **THEN** Identity SHALL 仅返回 `email_verified_at` 非空的当前邮箱
+- **AND** Contract SHALL NOT 返回 pending_email、密码、token、SMTP 凭据或持久化模型
+
+#### Scenario: 待验证邮箱仍使用旧渠道
+- **WHEN** 启用用户存在已验证当前 `email` 和未确认 `pending_email`
+- **THEN** Contract SHALL 仅返回当前已验证邮箱
+- **WHEN** 用户确认候选地址并原子提升为 `email`
+- **THEN** 后续查询 SHALL 仅返回新的已验证邮箱
+
+#### Scenario: 邮箱规范化与唯一性
+- **WHEN** Identity 接收注册邮箱或候选 `pending_email`
+- **THEN** 系统 SHALL 沿用现有格式校验和数据库唯一性语义
+- **AND** 不得改写本地部分、大小写或提供商别名
+
+#### Scenario: 邮箱更新密码校验失败不改变状态
+- **WHEN** `PUT /api/user/info` 提交非空 email 且 current_password 缺失或不匹配
+- **THEN** 系统 SHALL 返回 HTTP 422、`IDENTITY_CURRENT_PASSWORD_INVALID` 及 `current_password` 字段
+- **AND** SHALL NOT 修改 email、pending_email、email_verified_at、凭据或发送邮件
+
+#### Scenario: 待验证邮箱替换冲突保留原状态
+- **WHEN** 已验证用户替换已有 pending_email 且候选地址已被占用
+- **THEN** Identity SHALL 返回 HTTP 409 并保留原 pending_email 及其有效凭据
+
+#### Scenario: 未验证当前邮箱直接替换
+- **WHEN** 当前邮箱未验证且无 pending_email，提交未占用候选地址
+- **THEN** Identity SHALL 原子替换 email、保持未验证并使旧邮箱凭据失效
+- **AND** SHALL NOT 创建 pending_email 或将旧邮箱作为通知渠道
+
+#### Scenario: 邮箱验证确认返回安全资料
+- **WHEN** 已认证用户成功确认验证凭据
+- **THEN** 确认接口 SHALL 返回包含 email、pending_email、email_verified 的更新后资料
+- **AND** GET 请求 SHALL NOT 改变验证状态
+
+#### Scenario: 已验证且无候选邮箱无需重发
+- **WHEN** 当前 email 已验证且不存在 pending_email 的用户请求重发
+- **THEN** 系统 SHALL 返回 HTTP 409 且不生成 token 或发送邮件
+
+#### Scenario: 邮箱验证节流
+- **WHEN** 用户在滚动一小时内第四次请求验证邮件
+- **THEN** 系统 SHALL 返回 HTTP 429、稳定节流错误和 `Retry-After`
+- **AND** SHALL NOT 生成 token 或发送邮件
+
+#### Scenario: SMTP 配置边界
+- **WHEN** 应用加载 SMTP 配置
+- **THEN** 配置 SHALL 包含 host、port、username_env、password_env、from_env、tls_mode 和 timeout_seconds
+- **AND** tls_mode 仅允许 disabled、starttls_required 或 implicit，默认超时为 10 秒且覆盖各阶段 deadline
+- **AND** 系统 SHALL NOT 使用 opportunistic TLS 降级或 OAuth2/XOAUTH2 生命周期
+
+#### Scenario: 验证失败安全边界
+- **WHEN** token 无效、过期、已使用、SMTP 失败或请求被节流
+- **THEN** HTTP 响应、审计和运行日志 SHALL NOT 回显邮箱、token、token 摘要、SMTP 凭据、服务器地址或原始错误
+- **THEN** HTTP 响应、审计日志和运行日志 SHALL 不包含邮箱凭据或原始 SMTP 错误

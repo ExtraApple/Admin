@@ -212,3 +212,38 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 - **WHEN** App 同步 Route Catalog
 - **THEN** 消息、死信和邮箱验证入口 SHALL 具有稳定默认 Permission Code、认证等级和审计分类
 - **AND** API Metadata 或权限同步 SHALL NOT 从 Gin Engine 动态发现路由
+
+#### Scenario: 死信 Outbox 重放权限
+- **WHEN** 请求 `GET /api/admin/message-outboxes` 或 `POST /api/admin/message-outboxes/:id/replay`
+- **THEN** API Metadata SHALL 将接口限制为超级管理员
+- **AND** 重放接口 SHALL 声明默认 Permission Code `admin.messages.outbox.replay`
+- **AND** 重放接口 SHALL 仅接受 `dead` 状态的 Outbox
+
+#### Scenario: Consumer 死信管理权限
+- **WHEN** 请求 Consumer DLQ 查询、重放或丢弃入口
+- **THEN** API Metadata SHALL 将接口限制为超级管理员
+- **AND** 接口 SHALL 声明默认 Permission Code `admin.messages.dead-letter.manage`
+
+#### Scenario: 消息接口动态授权
+- **WHEN** 非超级管理员请求消息、公告、消息分类或死信管理入口
+- **AND** API Metadata 已启用且用户拥有对应消息 Permission Code
+- **THEN** 系统 SHALL 允许请求进入 Messaging Handler
+- **AND** 用户缺少权限或超出组织数据范围时 SHALL 拒绝请求
+
+#### Scenario: WebSocket 成功帧不创建 API 权限
+- **WHEN** 权限同步处理消息 WebSocket 路由
+- **THEN** WebSocket 成功帧和 RabbitMQ Exchange/Queue SHALL NOT 被错误创建为 API Permission Code
+
+#### Scenario: 邮箱验证接口契约
+- **WHEN** Identity 提供邮箱验证注册、确认、重发接口
+- **THEN** Route Catalog SHALL 将接口标记为 Authenticated（注册除外）并纳入 API Metadata
+- **AND** 确认接口 SHALL 使用四字段 JSON 错误响应且不得通过 GET 改变状态
+- **AND** 用户资料响应 SHALL 只包含 `email`、`pending_email` 和 `email_verified`
+
+#### Scenario: 邮箱更新错误契约
+- **WHEN** 用户资料更新提交非空 `email`
+- **THEN** OpenAPI Request Schema SHALL 要求 `current_password`
+- **AND** 缺失或不匹配时 SHALL 声明 HTTP 422 与 `IDENTITY_CURRENT_PASSWORD_INVALID`
+- **WHEN** SMTP 投递不可用、候选邮箱冲突或验证邮件请求被节流
+- **THEN** Route Descriptor SHALL 声明稳定 HTTP 503、409 或 429 Identity 错误及 429 的 `Retry-After`
+- **AND** 错误 data SHALL NOT 暴露邮箱、token、SMTP 信息或已提交状态

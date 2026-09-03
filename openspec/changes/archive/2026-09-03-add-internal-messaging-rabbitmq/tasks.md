@@ -134,7 +134,7 @@
 - [x] 13.6 移除 Messaging Application 对 WebSocket SDK 的直接依赖，将升级和协议状态码转换下沉到 Adapter
 - [x] 13.7 按项目约定将 Messaging 跨模块 Contract 整理到单一 `contracts.go`
 - [x] 13.8 将 App 后台 Messaging 日志统一接入受控 `RuntimeLogger` Contract，并限制为允许字段
-- [ ] 13.10 按 OpenSpec 流程处理主规格同步：完成实现和验证后 archive 当前 Change，再合并 delta 到主规格
+- [x] 13.10 按 OpenSpec 流程处理主规格同步：完成实现和验证后 archive 当前 Change，再合并 delta 到主规格
 - [x] 13.9 清理 `CONTEXT.md` 中的 RabbitMQ、WebSocket、DLQ 和运行时实现细节
 - [x] 13.11 评估 RabbitMQ Publisher 的重复发布流程，抽取共享实现或记录明确保留重复的理由
 - [x] 13.12 运行整改回归测试、完整 Go 测试和严格 OpenSpec 校验

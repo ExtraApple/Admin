@@ -308,3 +308,28 @@
 - **WHEN** 用户读取消息图片
 - **THEN** Files SHALL 先验证消息当前可见性并只返回规范 MIME 的图片
 - **AND** 响应和 Audit metadata SHALL NOT 包含图片内容、MinIO bucket、object key、签名 URL、存储凭据或解析器原始错误
+
+#### Scenario: 通过消息图片入口上传
+- **WHEN** 已认证用户或具备消息管理权限的管理员通过消息图片专用入口上传 JPEG、PNG 或 WebP
+- **AND** 图片通过完整解码、大小、格式和尺寸验证
+- **THEN** Files SHALL 创建带消息图片用途、上传者引用和 15 分钟绑定时限的临时 File Record
+- **AND** 临时记录 SHALL NOT 具有消息所有者引用，普通管理员文件上传接口 SHALL NOT 接受该图片
+
+#### Scenario: 普通文件入口上传图片保持拒绝
+- **WHEN** 客户端通过 `POST /api/admin/files` 上传 JPEG、PNG、WebP、SVG 或其他图片
+- **THEN** 系统 SHALL 保持 HTTP 415 拒绝行为
+- **AND** 系统 SHALL NOT 因消息图片用途写入普通文件记录
+
+#### Scenario: 临时图片过期清理
+- **WHEN** 临时消息图片超过 15 分钟绑定时限且尚未绑定
+- **THEN** Files SHALL 清理对应 File Record 及其对象
+
+#### Scenario: 消息图片不可见时拒绝读取
+- **WHEN** 关联消息已撤销、私信关系被删除、消息已过期或用户不再符合动态受众
+- **THEN** Files SHALL 拒绝图片读取
+- **AND** 系统 SHALL NOT 返回图片内容或存储状态
+
+#### Scenario: 消息图片安全审计
+- **WHEN** 消息图片验证成功或因大小、格式、解码、尺寸策略被拒绝
+- **THEN** Audit metadata SHALL 记录用途、清洗文件名、大小、声明 MIME、检测 MIME、`accepted`/`rejected` 结果和策略版本或稳定原因码
+- **AND** metadata SHALL NOT 记录图片内容、object key、签名 URL、MinIO 凭据或解析器原始错误
