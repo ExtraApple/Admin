@@ -61,6 +61,23 @@ func TestRefreshStreamPublisherStoresMinimalEventWithAtomicLuaDedupe(t *testing.
 	}
 }
 
+func TestRefreshStreamPublisherPublishesBatchThroughOneAtomicLuaCall(t *testing.T) {
+	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
+	executor := &evalFake{result: []any{"1724451723000-0", "1724451723000-1"}}
+	notifier := &publishFake{}
+	publisher := newRefreshStreamPublisherWithNotifier(executor, notifier, application.ClockFunc(func() time.Time { return now }))
+	events := []application.RefreshEvent{
+		{EventID: "event-1", Cursor: "event-1", MessageCopyID: 41, UserID: 2, AggregateVersion: 3},
+		{EventID: "event-2", Cursor: "event-2", MessageCopyID: 41, UserID: 3, AggregateVersion: 3},
+	}
+	if err := publisher.PublishRefreshBatch(context.Background(), events); err != nil {
+		t.Fatalf("PublishRefreshBatch() = %v", err)
+	}
+	if len(executor.keys) != 4 || len(executor.args) != 11 || !strings.Contains(executor.script, "for") || !strings.Contains(notifier.payload, `"event_id":"event-2"`) {
+		t.Fatalf("batch script keys=%#v args=%#v script=%q notice=%q", executor.keys, executor.args, executor.script, notifier.payload)
+	}
+}
+
 func TestRefreshStreamPublisherPublishesMinimalOnlineRefreshAfterStreamWrite(t *testing.T) {
 	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
 	executor := &evalFake{result: "1724461324000-0"}

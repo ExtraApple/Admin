@@ -25,6 +25,32 @@ redis.call('XTRIM', KEYS[1], 'MINID', '~', ARGV[2])
 return entryID
 `
 
+const publishRefreshBatchLua = `
+local count = tonumber(ARGV[3])
+local result = {}
+local keyIndex = 1
+local argIndex = 4
+for index = 1, count do
+  local streamKey = KEYS[keyIndex]
+  local dedupeKey = KEYS[keyIndex + 1]
+  local eventID = ARGV[argIndex]
+  local messageCopyID = ARGV[argIndex + 1]
+  local aggregateVersion = ARGV[argIndex + 2]
+  local cursor = ARGV[argIndex + 3]
+  if redis.call('EXISTS', dedupeKey) == 1 then
+    result[index] = false
+  else
+    local entryID = redis.call('XADD', streamKey, '*', 'event_id', eventID, 'message_copy_id', messageCopyID, 'aggregate_version', aggregateVersion, 'event_cursor', cursor)
+    redis.call('SET', dedupeKey, entryID, 'EX', ARGV[1])
+    redis.call('XTRIM', streamKey, 'MINID', '~', ARGV[2])
+    result[index] = entryID
+  end
+  keyIndex = keyIndex + 2
+  argIndex = argIndex + 4
+end
+return result
+`
+
 type scriptEvaluator interface {
 	Eval(context.Context, string, []string, ...any) (any, error)
 }
@@ -46,6 +72,7 @@ type redisRefreshNotifier struct{ client *goredis.Client }
 
 func (notifier redisRefreshNotifier) Publish(ctx context.Context, channel, payload string) error {
 	if notifier.client == nil {
+
 		return fmt.Errorf("Redis client is unavailable")
 	}
 	return notifier.client.Publish(ctx, channel, payload).Err()
@@ -70,6 +97,76 @@ func newRefreshStreamPublisherWithNotifier(evaluator scriptEvaluator, notifier r
 		clock = application.ClockFunc(time.Now)
 	}
 	return &RefreshStreamPublisher{evaluator: evaluator, notifier: notifier, clock: clock}
+}
+func (publisher *RefreshStreamPublisher) PublishRefreshBatch(ctx context.Context, events []application.RefreshEvent) error {
+	if publisher == nil || publisher.evaluator == nil {
+		return fmt.Errorf("invalid Redis refresh publisher")
+	}
+	if len(events) == 0 {
+		return nil
+	}
+	minimumID := strconv.FormatInt(publisher.clock.Now().UTC().Add(-refreshStreamRetention).UnixMilli(), 10) + "-0"
+	keys := make([]string, 0, len(events)*2)
+	args := make([]any, 0, 3+len(events)*4)
+	args = append(args, int64(refreshStreamRetention/time.Second), minimumID, len(events))
+	for _, event := range events {
+		if event.EventID == "" || event.Cursor == "" || event.MessageCopyID == 0 || event.UserID == 0 || event.AggregateVersion == 0 {
+			return fmt.Errorf("invalid Redis refresh event")
+		}
+		keys = append(keys, refreshStreamKey(event.UserID), refreshDedupeKey(event.UserID, event.EventID))
+		args = append(args, event.EventID, event.MessageCopyID, event.AggregateVersion, event.Cursor)
+	}
+	result, err := publisher.evaluator.Eval(ctx, publishRefreshBatchLua, keys, args...)
+	if err != nil {
+		return err
+	}
+	entryIDs, err := refreshStreamBatchEntryIDs(result, len(events))
+	if err != nil {
+		return err
+	}
+	if publisher.notifier == nil {
+		return nil
+	}
+	for index, entryID := range entryIDs {
+		if entryID == "" {
+			continue
+		}
+		event := events[index]
+		payload, err := json.Marshal(refreshNotice{EventID: event.EventID, Cursor: entryID, MessageCopyID: event.MessageCopyID, UserID: event.UserID, AggregateVersion: event.AggregateVersion})
+		if err != nil {
+			return fmt.Errorf("encode Redis refresh notice: %w", err)
+		}
+		if err := publisher.notifier.Publish(ctx, refreshPubSubChannel, string(payload)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func refreshStreamBatchEntryIDs(result any, count int) ([]string, error) {
+	values, ok := result.([]any)
+	if !ok || len(values) != count {
+		return nil, fmt.Errorf("invalid Redis refresh batch result")
+	}
+	entryIDs := make([]string, count)
+	for index, value := range values {
+		if value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case bool:
+			if typed {
+				return nil, fmt.Errorf("invalid Redis refresh batch entry ID")
+			}
+		case string:
+			entryIDs[index] = typed
+		case []byte:
+			entryIDs[index] = string(typed)
+		default:
+			return nil, fmt.Errorf("invalid Redis refresh batch entry ID")
+		}
+	}
+	return entryIDs, nil
 }
 
 func (publisher *RefreshStreamPublisher) PublishRefresh(ctx context.Context, event application.RefreshEvent) error {

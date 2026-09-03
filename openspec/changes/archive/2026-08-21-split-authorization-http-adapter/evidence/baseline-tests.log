@@ -1,0 +1,10 @@
+Command:
+  go test ./internal/app ./internal/routecatalog ./internal/apidoc -count=1
+
+Result:
+  ok   admin/internal/app        14.369s
+  ok   admin/internal/routecatalog 0.196s
+  ok   admin/internal/apidoc     0.196s
+
+Note:
+This baseline command passed after the characterization contract test and shared HTTP extraction; the remaining capability moves are still pending. The existing route, App, Route Catalog and OpenAPI behavior remained green before the remaining file split.

@@ -127,71 +127,63 @@ _Avoid_: 硬删除消息、全局删除
 
 **消息领域事件（Message Domain Event）**：
 消息副本生命周期变更产生的最小异步事实，以稳定名称、事件 ID 和聚合版本标识，不携带消息正文或媒体内容。
-_Avoid_: RabbitMQ 消息、收件箱内容
+_Avoid_：收件箱内容、消息正文
 
 **消息 Outbox（Message Outbox）**：
-与消息业务事实在同一事务中持久化的待发布消息领域事件记录，是 RabbitMQ 不可用时的可靠事实来源。
-_Avoid_: 收件箱、RabbitMQ 队列
+与消息业务事实在同一事务中持久化的待发布消息领域事件记录，是消息投递暂时不可用时的可靠事实来源。
+_Avoid_：收件箱、待处理收件关系
 
 **死信 Outbox（Dead Message Outbox）**：
-达到发布重试上限但尚未由 RabbitMQ 接收的消息 Outbox 终态；只能通过受审计的事件重放恢复。
-_Avoid_: RabbitMQ Dead Letter Exchange、已撤销消息
+达到发布重试上限但尚未被消息投递系统接收的消息 Outbox 终态；只能通过受审计的事件重放恢复。
+_Avoid_：已撤销消息、普通待发布事件
 
 **消息事件重放（Message Event Replay）**：
 将死信 Outbox 按原事件身份和聚合版本恢复为待发布的受控操作，不创建新的业务消息事实。
-_Avoid_: 重发消息、创建新通知
+_Avoid_：重发消息、创建新通知
 
 **消息重试队列（Message Retry Queue）**：
-为单个消息事件 Consumer 提供固定延迟后重新投递的专用队列，不等同于主消费队列或死信队列。
-_Avoid_: 直接重投递、Outbox
+为单个消息事件处理者提供固定延迟后重新投递的专用通道，不等同于普通待处理通道或死信通道。
+_Avoid_：直接重投递、Outbox
 
 **通知投影（Notification Projection）**：
-由 Messaging 按当前消息状态和动态受众计算、供 App 注入的通知 Consumer 读取的最小投递数据。
-_Avoid_: RabbitMQ 事件载荷、静态收件人快照、网络 Projection API
+由 Messaging 按当前消息状态和动态受众计算、供应用读取的最小投递数据。
+_Avoid_：消息事件载荷、静态收件人快照、网络 API
 
 **Outbox 租约（Outbox Lease）**：
-Worker 对待发布消息 Outbox 的有限期独占处理权；租约到期后可由其他 Worker 安全接管。
-_Avoid_: 永久状态锁、全局单 Worker
+处理者对待发布消息 Outbox 的有限期独占处理权；租约到期后可由其他处理者安全接管。
+_Avoid_：永久状态锁、全局单处理者
 
 **消息事件消费游标（Message Event Consumption Cursor）**：
-Consumer 对每个消息副本已处理的最大聚合版本的持久化事实，用于将迟到事件（包括在更高版本后到达的 Consumer 死信重放）标记为 `superseded`，不重复或倒置产生刷新副作用。
-_Avoid_: RabbitMQ 队列位置、临时内存计数
+消息处理者对每个消息副本已处理的最大聚合版本的持久化事实，用于将迟到事件标记为 `superseded`，不重复或倒置产生刷新副作用。
+_Avoid_：临时内存计数、传输通道位置
 
 **受控重试次数（Controlled Retry Attempt）**：
-由应用验证和递增的事件消费重试次数，用于决定何时进入消息重试队列或死信队列。
-_Avoid_: 不受信任的消息头、无限重投递
+由应用验证和递增的事件处理重试次数，用于决定何时进入消息重试通道或死信通道。
+_Avoid_：不受信任的消息头、无限重投递
 
 **Consumer 死信消息（Consumer Dead Letter Message）**：
-超过受控处理重试上限后进入特定 Consumer 隔离死信队列的事件；与尚未被 Broker 接收的死信 Outbox 相区分。
-_Avoid_: 死信 Outbox、已撤销内部消息
+超过受控处理重试上限后进入隔离死信通道的事件；与尚未被消息投递系统接收的死信 Outbox 相区分。
+_Avoid_：死信 Outbox、已撤销内部消息
 
 **消息事件受众快照（Message Event Audience Snapshot）**：
-Consumer 首次处理消息领域事件时固化的不超过 100,000 名当前可见用户集合，仅用于该事件的可恢复刷新投递，不改变消息动态受众定义。关联 Consumer 死信投影时保留并供重放复用。
-_Avoid_: 消息静态收件人、组织成员快照
+消息处理者首次处理消息领域事件时固化的不超过 100,000 名当前可见用户集合，仅用于该事件的可恢复刷新投递，不改变消息动态受众定义；关联死信投影时保留并供重放复用。
+_Avoid_：消息静态收件人、组织成员快照
 
 **受众快照容量超限（Audience Snapshot Capacity Overflow）**：
-首次消费解析到超过 100,000 名当前可见用户时的受控 Consumer 失败；不建立部分用户快照或刷新投递，重试和 Consumer 死信重放均重新计算当前受众。
-_Avoid_: 截断收件人、原快照重放
+首次处理解析到超过 100,000 名当前可见用户时的受控失败；不建立部分用户快照或刷新投递，重试和死信重放均重新计算当前受众。
+_Avoid_：截断收件人、原快照重放
 
 **Consumer 死信投影（Consumer Dead Letter Projection）**：
-由 DLQ Recorder 持久化的 Consumer 死信受控元数据，是管理员查询、重放和丢弃的事实来源，不直接浏览 RabbitMQ 队列。每个 Consumer 和事件只有一个投影；重放后再次死信时递增 `replay_cycle` 并重新打开原投影，全部处置历史保留在 Audit Log。
-_Avoid_: RabbitMQ Management API、死信 Outbox、每轮重复管理记录
+持久化的死信受控元数据，是管理员查询、重放和丢弃的事实来源。每个处理者和事件只有一个投影；重放后再次死信时递增 `replay_cycle` 并重新打开原投影，全部处置历史保留在审计日志。
+_Avoid_：每轮重复管理记录、死信 Outbox
 
-**消息运行观测 Contract（Messaging Operational Observability Contract）**：
-App 注入 Messaging 的供应商无关且 best-effort 窄 Contract，仅定义无返回值的 `RecordConsumerDLQPending(context.Context, ConsumerDLQPendingObservation)`；Observation 只传递 Consumer、稳定失败码、计数和最旧年龄，用于 Consumer DLQ 投影提交后首条 `pending` 告警观测。Adapter 异常只记录受控运行日志，不影响 DLQ Recorder ACK 或触发 AMQP 重试；部署监控系统决定采集和告警。
-_Avoid_: 通用指标名称或标签 map、Prometheus/OTel SDK、Webhook 发送器、SMTP 告警实现、观测失败阻塞死信记录
-
-**消息 Replay Exchange（Message Replay Exchange）**：
-专门将管理员重放的 Consumer 死信事件定向返回原 Consumer 的 Exchange，不向其他 Consumer 广播。
-_Avoid_: 公共事件 Exchange、Outbox 重放
-
-**DLQ Recorder 告警队列（DLQ Recorder Alert Queue）**：
-DLQ Recorder 无法持久化 Consumer 死信投影后进入的不可自动丢弃队列，仅供受限运维工具或 Broker 管理界面处置。
-_Avoid_: Consumer 死信投影、自动清理队列
+**消息运行观测（Messaging Operational Observation）**：
+对异步消息处理待处理情况的供应商无关、尽力而为的观测，只传递处理者、稳定失败码、计数和最旧等待时间；观测失败不得阻塞死信记录或消息处理。
+_Avoid_：通用标签集合、观测失败阻塞业务处理
 
 **消息事件快照租约（Message Event Snapshot Lease）**：
-保存在消息事件消费记录中的有限期独占处理权，使用单调 `snapshot_fence` 防止失租 Consumer 提交或继续副作用。抢占和续期采用独立短 MySQL 事务，长快照事务不锁定该消费记录；只有持有当前围栏并续期租约的 Consumer 能完成同一事件快照，失租后由新围栏 Consumer 接管。
-_Avoid_: 无主快照构建、独立租约表、Redis 锁、全局单 Consumer、过期所有者继续投递
+保存在消息事件消费记录中的有限期独占处理权，使用单调围栏防止失租处理者提交或继续产生副作用；只有持有当前围栏并续期租约的处理者能完成同一事件快照，失租后由新围栏处理者接管。
+_Avoid_：无主快照构建、独立租约概念、全局单处理者、过期所有者继续投递
 
 
 **已验证邮箱（Verified Email）**：
@@ -207,10 +199,3 @@ _Avoid_: 已验证邮箱、临时登录名、并行投递地址
 _Avoid_: 邮箱密码、登录 Token
 
 
-## Messaging 运维边界
-
-Messaging 的最小事件只携带事件 ID、事件名称/版本、消息副本、组织和聚合版本；正文、清洗 HTML、图片、外链 URL、Token 和凭据不进入 RabbitMQ、Redis Stream、WebSocket payload、审计日志或运行日志。
-
-Outbox、事件 Consumer、DLQ Recorder 和 Consumer DLQ Replay 通过 Application 的稳定运行日志 Contract 记录阶段、受控失败码和重试信息。`/api/ready` 只表达进程与 Broker 就绪状态，不承担 Consumer DLQ 告警；DLQ Recorder 投影提交后首次 `pending` 通过无返回值、best-effort 的 `MessagingMetrics.RecordConsumerDLQPending` 上报，Adapter 异常不得阻塞 ACK 或触发 AMQP 重试。
-
-告警队列 `*.dlq.recorder.alert` 由受限 RabbitMQ Management 权限处置；应用 HTTP 审计不得伪造该运维动作。Consumer DLQ 投影通过超级管理员受保护入口查询、重放和丢弃，30 秒重放租约和 `replay_cycle` 保证重复投递、再次死信与旧版本 `superseded` 不倒置刷新。

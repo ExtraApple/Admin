@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"testing"
 
-	"admin/testsupport/testutil"
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	"admin/internal/identity"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

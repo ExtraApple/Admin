@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	apihttp "admin/internal/apimetadata/adapters/http"
 	apiapplication "admin/internal/apimetadata/application"
 	apidomain "admin/internal/apimetadata/domain"
 	"admin/internal/app"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"

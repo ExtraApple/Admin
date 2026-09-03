@@ -142,7 +142,7 @@ type MessageConsumerDeadLetter struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	ConsumerName          string                            `gorm:"type:varchar(64);not null;uniqueIndex:ux_message_dead_letter_consumer_event"`
-	EventID               string                            `gorm:"type:char(36);not null;uniqueIndex:ux_message_dead_letter_consumer_event"`
+	EventID               string                            `gorm:"type:varchar(128);not null;uniqueIndex:ux_message_dead_letter_consumer_event"`
 	OriginalQueue         string                            `gorm:"type:varchar(128);not null"`
 	EventName             messagingdomain.EventName         `gorm:"type:varchar(64);not null"`
 	EventVersion          uint                              `gorm:"not null"`
@@ -158,6 +158,9 @@ type MessageConsumerDeadLetter struct {
 	ReplayLeaseExpiresAt  *time.Time                        `gorm:"index"`
 	LastFailureCode       string                            `gorm:"type:varchar(64);not null;index"`
 	AudienceObservedCount int                               `gorm:"not null;default:0"`
+	Invalid               bool                              `gorm:"not null;default:false;index"`
+	Fingerprint           string                            `gorm:"type:char(64);not null;index"`
+	Replayable            bool                              `gorm:"not null;index"`
 	FinalizedAt           *time.Time                        `gorm:"index"`
 }
 

@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"admin/internal/messaging/domain"
@@ -32,7 +34,14 @@ func NewConsumerDeadLetterRecorder(config ConsumerDeadLetterRecorderConfig) *Con
 }
 
 func (recorder *ConsumerDeadLetterRecorder) Record(ctx context.Context, input ConsumerDeadLetterInput) (ConsumerDeadLetter, error) {
-	if recorder == nil || recorder.store == nil || input.ConsumerName == "" || input.Event.EventID == "" || input.FailureCode == "" {
+	if recorder == nil || recorder.store == nil || input.ConsumerName == "" || input.FailureCode == "" {
+		return ConsumerDeadLetter{}, ErrMessagingDependency
+	}
+	if input.Invalid {
+		if !validEventFingerprint(input.Fingerprint) {
+			return ConsumerDeadLetter{}, ErrConsumerDeadLetterInvalid
+		}
+	} else if input.Event.EventID == "" {
 		return ConsumerDeadLetter{}, ErrMessagingDependency
 	}
 	var before []ConsumerDeadLetter
@@ -88,4 +97,12 @@ func (recorder *ConsumerDeadLetterRecorder) pendingForFailure(ctx context.Contex
 		}
 	}
 	return filtered, nil
+}
+
+func validEventFingerprint(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.ToLower(value))
+	return err == nil
 }

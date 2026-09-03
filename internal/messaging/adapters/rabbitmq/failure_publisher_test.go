@@ -31,3 +31,36 @@ func TestConsumerFailurePublisherConfirmsMinimalRetryAndDeadLetterEvents(t *test
 		t.Fatalf("dead-letter publish = %#v", dlqChannel)
 	}
 }
+
+func TestConsumerFailurePublisherPreservesInvalidBodyOnlyThroughRetriesAndTerminalDLQ(t *testing.T) {
+	body := []byte(`{"event_id":"bad","secret":"do-not-persist"}`)
+	fingerprint := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	retryChannel := &publisherChannelFake{}
+	publisher := messagingrabbitmq.NewConsumerFailurePublisher("websocket", publisherChannelFactoryFake{channel: retryChannel})
+	if err := publisher.PublishInvalidRetry(context.Background(), body, fingerprint, 1); err != nil {
+		t.Fatalf("PublishInvalidRetry() = %v", err)
+	}
+	if string(retryChannel.published.Body) != string(body) || retryChannel.published.Headers[messagingrabbitmq.InvalidEventHeader] != true || retryChannel.published.Headers[messagingrabbitmq.InvalidEventFingerprintHeader] != fingerprint || retryChannel.published.Headers[messagingrabbitmq.RetryAttemptHeader] != int32(1) {
+		t.Fatalf("invalid retry publish = %#v", retryChannel)
+	}
+	deadChannel := &publisherChannelFake{}
+	deadPublisher := messagingrabbitmq.NewConsumerFailurePublisher("websocket", publisherChannelFactoryFake{channel: deadChannel})
+	if err := deadPublisher.PublishInvalidDeadLetter(context.Background(), body, fingerprint, "message_event_invalid"); err != nil {
+		t.Fatalf("PublishInvalidDeadLetter() = %v", err)
+	}
+	if deadChannel.exchange != messagingrabbitmq.DeadLetterExchange || string(deadChannel.published.Body) != string(body) || deadChannel.published.Headers[messagingrabbitmq.InvalidEventHeader] != true || deadChannel.published.Headers[messagingrabbitmq.RetryAttemptHeader] != int32(5) {
+		t.Fatalf("invalid dead-letter publish = %#v", deadChannel)
+	}
+}
+
+func TestConsumerFailurePublisherAllowsEmptyInvalidBody(t *testing.T) {
+	fingerprint := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	channel := &publisherChannelFake{}
+	publisher := messagingrabbitmq.NewConsumerFailurePublisher("websocket", publisherChannelFactoryFake{channel: channel})
+	if err := publisher.PublishInvalidDeadLetter(context.Background(), nil, fingerprint, "message_event_invalid"); err != nil {
+		t.Fatalf("PublishInvalidDeadLetter() = %v", err)
+	}
+	if len(channel.published.Body) != 0 || channel.published.Headers[messagingrabbitmq.InvalidEventHeader] != true {
+		t.Fatalf("empty invalid body publish = %#v", channel)
+	}
+}

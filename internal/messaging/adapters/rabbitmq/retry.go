@@ -15,6 +15,14 @@ type FailureRouter interface {
 	PublishDeadLetter(context.Context, domain.MessageEvent, string, int) error
 }
 
+// InvalidFailureRouter carries the original body through controlled retries
+// without exposing it to Application or persistence. Terminal routing adds
+// only safe headers for the DLQ recorder.
+type InvalidFailureRouter interface {
+	PublishInvalidRetry(context.Context, []byte, string, int) error
+	PublishInvalidDeadLetter(context.Context, []byte, string, string) error
+}
+
 func RouteConsumerFailure(ctx context.Context, router FailureRouter, event domain.MessageEvent, headers amqp.Table, failureCode string, audienceObservedCount int) error {
 	if router == nil || failureCode == "" {
 		return fmt.Errorf("invalid Consumer failure router")

@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	messagingapplication "admin/internal/messaging/application"
 	messagingdomain "admin/internal/messaging/domain"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type readinessBrokerFake struct {
@@ -41,6 +45,23 @@ func TestMessagingReadinessExposesOnlySafeBrokerAndOutboxState(t *testing.T) {
 		if string(encoded) != "" && contains(string(encoded), forbidden) {
 			t.Fatalf("response exposes %q: %s", forbidden, encoded)
 		}
+	}
+}
+
+func TestMessagingRuntimeLoggerAllowListsControlledFields(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	runtime := messagingRuntimeLogger{logger: zap.New(core)}
+	runtime.Warn("messaging_test", messagingapplication.RuntimeLogField{Key: "oldest_pending_age", Value: 2 * time.Minute}, messagingapplication.RuntimeLogField{Key: "raw_error", Value: "database password=secret"})
+	entries := logs.All()
+	if len(entries) != 1 {
+		t.Fatalf("runtime log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["oldest_pending_age"] == nil {
+		t.Fatal("allowed oldest_pending_age field was dropped")
+	}
+	if _, ok := fields["raw_error"]; ok {
+		t.Fatalf("disallowed raw_error field was recorded: %#v", fields)
 	}
 }
 

@@ -25,10 +25,14 @@ type CreateBroadcastRequest struct {
 	Markdown     string
 	Targets      []DynamicAudienceTarget
 	AllUsers     bool
+	ImageIDs     []uint
 }
 
 func (service *Service) CreateBroadcast(ctx context.Context, request CreateBroadcastRequest) ([]domain.Message, error) {
 	if service == nil || service.messages == nil || service.categories == nil || service.authorization == nil || service.organizations == nil || service.transactions == nil {
+		return nil, ErrMessagingDependency
+	}
+	if len(request.ImageIDs) > 0 && service.files == nil {
 		return nil, ErrMessagingDependency
 	}
 	if err := service.requirePermission(ctx, request.ActorID, PermissionBroadcastManage); err != nil {
@@ -82,6 +86,11 @@ func (service *Service) CreateBroadcast(ctx context.Context, request CreateBroad
 				return err
 			}
 			copies = append(copies, copy)
+		}
+		if len(request.ImageIDs) > 0 {
+			if err := service.files.BindMessageImages(tx, MessageImageBinding{ActorID: request.ActorID, MessageLogicalID: logicalID, ImageIDs: append([]uint(nil), request.ImageIDs...)}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

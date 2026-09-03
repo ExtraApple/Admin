@@ -9,10 +9,11 @@ import (
 )
 
 var (
-	ErrNotFound              = errors.New("messaging record not found")
-	ErrStateConflict         = errors.New("messaging record state conflict")
-	ErrLeaseNotHeld          = errors.New("messaging lease is not held")
-	ErrAudienceBatchTooLarge = errors.New("messaging audience delivery batch exceeds 500 users")
+	ErrNotFound                  = errors.New("messaging record not found")
+	ErrStateConflict             = errors.New("messaging record state conflict")
+	ErrLeaseNotHeld              = errors.New("messaging lease is not held")
+	ErrAudienceBatchTooLarge     = errors.New("messaging audience delivery batch exceeds 500 users")
+	ErrConsumerDeadLetterInvalid = errors.New("messaging consumer dead letter is invalid")
 )
 
 // Repository is Messaging's persistence seam. Application modules depend on
@@ -169,6 +170,7 @@ type ConsumerStore interface {
 	RenewEventConsumptionLease(context.Context, EventConsumptionLease) (bool, error)
 	ResetIncompleteAudienceSnapshot(context.Context, EventConsumptionLease) (bool, error)
 	PersistAudienceDeliveryBatch(context.Context, AudienceDeliveryBatch) (bool, error)
+	DiscardAudienceDeliverySnapshot(context.Context, EventConsumptionLease) (bool, error)
 	MarkAudienceSnapshotComplete(context.Context, EventConsumptionLease) (bool, error)
 	FailEventConsumption(context.Context, EventConsumptionFailure) (bool, error)
 	FinalizeEventConsumption(context.Context, EventConsumptionCompletion) (EventConsumptionFinalization, error)
@@ -252,6 +254,8 @@ type ConsumerDeadLetterInput struct {
 	RetryAttempt          int
 	FailureCode           string
 	AudienceObservedCount int
+	Invalid               bool
+	Fingerprint           string
 	Now                   time.Time
 }
 
@@ -268,6 +272,9 @@ type ConsumerDeadLetter struct {
 	ReplayLeaseExpiresAt  *time.Time
 	LastFailureCode       string
 	AudienceObservedCount int
+	Invalid               bool
+	Fingerprint           string
+	Replayable            bool
 	FinalizedAt           *time.Time
 }
 

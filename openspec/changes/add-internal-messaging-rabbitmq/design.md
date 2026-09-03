@@ -58,7 +58,7 @@ Contract 不暴露 GORM Model、Gin Context、SQL、Redis Client、RabbitMQ Chan
 - `message_event_consumptions`：本模块消费者的事件 ID 幂等记录，按消费者名称和事件 ID 唯一；快照建立前使用 `snapshotting` 状态、Worker ID、30 秒可续租租约和单调递增 `snapshot_fence` 抢占，并发 Consumer 还按消息副本和聚合版本拒绝过时的处理结果。租约和围栏只保存在该记录：抢占及续租使用独立短 MySQL 事务，长 `REPEATABLE READ` 快照事务不得锁定该记录；快照状态变更和完成标记均须以 `snapshot_fence` 与未过期租约条件更新。续租失败或围栏不匹配时，当前 Consumer 停止处理并由重投递取得新围栏后接管。受众超过上限时不持久化用户快照，只记录稳定 `audience_capacity_exceeded` 失败码和本次观察到的受众数量；后续重试重新计算当前受众。
 - `message_event_consumer_cursors`：Consumer 名称与消息副本唯一，保存持久化的已处理最大聚合版本；与事件消费记录在同一事务更新，以便并发 Consumer 将迟到事件（包括已处理更高版本后的 Consumer DLQ 旧版本重放）标记为 `superseded` 后安全 ACK，不产生新的 Redis Stream 刷新。
 - `message_event_deliveries`：Consumer、事件 ID 与用户 ID 唯一，保存 Consumer 首次处理事件时不超过 100,000 用户的当前动态受众完整快照；重试仅使用该快照，不成为消息主体的静态受众。普通终态保留 24 小时；关联 Consumer DLQ 投影时保留至投影 30 天终态清理。受众容量超限事件绝不写入部分用户快照。
-- `message_consumer_dead_letters`：由 DLQ Recorder 持久化的 Consumer、事件 ID、原队列、最小事件载荷、受控重试头、末次稳定失败码和观察到的受众数量、状态、`replay_cycle`、重放 Worker、30 秒重放租约、关联的完整受众快照、终态时间和处置审计引用；`(consumer_name, event_id)` 唯一，每次重放后的第五次失败复用原投影，从 `replayed` 重新打开为 `pending` 并递增 `replay_cycle`、更新末次失败事实，所有循环保留受审计处置历史。它是 Consumer DLQ HTTP 查询、重放和丢弃的事实来源，不依赖 RabbitMQ Management API 浏览队列。只有最终保持 `replayed` 或 `discarded` 的投影及关联快照保留 30 天后删除，`pending` 与 `replaying` 不按时间自动删除。
+- `message_consumer_dead_letters`：由 DLQ Recorder 持久化的 Consumer、事件身份、原队列、最小事件载荷（仅对合法事件）、受控重试头、末次稳定失败码和观察到的受众数量、状态、`replay_cycle`、重放 Worker、30 秒重放租约、关联的完整受众快照、终态时间和处置审计引用；合法事件以 `(consumer_name, event_id)` 唯一。无法通过 JSON 或 `MessageEvent` 校验的事件不保存原始 payload，使用稳定 payload fingerprint 作为安全投影身份，只保留 Consumer、身份、失败码、重试次数和 fingerprint 等受控元数据；该类投影可查询和丢弃，不可重放。最终保持 `replayed` 或 `discarded` 的投影及关联快照保留 30 天后删除，`pending` 与 `replaying` 不按时间自动删除。
 
 跨组织发送在一个最外层 MySQL 事务内为每个目标组织创建独立消息副本；按分类编码匹配。任一组织分类缺失或任一副本写入失败，整批回滚。同一用户同时属于多个目标组织时，系统 SHALL 将每个组织副本视为独立收件箱项、已读状态和 Outbox 事件；不得按逻辑消息去重。单一组织副本内命中多个受众规则的同一用户只保留一个用户状态和一次该副本事件投递。
 
@@ -147,6 +147,7 @@ RabbitMQ 拓扑：
 - Topic Exchange：`admin.events.v1`，durable。每个消息生命周期事件使用 `messaging.message.<action>.v1` Routing Key；`<action>` 固定为 `created`、`published`、`edited`、`revoked` 或 `expired`。
 - WebSocket Queue：`admin.messaging.websocket`，durable quorum queue，绑定全部 `messaging.message.*.v1` 生命周期事件；每个 Consumer 使用独立的 durable quorum TTL 重试队列，依次等待 `1s`、`2s`、`4s`、`8s`、`16s` 后再返回主队列，避免直接重投递形成热循环。应用实例作为竞争 Consumer，以 `prefetch=1` 消费；Consumer 在同一事务更新持久化版本游标与事件消费记录，迟到事件标记 `superseded` 后 ACK。
 - Dead Letter Exchange：`admin.events.dlx`，持久化；Consumer 第五次处理失败后进入按 Consumer 与事件类型隔离的 DLX 队列并保留 7 天。每个 Consumer DLQ 配有竞争的 DLQ Recorder，Recorder 将最小事件载荷和受控头持久化至 MySQL 后才 ACK；写入失败时不 ACK，并经独立 TTL 重试后进入不可自动丢弃的运维告警队列。告警队列仅能通过受限运维 CLI 或 RabbitMQ 管理界面处置，标准重放将消息重置受控重试头并定向返回原 DLQ Recorder，不经公共 Topic Exchange。Consumer DLQ HTTP 重放通过 durable direct exchange `admin.events.replay`，按 `consumer.<consumer-name>` 定向返回原 Consumer，不经 `admin.events.v1` 广播。Publisher 无法连接或未获 Confirm 时不能假定 DLX 可用。
+- 非法事件沿用 Consumer 的五级受控重试。RabbitMQ Adapter 负责携带原始投递在重试通道中流转，但 Application、MySQL、日志、审计和 HTTP 只接收安全元数据；达到终态后 DLQ Recorder 计算 fingerprint、写入不可重放 Projection，并在提交后 ACK。
 - 邮件、短信队列本次不声明具体消费者；未来 Consumer 作为 App 注入的进程内 Adapter 调用 Messaging Projection Contract，以最小事件引用查询当前可发送且未读的用户 ID、显示名、标题、清洗 HTML、服务端派生纯文本、消息副本 ID 和事件版本。Adapter 通过 Identity Contract 仅解析当前已验证渠道地址，不从 RabbitMQ 事件读取正文、邮箱或手机号。若 RabbitMQ 延迟、重试或重放时目标用户已在站内读取消息，Projection 不返回该用户，Adapter 不得再发起外部通知；未读资格只在 Projection 查询时判定，查询完成后才发生的已读不会撤回已在途的 SMTP/短信发送。本 Change 不增加外部投递预约、发送状态或取消机制。用户存在 `pending_email` 时，当前已验证 `email` 继续是唯一可投递邮箱；候选地址确认并原子提升后，后续查询才返回新邮箱。只有私信 `created` 以及管理员群发/公告 `published` 事件允许触发外部通知。
 
 事件最小字段：`event_id`、`event_name`、`event_version`、`message_copy_id`、`organization_id`、`occurred_at`、`aggregate_version`。不得携带 Markdown、HTML、图片二进制、长期 Token 或外链 URL。
@@ -220,7 +221,7 @@ HTTP 业务响应遵守现有 `code`、`error_code`、`msg`、`data` 四字段�
 ## Migration Plan
 
 1. 增加配置和依赖，但先保持新增消息路由未注册；确认 RabbitMQ vhost、凭据、Exchange/Queue 权限和本地单节点开发实例。
-2. 执行数据库 AutoMigrate/迁移，创建消息、Outbox、幂等和消息图片用途字段；不修改既有消息数据（当前不存在）。
+2. 执行数据库 AutoMigrate/迁移，创建消息、Outbox、幂等和消息图片用途字段，以及 Consumer DLQ 安全投影身份、fingerprint 和不可重放标记；不修改既有消息数据（当前不存在）。
 3. 部署内部消息模块、RabbitMQ 拓扑声明、Outbox Worker、WebSocket Consumer 和 Gateway。
 4. 先启用私信和收件箱，再启用管理员群发、公告、分类和撤销入口；每阶段运行对应契约与集成测试。
 5. 观察 Outbox backlog、发布失败、消费者重试、死信、WebSocket 在线数和恢复失败指标。

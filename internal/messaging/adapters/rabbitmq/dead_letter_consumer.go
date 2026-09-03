@@ -2,8 +2,11 @@ package rabbitmq
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"admin/internal/messaging/application"
 	"admin/internal/messaging/domain"
@@ -73,7 +76,7 @@ func (consumer *ConsumerDeadLetterConsumer) Run(ctx context.Context) error {
 			if !open {
 				return nil
 			}
-			event, failureCode, retryAttempt, audienceObservedCount, valid := decodeDeadLetter(delivery)
+			event, failureCode, retryAttempt, audienceObservedCount, invalid, fingerprint, valid := decodeDeadLetter(delivery)
 			if !valid {
 				consumer.log("warn", "messaging_rabbitmq_dlq_decode_failed", application.RuntimeLogField{Key: "consumer", Value: consumer.consumerName}, application.RuntimeLogField{Key: "stage", Value: "decode"}, application.RuntimeLogField{Key: "failure_code", Value: "consumer_dlq_payload_invalid"}, application.RuntimeLogField{Key: "retry_attempt", Value: retryAttempt})
 				if err := channel.Nack(delivery.DeliveryTag, false, false); err != nil {
@@ -81,7 +84,8 @@ func (consumer *ConsumerDeadLetterConsumer) Run(ctx context.Context) error {
 				}
 				continue
 			}
-			if _, err := consumer.recorder.Record(ctx, application.ConsumerDeadLetterInput{ConsumerName: consumer.consumerName, Event: event, OriginalQueue: consumer.originalQueue, RetryAttempt: retryAttempt, FailureCode: failureCode, AudienceObservedCount: audienceObservedCount}); err != nil {
+			input := application.ConsumerDeadLetterInput{ConsumerName: consumer.consumerName, Event: event, OriginalQueue: consumer.originalQueue, RetryAttempt: retryAttempt, FailureCode: failureCode, AudienceObservedCount: audienceObservedCount, Invalid: invalid, Fingerprint: fingerprint}
+			if _, err := consumer.recorder.Record(ctx, input); err != nil {
 				consumer.log("warn", "messaging_rabbitmq_dlq_record_failed", application.RuntimeLogField{Key: "consumer", Value: consumer.consumerName}, application.RuntimeLogField{Key: "event_id", Value: event.EventID}, application.RuntimeLogField{Key: "stage", Value: "record"}, application.RuntimeLogField{Key: "failure_code", Value: "consumer_dlq_record_failed"}, application.RuntimeLogField{Key: "retry_attempt", Value: retryAttempt})
 				if nackErr := channel.Nack(delivery.DeliveryTag, false, false); nackErr != nil {
 					return nackErr
@@ -97,28 +101,34 @@ func (consumer *ConsumerDeadLetterConsumer) Run(ctx context.Context) error {
 	}
 }
 
-func decodeDeadLetter(delivery amqp.Delivery) (domain.MessageEvent, string, int, int, bool) {
-	var payload eventPayload
-	if err := json.Unmarshal(delivery.Body, &payload); err != nil {
-		return domain.MessageEvent{}, "", 0, 0, false
-	}
-	event := payload.toDomain()
-	if err := domain.ValidateMessageEvent(event); err != nil {
-		return domain.MessageEvent{}, "", 0, 0, false
-	}
+func decodeDeadLetter(delivery amqp.Delivery) (domain.MessageEvent, string, int, int, bool, string, bool) {
 	retryAttempt, ok := headerIntValue(delivery.Headers, RetryAttemptHeader)
 	if !ok || retryAttempt != terminalConsumerRetryAttempt {
-		return domain.MessageEvent{}, "", 0, 0, false
+		return domain.MessageEvent{}, "", retryAttempt, 0, false, "", false
 	}
 	failureCode, ok := stringHeader(delivery.Headers, FailureCodeHeader)
 	if !ok || failureCode == "" {
-		return domain.MessageEvent{}, "", 0, 0, false
+		return domain.MessageEvent{}, "", retryAttempt, 0, false, "", false
 	}
 	audienceObservedCount, ok := nonNegativeIntHeader(delivery.Headers, AudienceObservedCountHeader)
 	if !ok {
-		return domain.MessageEvent{}, "", 0, 0, false
+		return domain.MessageEvent{}, "", retryAttempt, 0, false, "", false
 	}
-	return event, failureCode, retryAttempt, audienceObservedCount, true
+	if invalid, ok := boolHeader(delivery.Headers, InvalidEventHeader); ok && invalid {
+		digest := sha256.Sum256(delivery.Body)
+		fingerprint := hex.EncodeToString(digest[:])
+		event := domain.MessageEvent{EventID: "invalid:" + fingerprint, EventName: domain.EventNameInvalid, EventVersion: 1, OccurredAt: time.Unix(0, 0).UTC()}
+		return event, failureCode, retryAttempt, audienceObservedCount, true, fingerprint, true
+	}
+	var payload eventPayload
+	if err := json.Unmarshal(delivery.Body, &payload); err != nil {
+		return domain.MessageEvent{}, "", retryAttempt, 0, false, "", false
+	}
+	event := payload.toDomain()
+	if err := domain.ValidateMessageEvent(event); err != nil {
+		return domain.MessageEvent{}, "", retryAttempt, 0, false, "", false
+	}
+	return event, failureCode, retryAttempt, audienceObservedCount, false, "", true
 }
 
 func headerIntValue(headers amqp.Table, key string) (int, bool) {
@@ -144,6 +154,17 @@ func stringHeader(headers amqp.Table, key string) (string, bool) {
 	return text, ok
 }
 
+func boolHeader(headers amqp.Table, key string) (bool, bool) {
+	if headers == nil {
+		return false, false
+	}
+	value, ok := headers[key]
+	if !ok {
+		return false, false
+	}
+	typed, ok := value.(bool)
+	return typed, ok
+}
 func nonNegativeIntHeader(headers amqp.Table, key string) (int, bool) {
 	if headers == nil {
 		return 0, true

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/navigation"
 	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
 )
 
 func TestRepositoryOwnsMenuAndRelationshipPersistence(t *testing.T) {

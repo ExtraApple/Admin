@@ -11,6 +11,7 @@ import (
 	platformdatabase "admin/internal/platform/database"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type UserModel = identity.User
@@ -37,6 +38,17 @@ func (repository *Repository) FindByUsername(ctx context.Context, username strin
 func (repository *Repository) FindByID(ctx context.Context, userID uint) (domain.User, error) {
 	var user UserModel
 	if err := repository.connection(ctx).First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.User{}, application.ErrUserNotFound
+		}
+		return domain.User{}, err
+	}
+	return toDomain(user), nil
+}
+
+func (repository *Repository) FindByIDForUpdate(ctx context.Context, userID uint) (domain.User, error) {
+	var user UserModel
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return domain.User{}, application.ErrUserNotFound
 		}
@@ -198,6 +210,45 @@ func (repository *Repository) CountIssuedSince(ctx context.Context, userID uint,
 	return int(count), err
 }
 
+func (repository *Repository) IssueCredential(ctx context.Context, credential domain.EmailVerificationCredential, since time.Time, limit int) (bool, error) {
+	if credential.UserID == 0 || limit <= 0 {
+		return false, nil
+	}
+	issued := false
+	err := repository.connection(ctx).Transaction(func(tx *gorm.DB) error {
+		var user UserModel
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, credential.UserID).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&identity.EmailVerificationCredential{}).
+			Where("user_id = ? AND created_at >= ?", credential.UserID, since).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= int64(limit) {
+			return nil
+		}
+		now := credential.CreatedAt
+		if err := tx.Model(&identity.EmailVerificationCredential{}).
+			Where("user_id = ? AND used_at IS NULL", credential.UserID).
+			Update("used_at", now).Error; err != nil {
+			return err
+		}
+		record := identity.EmailVerificationCredential{
+			Model:  gorm.Model{CreatedAt: credential.CreatedAt},
+			UserID: credential.UserID, Email: credential.Email, TokenHash: credential.TokenHash,
+			ExpiresAt: credential.ExpiresAt, UsedAt: credential.UsedAt,
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		issued = true
+		return nil
+	})
+	return issued, err
+}
+
 func (repository *Repository) ReplaceActive(ctx context.Context, credential domain.EmailVerificationCredential) error {
 	db := repository.connection(ctx)
 	now := credential.CreatedAt
@@ -241,7 +292,7 @@ func (repository *Repository) Confirm(ctx context.Context, userID uint, tokenHas
 		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
 	}
 	var user identity.User
-	if err := db.First(&user, userID).Error; err != nil {
+	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
 		}

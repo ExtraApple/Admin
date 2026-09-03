@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"

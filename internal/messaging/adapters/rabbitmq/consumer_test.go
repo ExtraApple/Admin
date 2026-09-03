@@ -76,6 +76,54 @@ func (router *consumerFailureRouterFake) PublishDeadLetter(_ context.Context, ev
 	return nil
 }
 
+type invalidConsumerFailureRouterFake struct {
+	retryBodies       [][]byte
+	retryFingerprints []string
+	retryAttempts     []int
+	deadBodies        [][]byte
+	deadFingerprints  []string
+	deadFailureCodes  []string
+}
+
+func (router *invalidConsumerFailureRouterFake) PublishInvalidRetry(_ context.Context, body []byte, fingerprint string, attempt int) error {
+	router.retryBodies = append(router.retryBodies, append([]byte(nil), body...))
+	router.retryFingerprints = append(router.retryFingerprints, fingerprint)
+	router.retryAttempts = append(router.retryAttempts, attempt)
+	return nil
+}
+func (router *invalidConsumerFailureRouterFake) PublishInvalidDeadLetter(_ context.Context, body []byte, fingerprint, failureCode string) error {
+	router.deadBodies = append(router.deadBodies, append([]byte(nil), body...))
+	router.deadFingerprints = append(router.deadFingerprints, fingerprint)
+	router.deadFailureCodes = append(router.deadFailureCodes, failureCode)
+	return nil
+}
+
+func TestCompetingConsumerRoutesInvalidEventThroughControlledRetryWithoutProcessing(t *testing.T) {
+	messages := make(chan amqp.Delivery, 1)
+	channel := &competingConsumerChannelFake{messages: messages}
+	processor := &eventProcessorFake{}
+	router := &invalidConsumerFailureRouterFake{}
+	consumer := messagingrabbitmq.NewCompetingConsumer(messagingrabbitmq.CompetingConsumerConfig{Queue: "admin.messaging.websocket", ConsumerName: "websocket", Channels: consumerChannelFactoryFake{channel: channel}, Processor: processor, Failures: router})
+	body := []byte(`{"event_id":"invalid","body":"do-not-persist"}`)
+	messages <- amqp.Delivery{DeliveryTag: 15, Body: body}
+	close(messages)
+	if err := consumer.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(router.retryBodies) != 1 || string(router.retryBodies[0]) != string(body) || router.retryAttempts[0] != 1 || len(router.deadBodies) != 0 || len(processor.events) != 0 || len(channel.acked) != 1 || channel.acked[0] != 15 {
+		t.Fatalf("invalid event routing router=%#v processor=%#v channel=%#v", router, processor, channel)
+	}
+	if len(router.retryFingerprints[0]) != 64 {
+		t.Fatalf("invalid event fingerprint=%q, want SHA-256", router.retryFingerprints[0])
+	}
+}
+func (*invalidConsumerFailureRouterFake) PublishRetry(context.Context, domain.MessageEvent, int) error {
+	return nil
+}
+func (*invalidConsumerFailureRouterFake) PublishDeadLetter(context.Context, domain.MessageEvent, string, int) error {
+	return nil
+}
+
 func TestCompetingConsumerSetsPrefetchOneAndAcksProcessedMinimalEvent(t *testing.T) {
 	messages := make(chan amqp.Delivery, 1)
 	channel := &competingConsumerChannelFake{messages: messages}
@@ -100,6 +148,7 @@ func TestCompetingConsumerNacksMalformedEventsAndRoutesProcessingFailuresThrough
 	channel := &competingConsumerChannelFake{messages: messages}
 	processor := &eventProcessorFake{err: context.DeadlineExceeded}
 	router := &consumerFailureRouterFake{}
+
 	consumer := messagingrabbitmq.NewCompetingConsumer(messagingrabbitmq.CompetingConsumerConfig{Queue: "admin.messaging.websocket", ConsumerName: "websocket", Channels: consumerChannelFactoryFake{channel: channel}, Processor: processor, Failures: router})
 	messages <- amqp.Delivery{DeliveryTag: 8, Body: []byte("not-json")}
 	messages <- amqp.Delivery{DeliveryTag: 9, Body: []byte(`{"event_id":"event-2","event_name":"messaging.message.published.v1","event_version":1,"message_copy_id":41,"organization_id":10,"occurred_at":"2026-08-24T01:02:03Z","aggregate_version":1}`)}
@@ -109,6 +158,21 @@ func TestCompetingConsumerNacksMalformedEventsAndRoutesProcessingFailuresThrough
 	}
 	if len(channel.nacked) != 1 || channel.nacked[0] != 8 || len(channel.acked) != 1 || channel.acked[0] != 9 || len(router.retryEvents) != 1 || router.retryEvents[0].EventID != "event-2" || len(router.attempts) != 1 || router.attempts[0] != 1 || len(router.deadEvents) != 0 {
 		t.Fatalf("consumer state acked=%#v nacked=%#v retries=%#v attempts=%#v dead=%#v", channel.acked, channel.nacked, router.retryEvents, router.attempts, router.deadEvents)
+	}
+}
+func TestCompetingConsumerRoutesFourthInvalidAttemptToDeadLetterAndAcks(t *testing.T) {
+	messages := make(chan amqp.Delivery, 1)
+	channel := &competingConsumerChannelFake{messages: messages}
+	router := &invalidConsumerFailureRouterFake{}
+	consumer := messagingrabbitmq.NewCompetingConsumer(messagingrabbitmq.CompetingConsumerConfig{Queue: "admin.messaging.websocket", ConsumerName: "websocket", Channels: consumerChannelFactoryFake{channel: channel}, Processor: &eventProcessorFake{}, Failures: router})
+	body := []byte(`{"event_id":"bad","secret":"do-not-persist"}`)
+	messages <- amqp.Delivery{DeliveryTag: 16, Headers: amqp.Table{messagingrabbitmq.RetryAttemptHeader: int32(4), messagingrabbitmq.InvalidEventHeader: true}, Body: body}
+	close(messages)
+	if err := consumer.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(router.retryBodies) != 0 || len(router.deadBodies) != 1 || string(router.deadBodies[0]) != string(body) || router.deadFailureCodes[0] != "message_event_invalid" || len(channel.acked) != 1 || channel.acked[0] != 16 {
+		t.Fatalf("terminal invalid routing router=%#v channel=%#v", router, channel)
 	}
 }
 

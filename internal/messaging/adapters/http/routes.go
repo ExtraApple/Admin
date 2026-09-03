@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -15,6 +16,7 @@ import (
 	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"admin/internal/uploadsecurity"
+	websocket "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 )
 
@@ -45,10 +47,12 @@ func Routes(service *application.Service) []routecatalog.Descriptor {
 }
 
 // WebSocketRoutes declares the authenticated ticket and native protocol upgrade
-// endpoints separately from the message JSON endpoints so App can add both to
-// one Route Catalog snapshot.
 func WebSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway) []routecatalog.Descriptor {
-	h := &webSocketHandler{tickets: tickets, gateway: gateway}
+	return webSocketRoutes(tickets, gateway, acceptCoderWebSocket)
+}
+
+func webSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway, accept func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error)) []routecatalog.Descriptor {
+	h := &webSocketHandler{tickets: tickets, gateway: gateway, accept: accept}
 	return []routecatalog.Descriptor{
 		messageRoute(http.MethodPost, "/api/user/messages/ws-ticket", "Issue Message WebSocket Ticket", routecatalog.Authenticated, h.issueTicket, nil, WebSocketTicketResponse{}),
 		webSocketUpgradeRoute(http.MethodGet, "/api/user/messages/ws", "Upgrade Message WebSocket", routecatalog.Authenticated, h.upgrade),
@@ -69,6 +73,7 @@ func webSocketUpgradeRoute(method, path, name string, access routecatalog.Access
 type webSocketHandler struct {
 	tickets *application.WebSocketTicketService
 	gateway *application.WebSocketGateway
+	accept  func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error)
 }
 
 func (h *webSocketHandler) issueTicket(c *gin.Context) {
@@ -89,9 +94,39 @@ func (h *webSocketHandler) upgrade(c *gin.Context) {
 		writeMessageError(c, application.ErrWebSocketGatewayUnavailable)
 		return
 	}
-	if err := h.gateway.Upgrade(c.Request.Context(), c.Writer, c.Request, c.GetUint("userID")); err != nil {
+	if h.accept == nil {
+		writeMessageError(c, application.ErrWebSocketGatewayUnavailable)
+		return
+	}
+	request := application.WebSocketRequest{Ticket: c.Query("ticket"), Cursor: c.Query("cursor")}
+	if err := h.gateway.Connect(c.Request.Context(), request, c.GetUint("userID"), func(context.Context) (application.WebSocketConnection, error) {
+		return h.accept(c.Writer, c.Request)
+	}); err != nil {
 		writeMessageError(c, err)
 	}
+}
+
+type coderWebSocketConnection struct{ connection *websocket.Conn }
+
+func (connection coderWebSocketConnection) Read(ctx context.Context) ([]byte, error) {
+	_, payload, err := connection.connection.Read(ctx)
+	return payload, err
+}
+
+func (connection coderWebSocketConnection) Write(ctx context.Context, payload []byte) error {
+	return connection.connection.Write(ctx, websocket.MessageText, payload)
+}
+
+func (connection coderWebSocketConnection) Close(reason string) error {
+	return connection.connection.Close(websocket.StatusGoingAway, reason)
+}
+
+func acceptCoderWebSocket(writer http.ResponseWriter, request *http.Request) (application.WebSocketConnection, error) {
+	connection, err := websocket.Accept(writer, request, nil)
+	if err != nil {
+		return nil, err
+	}
+	return coderWebSocketConnection{connection: connection}, nil
 }
 
 func messageRoute(method, path, name string, access routecatalog.AccessLevel, handler gin.HandlerFunc, request, response any) routecatalog.Descriptor {
@@ -152,7 +187,7 @@ func (h *handler) sendPrivate(c *gin.Context) {
 		writeMessageError(c, application.ErrMessagingDependency)
 		return
 	}
-	message, err := h.service.SendPrivateMessage(c.Request.Context(), application.SendPrivateMessageRequest{SenderID: c.GetUint("userID"), RecipientID: request.RecipientID, Title: request.Title, Markdown: request.Markdown})
+	message, err := h.service.SendPrivateMessage(c.Request.Context(), application.SendPrivateMessageRequest{SenderID: c.GetUint("userID"), RecipientID: request.RecipientID, Title: request.Title, Markdown: request.Markdown, ImageIDs: append([]uint(nil), request.ImageIDs...)})
 	if err != nil {
 		writeMessageError(c, err)
 		return

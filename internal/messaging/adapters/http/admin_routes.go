@@ -1,6 +1,8 @@
 package httpadapter
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -20,7 +22,7 @@ func AdminRoutes(service *application.Service) []routecatalog.Descriptor {
 		adminRoute(http.MethodPost, "/api/admin/announcements", "Create Announcement", application.PermissionAnnouncementManage, h.createAnnouncement, CreateAnnouncementRequest{}, []MessageDTO{}),
 		adminRoute(http.MethodGet, "/api/admin/announcements/:id", "Get Announcement", application.PermissionAnnouncementManage, h.getAnnouncement, nil, MessageDTO{}),
 		adminRoute(http.MethodPut, "/api/admin/announcements/:id", "Edit Announcement", application.PermissionAnnouncementManage, h.editAnnouncement, EditAnnouncementRequest{}, MessageDTO{}),
-		adminRoute(http.MethodPost, "/api/admin/announcements/:id/publish", "Publish Announcement", application.PermissionAnnouncementManage, h.publishAnnouncement, nil, MessageDTO{}),
+		adminRoute(http.MethodPost, "/api/admin/announcements/:id/publish", "Publish Announcement", application.PermissionAnnouncementManage, h.publishAnnouncement, PublishAnnouncementRequest{}, MessageDTO{}),
 		adminRoute(http.MethodPost, "/api/admin/announcements/:id/revoke", "Revoke Announcement", application.PermissionMessageRevokeAll, h.revokeMessage, nil, MessageDTO{}),
 		adminRoute(http.MethodGet, "/api/admin/message-categories", "List Message Categories", application.PermissionCategoryManage, h.listCategories, nil, CategoryListResponse{}),
 		adminRoute(http.MethodPost, "/api/admin/message-categories", "Create Message Category", application.PermissionCategoryManage, h.createCategory, CreateMessageCategoryRequest{}, MessageCategoryDTO{}),
@@ -74,7 +76,7 @@ func (h *adminHandler) createBroadcast(c *gin.Context) {
 		writeMessageError(c, application.ErrInboxRequestInvalid)
 		return
 	}
-	messages, err := h.service.CreateBroadcast(c.Request.Context(), application.CreateBroadcastRequest{ActorID: c.GetUint("userID"), CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers})
+	messages, err := h.service.CreateBroadcast(c.Request.Context(), application.CreateBroadcastRequest{ActorID: c.GetUint("userID"), CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers, ImageIDs: append([]uint(nil), request.ImageIDs...)})
 	if err != nil {
 		writeMessageError(c, err)
 		return
@@ -102,7 +104,7 @@ func (h *adminHandler) createAnnouncement(c *gin.Context) {
 		writeMessageError(c, application.ErrInboxRequestInvalid)
 		return
 	}
-	messages, err := h.service.CreateAnnouncement(c.Request.Context(), application.CreateAnnouncementRequest{ActorID: c.GetUint("userID"), CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers, PublishAt: request.PublishAt, ExpiresAt: request.ExpiresAt})
+	messages, err := h.service.CreateAnnouncement(c.Request.Context(), application.CreateAnnouncementRequest{ActorID: c.GetUint("userID"), CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers, PublishAt: request.PublishAt, ExpiresAt: request.ExpiresAt, ImageIDs: append([]uint(nil), request.ImageIDs...)})
 	if err != nil {
 		writeMessageError(c, err)
 		return
@@ -133,7 +135,7 @@ func (h *adminHandler) editAnnouncement(c *gin.Context) {
 		writeMessageError(c, application.ErrInboxRequestInvalid)
 		return
 	}
-	message, err := h.service.EditAnnouncement(c.Request.Context(), application.EditAnnouncementRequest{ActorID: c.GetUint("userID"), MessageID: messageID, CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers, ExpiresAt: request.ExpiresAt})
+	message, err := h.service.EditAnnouncement(c.Request.Context(), application.EditAnnouncementRequest{ActorID: c.GetUint("userID"), MessageID: messageID, CategoryCode: request.CategoryCode, Title: request.Title, Markdown: request.Markdown, Targets: dynamicAudienceTargets(request.Targets), AllUsers: request.AllUsers, ExpiresAt: request.ExpiresAt, ImageIDs: append([]uint(nil), request.ImageIDs...)})
 	if err != nil {
 		writeMessageError(c, err)
 		return
@@ -146,7 +148,12 @@ func (h *adminHandler) publishAnnouncement(c *gin.Context) {
 	if !ok {
 		return
 	}
-	message, err := h.service.PublishAnnouncement(c.Request.Context(), application.PublishAnnouncementRequest{ActorID: c.GetUint("userID"), MessageID: messageID})
+	var request PublishAnnouncementRequest
+	if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		writeMessageError(c, application.ErrInboxRequestInvalid)
+		return
+	}
+	message, err := h.service.PublishAnnouncement(c.Request.Context(), application.PublishAnnouncementRequest{ActorID: c.GetUint("userID"), MessageID: messageID, ImageIDs: append([]uint(nil), request.ImageIDs...)})
 	if err != nil {
 		writeMessageError(c, err)
 		return
@@ -416,5 +423,5 @@ func toOutboxDTO(outbox domain.MessageOutbox) MessageOutboxDTO {
 }
 
 func toDeadLetterDTO(deadLetter application.ConsumerDeadLetter) ConsumerDeadLetterDTO {
-	return ConsumerDeadLetterDTO{ID: deadLetter.ID, ConsumerName: deadLetter.ConsumerName, EventID: deadLetter.Event.EventID, OriginalQueue: deadLetter.OriginalQueue, EventName: string(deadLetter.Event.EventName), EventVersion: deadLetter.Event.EventVersion, MessageCopyID: deadLetter.Event.MessageCopyID, OrganizationID: deadLetter.Event.OrganizationID, AggregateVersion: deadLetter.Event.AggregateVersion, RetryAttempt: deadLetter.RetryAttempt, Status: string(deadLetter.Status), ReplayCycle: deadLetter.ReplayCycle, LastFailureCode: deadLetter.LastFailureCode, AudienceObservedCount: deadLetter.AudienceObservedCount, FinalizedAt: deadLetter.FinalizedAt}
+	return ConsumerDeadLetterDTO{ID: deadLetter.ID, ConsumerName: deadLetter.ConsumerName, EventID: deadLetter.Event.EventID, OriginalQueue: deadLetter.OriginalQueue, EventName: string(deadLetter.Event.EventName), EventVersion: deadLetter.Event.EventVersion, MessageCopyID: deadLetter.Event.MessageCopyID, OrganizationID: deadLetter.Event.OrganizationID, AggregateVersion: deadLetter.Event.AggregateVersion, RetryAttempt: deadLetter.RetryAttempt, Status: string(deadLetter.Status), ReplayCycle: deadLetter.ReplayCycle, LastFailureCode: deadLetter.LastFailureCode, AudienceObservedCount: deadLetter.AudienceObservedCount, Invalid: deadLetter.Invalid, Fingerprint: deadLetter.Fingerprint, Replayable: deadLetter.Replayable, FinalizedAt: deadLetter.FinalizedAt}
 }

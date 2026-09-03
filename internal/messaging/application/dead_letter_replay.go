@@ -55,7 +55,11 @@ func (service *ConsumerDeadLetterReplayService) Replay(ctx context.Context, id u
 		service.logger.Info("messaging_consumer_dlq_replay_lease_unavailable", runtimeField("stage", "claim"), runtimeField("projection_id", id), runtimeField("failure_code", "consumer_dlq_replay_lease_unavailable"))
 		return deadLetter, false, nil
 	}
-	service.logger.Info("messaging_consumer_dlq_replay_started", runtimeField("stage", "replay"), runtimeField("projection_id", deadLetter.ID), runtimeField("event_id", deadLetter.Event.EventID), runtimeField("replay_cycle", deadLetter.ReplayCycle))
+	if deadLetter.Invalid || (deadLetter.Fingerprint != "" && !deadLetter.Replayable) {
+		result := ConsumerDeadLetterReplayResult{ID: deadLetter.ID, WorkerID: service.workerID, Fence: deadLetter.ReplayLeaseFence, Now: service.clock.Now().UTC()}
+		_, _ = service.store.ReturnConsumerDeadLetterPending(ctx, result)
+		return deadLetter, false, ErrConsumerDeadLetterInvalid
+	}
 	result := ConsumerDeadLetterReplayResult{ID: deadLetter.ID, WorkerID: service.workerID, Fence: deadLetter.ReplayLeaseFence, Now: service.clock.Now().UTC()}
 	if err := service.publisher.PublishConsumerReplay(ctx, deadLetter.ConsumerName, deadLetter.Event); err != nil {
 		service.logger.Warn("messaging_consumer_dlq_replay_publish_failed", runtimeField("stage", "publish"), runtimeField("projection_id", deadLetter.ID), runtimeField("event_id", deadLetter.Event.EventID), runtimeField("failure_code", "consumer_dlq_replay_publish_failed"), runtimeField("retry_attempt", deadLetter.RetryAttempt))

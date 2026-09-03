@@ -8,10 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"

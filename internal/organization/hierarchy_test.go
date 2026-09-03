@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"admin/testsupport/testutil"
 	"admin/internal/organization"
+	"admin/testsupport/testutil"
 )
 
 type hierarchyReader interface {

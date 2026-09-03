@@ -138,7 +138,8 @@ func (*adminOutboxStoreFake) ListOutboxes(context.Context, application.OutboxLis
 }
 
 type adminDeadLetterStoreFake struct {
-	discardID uint
+	discardID    uint
+	invalidClaim bool
 }
 
 func (*adminDeadLetterStoreFake) RecordConsumerDeadLetter(context.Context, application.ConsumerDeadLetterInput) (application.ConsumerDeadLetter, error) {
@@ -147,7 +148,10 @@ func (*adminDeadLetterStoreFake) RecordConsumerDeadLetter(context.Context, appli
 func (*adminDeadLetterStoreFake) ListConsumerDeadLetters(context.Context, application.ConsumerDeadLetterListQuery) ([]application.ConsumerDeadLetter, int64, error) {
 	return []application.ConsumerDeadLetter{{ID: 8, ConsumerName: "websocket", Event: domain.MessageEvent{EventID: "event-8"}, Status: domain.ConsumerDLQStatusPending}}, 1, nil
 }
-func (*adminDeadLetterStoreFake) ClaimConsumerDeadLetterReplay(context.Context, application.ConsumerDeadLetterReplayClaim) (application.ConsumerDeadLetter, bool, error) {
+func (store *adminDeadLetterStoreFake) ClaimConsumerDeadLetterReplay(context.Context, application.ConsumerDeadLetterReplayClaim) (application.ConsumerDeadLetter, bool, error) {
+	if store.invalidClaim {
+		return application.ConsumerDeadLetter{ID: 8, ConsumerName: "websocket", Event: domain.MessageEvent{EventID: "invalid:fingerprint"}, Status: domain.ConsumerDLQStatusReplaying, ReplayLeaseFence: 1, Invalid: true, Fingerprint: "fingerprint", Replayable: false}, true, nil
+	}
 	return application.ConsumerDeadLetter{ID: 8, ConsumerName: "websocket", Event: domain.MessageEvent{EventID: "event-8"}, Status: domain.ConsumerDLQStatusPending, ReplayLeaseFence: 1}, true, nil
 }
 func (*adminDeadLetterStoreFake) MarkConsumerDeadLetterReplayed(context.Context, application.ConsumerDeadLetterReplayResult) (bool, error) {
@@ -231,6 +235,66 @@ func TestAdminBroadcastHandlerUsesAuthenticatedActorAndReturnsMessageDTO(t *test
 	}
 }
 
+func TestAdminBroadcastHandlerPassesImageIDsToMessageOperation(t *testing.T) {
+	messages := &adminMessageStoreFake{}
+	categories := &adminCategoryStoreFake{category: domain.MessageCategory{ID: 3, OrganizationID: 10, Code: "notice", Name: "Notice", Enabled: true}}
+	files := &userHandlerFilesFake{}
+	service := application.NewService(application.Dependencies{
+		Messages: messages, Categories: categories, Files: files,
+		Authorization: &adminAuthorizationFake{scope: application.MessageOrganizationScope{All: true}},
+		Organizations: adminOrganizationFake{}, Transactions: adminDirectTransactionRunner{}, Clock: application.ClockFunc(time.Now),
+	})
+	route := findMessageRoute(t, AdminRoutes(service), http.MethodPost, "/api/admin/messages/broadcast")
+	context, response := newGinRequest(t, http.MethodPost, "/api/admin/messages/broadcast", `{"category_code":"notice","title":"Release","markdown":"Body","targets":[{"organization_id":10,"type":"organization"}],"image_ids":[91]}`)
+	context.Set("userID", uint(7))
+	route.Handler(context)
+	if response.Code != http.StatusOK || files.binding.ActorID != 7 || files.binding.MessageLogicalID != messages.message.LogicalID || len(files.binding.ImageIDs) != 1 || files.binding.ImageIDs[0] != 91 {
+		t.Fatalf("response=%d body=%s binding=%#v", response.Code, response.Body.String(), files.binding)
+	}
+}
+
+func TestAdminAnnouncementHandlersPassImageIDsToMessageOperations(t *testing.T) {
+	newService := func(messages *adminMessageStoreFake, files *userHandlerFilesFake) *application.Service {
+		return application.NewService(application.Dependencies{
+			Messages: messages, Categories: &adminCategoryStoreFake{category: domain.MessageCategory{ID: 3, OrganizationID: 10, Code: "notice", Name: "Notice", Enabled: true}}, Files: files,
+			Authorization: &adminAuthorizationFake{scope: application.MessageOrganizationScope{All: true}},
+			Organizations: adminOrganizationFake{}, Transactions: adminDirectTransactionRunner{}, Clock: application.ClockFunc(func() time.Time { return time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC) }),
+		})
+	}
+
+	createMessages := &adminMessageStoreFake{}
+	createFiles := &userHandlerFilesFake{}
+	create := findMessageRoute(t, AdminRoutes(newService(createMessages, createFiles)), http.MethodPost, "/api/admin/announcements")
+	context, response := newGinRequest(t, http.MethodPost, "/api/admin/announcements", `{"category_code":"notice","title":"Notice","markdown":"Body","targets":[{"organization_id":10,"type":"organization"}],"image_ids":[92]}`)
+	context.Set("userID", uint(7))
+	create.Handler(context)
+	if response.Code != http.StatusOK || createFiles.binding.ActorID != 7 || createFiles.binding.MessageLogicalID != createMessages.message.LogicalID || len(createFiles.binding.ImageIDs) != 1 || createFiles.binding.ImageIDs[0] != 92 {
+		t.Fatalf("create response=%d body=%s binding=%#v", response.Code, response.Body.String(), createFiles.binding)
+	}
+
+	editMessages := &adminMessageStoreFake{message: domain.Message{ID: 41, LogicalID: "logical-41", OrganizationID: 10, CategoryID: 3, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusPublished, Title: "Old", BodyHTML: "<p>Old</p>"}}
+	editFiles := &userHandlerFilesFake{}
+	edit := findMessageRoute(t, AdminRoutes(newService(editMessages, editFiles)), http.MethodPut, "/api/admin/announcements/:id")
+	context, response = newGinRequest(t, http.MethodPut, "/api/admin/announcements/41", `{"title":"Edited","markdown":"Body","targets":[{"organization_id":10,"type":"organization"}],"image_ids":[93]}`)
+	context.Params = gin.Params{{Key: "id", Value: "41"}}
+	context.Set("userID", uint(7))
+	edit.Handler(context)
+	if response.Code != http.StatusOK || editFiles.binding.ActorID != 7 || editFiles.binding.MessageLogicalID != editMessages.message.LogicalID || len(editFiles.binding.ImageIDs) != 1 || editFiles.binding.ImageIDs[0] != 93 {
+		t.Fatalf("edit response=%d body=%s binding=%#v", response.Code, response.Body.String(), editFiles.binding)
+	}
+
+	publishMessages := &adminMessageStoreFake{message: domain.Message{ID: 41, LogicalID: "logical-41", OrganizationID: 10, CategoryID: 3, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusDraft, Title: "Draft", BodyHTML: "<p>Draft</p>"}}
+	publishFiles := &userHandlerFilesFake{}
+	publish := findMessageRoute(t, AdminRoutes(newService(publishMessages, publishFiles)), http.MethodPost, "/api/admin/announcements/:id/publish")
+	context, response = newGinRequest(t, http.MethodPost, "/api/admin/announcements/41/publish", `{"image_ids":[94]}`)
+	context.Params = gin.Params{{Key: "id", Value: "41"}}
+	context.Set("userID", uint(7))
+	publish.Handler(context)
+	if response.Code != http.StatusOK || publishFiles.binding.ActorID != 7 || publishFiles.binding.MessageLogicalID != publishMessages.message.LogicalID || len(publishFiles.binding.ImageIDs) != 1 || publishFiles.binding.ImageIDs[0] != 94 {
+		t.Fatalf("publish response=%d body=%s binding=%#v", response.Code, response.Body.String(), publishFiles.binding)
+	}
+}
+
 func TestAdminOutboxAndDeadLetterHandlersExposeControlledMetadataAndMutateOnlyByID(t *testing.T) {
 	messages := &adminMessageStoreFake{}
 	categories := &adminCategoryStoreFake{}
@@ -259,5 +323,18 @@ func TestAdminOutboxAndDeadLetterHandlersExposeControlledMetadataAndMutateOnlyBy
 	discard.Handler(context)
 	if response.Code != http.StatusOK || deadLetters.discardID != 8 {
 		t.Fatalf("dead letter discard response=%d body=%s id=%d", response.Code, response.Body.String(), deadLetters.discardID)
+	}
+}
+
+func TestAdminDeadLetterHandlerRejectsReplayOfInvalidProjection(t *testing.T) {
+	deadLetters := &adminDeadLetterStoreFake{invalidClaim: true}
+	service := newAdminService(&adminMessageStoreFake{}, &adminCategoryStoreFake{}, &adminOutboxStoreFake{}, deadLetters)
+	replay := findMessageRoute(t, AdminRoutes(service), http.MethodPost, "/api/admin/message-dead-letters/:id/replay")
+	context, response := newGinRequest(t, http.MethodPost, "/api/admin/message-dead-letters/8/replay", "")
+	context.Params = gin.Params{{Key: "id", Value: "8"}}
+	context.Set("userID", uint(1))
+	replay.Handler(context)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "MSG_STATE_CONFLICT") {
+		t.Fatalf("invalid dead-letter replay response=%d body=%s", response.Code, response.Body.String())
 	}
 }

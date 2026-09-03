@@ -2,6 +2,7 @@ package gormadapter
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -236,11 +237,17 @@ func (repository *Repository) ChangeMessage(ctx context.Context, change applicat
 		return messagingdomain.Message{}, err
 	}
 	event := change.Event
-	if event.MessageCopyID != message.ID || event.OrganizationID != message.OrganizationID || event.AggregateVersion != message.AggregateVersion {
-		return messagingdomain.Message{}, application.ErrStateConflict
-	}
-	if err := messagingdomain.ValidateMessageEvent(event); err != nil {
-		return messagingdomain.Message{}, err
+	if event.EventID == "" {
+		if message.Kind != messagingdomain.MessageKindAnnouncement || message.Status != messagingdomain.MessageStatusScheduled {
+			return messagingdomain.Message{}, application.ErrStateConflict
+		}
+	} else {
+		if event.MessageCopyID != message.ID || event.OrganizationID != message.OrganizationID || event.AggregateVersion != message.AggregateVersion {
+			return messagingdomain.Message{}, application.ErrStateConflict
+		}
+		if err := messagingdomain.ValidateMessageEvent(event); err != nil {
+			return messagingdomain.Message{}, err
+		}
 	}
 	if change.ReplaceAudiences != nil {
 		for _, audience := range *change.ReplaceAudiences {
@@ -276,6 +283,9 @@ func (repository *Repository) ChangeMessage(ctx context.Context, change applicat
 			if err := createAudienceRecords(tx, message.ID, *change.ReplaceAudiences); err != nil {
 				return err
 			}
+		}
+		if event.EventID == "" {
+			return nil
 		}
 		return tx.Create(&MessageOutbox{EventID: event.EventID, EventName: event.EventName, EventVersion: event.EventVersion, MessageCopyID: event.MessageCopyID, OrganizationID: event.OrganizationID, AggregateVersion: event.AggregateVersion, OccurredAt: event.OccurredAt, Status: messagingdomain.OutboxStatusPending}).Error
 	})
@@ -863,6 +873,32 @@ func (repository *Repository) PersistAudienceDeliveryBatch(ctx context.Context, 
 	return err == nil, err
 }
 
+func (repository *Repository) DiscardAudienceDeliverySnapshot(ctx context.Context, lease application.EventConsumptionLease) (bool, error) {
+	if lease.ConsumerName == "" || lease.EventID == "" || lease.WorkerID == "" || lease.SnapshotFence == 0 {
+		return false, application.ErrLeaseNotHeld
+	}
+	discarded := false
+	err := repository.connection(ctx).Transaction(func(tx *gorm.DB) error {
+		var consumption MessageEventConsumption
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("consumer_name = ? AND event_id = ? AND status = ? AND worker_id = ? AND snapshot_fence = ?", lease.ConsumerName, lease.EventID, messagingdomain.EventConsumptionStatusSnapshotting, lease.WorkerID, lease.SnapshotFence).First(&consumption).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if consumption.SnapshotComplete {
+			return application.ErrStateConflict
+		}
+		if err := tx.Where("consumer_name = ? AND event_id = ?", lease.ConsumerName, lease.EventID).Delete(&MessageEventDelivery{}).Error; err != nil {
+			return err
+		}
+		discarded = true
+		return nil
+	})
+	return discarded, err
+}
+
 func (repository *Repository) FailEventConsumption(ctx context.Context, failure application.EventConsumptionFailure) (bool, error) {
 	if failure.ConsumerName == "" || failure.EventID == "" || failure.WorkerID == "" || failure.SnapshotFence == 0 || strings.TrimSpace(failure.FailureCode) == "" {
 		return false, application.ErrLeaseNotHeld
@@ -945,7 +981,13 @@ func (repository *Repository) RecordConsumerDeadLetter(ctx context.Context, inpu
 	if input.ConsumerName == "" || input.OriginalQueue == "" || strings.TrimSpace(input.FailureCode) == "" {
 		return application.ConsumerDeadLetter{}, application.ErrStateConflict
 	}
-	if err := messagingdomain.ValidateMessageEvent(input.Event); err != nil {
+	if input.Invalid {
+		if !validDeadLetterFingerprint(input.Fingerprint) {
+			return application.ConsumerDeadLetter{}, application.ErrConsumerDeadLetterInvalid
+		}
+		input.Event = invalidEventProjection(input.Fingerprint, input.Now)
+		input.Event.EventID = "invalid:" + input.Fingerprint
+	} else if err := messagingdomain.ValidateMessageEvent(input.Event); err != nil {
 		return application.ConsumerDeadLetter{}, err
 	}
 	input.Now = inboxNow(input.Now)
@@ -953,14 +995,14 @@ func (repository *Repository) RecordConsumerDeadLetter(ctx context.Context, inpu
 	err := repository.connection(ctx).Transaction(func(tx *gorm.DB) error {
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("consumer_name = ? AND event_id = ?", input.ConsumerName, input.Event.EventID).First(&recorded).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			recorded = MessageConsumerDeadLetter{ConsumerName: input.ConsumerName, EventID: input.Event.EventID, OriginalQueue: input.OriginalQueue, EventName: input.Event.EventName, EventVersion: input.Event.EventVersion, OccurredAt: input.Event.OccurredAt, MessageCopyID: input.Event.MessageCopyID, OrganizationID: input.Event.OrganizationID, AggregateVersion: input.Event.AggregateVersion, RetryAttempt: input.RetryAttempt, Status: messagingdomain.ConsumerDLQStatusPending, LastFailureCode: input.FailureCode, AudienceObservedCount: input.AudienceObservedCount}
+			recorded = MessageConsumerDeadLetter{ConsumerName: input.ConsumerName, EventID: input.Event.EventID, OriginalQueue: input.OriginalQueue, EventName: input.Event.EventName, EventVersion: input.Event.EventVersion, OccurredAt: input.Event.OccurredAt, MessageCopyID: input.Event.MessageCopyID, OrganizationID: input.Event.OrganizationID, AggregateVersion: input.Event.AggregateVersion, RetryAttempt: input.RetryAttempt, Status: messagingdomain.ConsumerDLQStatusPending, LastFailureCode: input.FailureCode, AudienceObservedCount: input.AudienceObservedCount, Invalid: input.Invalid, Fingerprint: input.Fingerprint, Replayable: !input.Invalid}
 			if err := tx.Create(&recorded).Error; err != nil {
 				return err
 			}
 		} else if err != nil {
 			return err
 		} else {
-			if recorded.MessageCopyID != input.Event.MessageCopyID || recorded.AggregateVersion != input.Event.AggregateVersion || recorded.EventName != input.Event.EventName || recorded.EventVersion != input.Event.EventVersion || recorded.OrganizationID != input.Event.OrganizationID || !recorded.OccurredAt.Equal(input.Event.OccurredAt) {
+			if recorded.Invalid != input.Invalid || recorded.Fingerprint != input.Fingerprint || recorded.MessageCopyID != input.Event.MessageCopyID || recorded.AggregateVersion != input.Event.AggregateVersion || recorded.EventName != input.Event.EventName || recorded.EventVersion != input.Event.EventVersion || recorded.OrganizationID != input.Event.OrganizationID || !recorded.OccurredAt.Equal(input.Event.OccurredAt) {
 				return application.ErrStateConflict
 			}
 			if recorded.Status == messagingdomain.ConsumerDLQStatusReplayed {
@@ -975,10 +1017,6 @@ func (repository *Repository) RecordConsumerDeadLetter(ctx context.Context, inpu
 				recorded.FinalizedAt = nil
 			}
 			recorded.OriginalQueue = input.OriginalQueue
-			recorded.EventName = input.Event.EventName
-			recorded.EventVersion = input.Event.EventVersion
-			recorded.OccurredAt = input.Event.OccurredAt
-			recorded.OrganizationID = input.Event.OrganizationID
 			recorded.RetryAttempt = input.RetryAttempt
 			recorded.LastFailureCode = input.FailureCode
 			recorded.AudienceObservedCount = input.AudienceObservedCount
@@ -1036,6 +1074,9 @@ func (repository *Repository) ClaimConsumerDeadLetterReplay(ctx context.Context,
 	err := repository.connection(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&claimed, claim.ID).Error; err != nil {
 			return mapRepositoryError(err)
+		}
+		if claimed.Invalid || !claimed.Replayable {
+			return application.ErrConsumerDeadLetterInvalid
 		}
 		deadLetter := deadLetterToDomain(claimed)
 		if err := messagingdomain.BeginConsumerDLQReplay(&deadLetter, claim.WorkerID, claim.Now, claim.Lease); err != nil {
@@ -1151,9 +1192,24 @@ var pendingDeadLetterDeliveryExpiry = time.Date(9999, 12, 31, 23, 59, 59, 0, tim
 
 func deadLetterToApplication(record MessageConsumerDeadLetter) application.ConsumerDeadLetter {
 	event := messagingdomain.MessageEvent{EventID: record.EventID, EventName: record.EventName, EventVersion: record.EventVersion, MessageCopyID: record.MessageCopyID, OrganizationID: record.OrganizationID, OccurredAt: record.OccurredAt, AggregateVersion: record.AggregateVersion}
-	return application.ConsumerDeadLetter{ID: record.ID, ConsumerName: record.ConsumerName, Event: event, OriginalQueue: record.OriginalQueue, RetryAttempt: record.RetryAttempt, Status: record.Status, ReplayCycle: record.ReplayCycle, ReplayLeaseFence: record.ReplayLeaseFence, ReplayLeaseOwner: record.ReplayLeaseOwner, ReplayLeaseExpiresAt: record.ReplayLeaseExpiresAt, LastFailureCode: record.LastFailureCode, AudienceObservedCount: record.AudienceObservedCount, FinalizedAt: record.FinalizedAt}
+	return application.ConsumerDeadLetter{ID: record.ID, ConsumerName: record.ConsumerName, Event: event, OriginalQueue: record.OriginalQueue, RetryAttempt: record.RetryAttempt, Status: record.Status, ReplayCycle: record.ReplayCycle, ReplayLeaseFence: record.ReplayLeaseFence, ReplayLeaseOwner: record.ReplayLeaseOwner, ReplayLeaseExpiresAt: record.ReplayLeaseExpiresAt, LastFailureCode: record.LastFailureCode, AudienceObservedCount: record.AudienceObservedCount, Invalid: record.Invalid, Fingerprint: record.Fingerprint, Replayable: record.Replayable, FinalizedAt: record.FinalizedAt}
 }
 
 func deadLetterToDomain(record MessageConsumerDeadLetter) messagingdomain.ConsumerDeadLetter {
 	return messagingdomain.ConsumerDeadLetter{ConsumerName: record.ConsumerName, EventID: record.EventID, Status: record.Status, ReplayCycle: record.ReplayCycle, ReplayLeaseFence: record.ReplayLeaseFence, ReplayLeaseOwner: record.ReplayLeaseOwner, ReplayLeaseExpiresAt: record.ReplayLeaseExpiresAt, LastFailureCode: record.LastFailureCode, AudienceObservedCount: record.AudienceObservedCount}
+}
+
+func validDeadLetterFingerprint(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func invalidEventProjection(fingerprint string, now time.Time) messagingdomain.MessageEvent {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return messagingdomain.MessageEvent{EventID: "invalid:" + fingerprint, EventName: messagingdomain.EventNameInvalid, EventVersion: 1, OccurredAt: now.UTC()}
 }

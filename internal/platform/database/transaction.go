@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"time"
 
@@ -60,6 +61,29 @@ func (runner *TransactionRunner) Run(ctx context.Context, operation func(context
 		}
 	}
 	return err
+}
+
+// RunRepeatableRead commits one non-retryable transaction at MySQL's
+// REPEATABLE READ isolation and carries its connection through Context.
+// The callback must contain database work only; callers perform external side
+// effects after this method returns successfully.
+func (runner *TransactionRunner) RunRepeatableRead(ctx context.Context, operation func(context.Context) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := transactionFromContext(ctx); ok {
+		return operation(ctx)
+	}
+	tx := runner.db.WithContext(ctx).Begin(&sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	if tx.Error != nil {
+		return tx.Error
+	}
+	transactionCtx := context.WithValue(ctx, transactionContextKey{}, tx)
+	if err := operation(transactionCtx); err != nil {
+		_ = tx.Rollback().Error
+		return err
+	}
+	return tx.Commit().Error
 }
 
 func isRetryableMySQLError(err error) bool {

@@ -53,6 +53,7 @@ type SendPrivateMessageRequest struct {
 	RecipientID uint   `json:"recipient_id" binding:"required"`
 	Title       string `json:"title" binding:"required"`
 	Markdown    string `json:"markdown" binding:"required"`
+	ImageIDs    []uint `json:"image_ids,omitempty"`
 }
 
 type InboxResponse struct {
@@ -93,8 +94,8 @@ type CreateBroadcastRequest struct {
 	Markdown     string                  `json:"markdown" binding:"required"`
 	Targets      []DynamicAudienceTarget `json:"targets"`
 	AllUsers     bool                    `json:"all_users,omitempty"`
+	ImageIDs     []uint                  `json:"image_ids,omitempty"`
 }
-
 type CreateAnnouncementRequest struct {
 	CategoryCode string                  `json:"category_code" binding:"required"`
 	Title        string                  `json:"title" binding:"required"`
@@ -103,6 +104,7 @@ type CreateAnnouncementRequest struct {
 	AllUsers     bool                    `json:"all_users,omitempty"`
 	PublishAt    *time.Time              `json:"publish_at,omitempty"`
 	ExpiresAt    *time.Time              `json:"expires_at,omitempty"`
+	ImageIDs     []uint                  `json:"image_ids,omitempty"`
 }
 
 type EditAnnouncementRequest struct {
@@ -112,8 +114,11 @@ type EditAnnouncementRequest struct {
 	Targets      []DynamicAudienceTarget `json:"targets"`
 	AllUsers     bool                    `json:"all_users,omitempty"`
 	ExpiresAt    *time.Time              `json:"expires_at,omitempty"`
+	ImageIDs     []uint                  `json:"image_ids,omitempty"`
 }
-
+type PublishAnnouncementRequest struct {
+	ImageIDs []uint `json:"image_ids,omitempty"`
+}
 type MessageCategoryDTO struct {
 	ID             uint   `json:"id"`
 	OrganizationID uint   `json:"organization_id"`
@@ -192,6 +197,9 @@ type ConsumerDeadLetterDTO struct {
 	ReplayCycle           uint       `json:"replay_cycle"`
 	LastFailureCode       string     `json:"last_failure_code"`
 	AudienceObservedCount int        `json:"audience_observed_count"`
+	Invalid               bool       `json:"invalid"`
+	Fingerprint           string     `json:"fingerprint,omitempty"`
+	Replayable            bool       `json:"replayable"`
 	FinalizedAt           *time.Time `json:"finalized_at,omitempty"`
 }
 

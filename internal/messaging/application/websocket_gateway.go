@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
-
-	websocket "github.com/coder/websocket"
 )
 
 const (
@@ -22,18 +19,20 @@ var (
 	ErrWebSocketQueueFull          = errors.New("messaging WebSocket write queue is full")
 )
 
-// WebSocketConnection is the minimal protocol surface used by the gateway.
-// Keeping it separate from the concrete library type makes queue and close
-// behavior testable without a network listener.
+// WebSocketConnection is the transport-neutral connection surface used by the
+// gateway. HTTP and concrete WebSocket protocol details stay in the Adapter.
 type WebSocketConnection interface {
-	Read(context.Context) (websocket.MessageType, []byte, error)
-	Write(context.Context, websocket.MessageType, []byte) error
-	Close(websocket.StatusCode, string) error
+	Read(context.Context) ([]byte, error)
+	Write(context.Context, []byte) error
+	Close(string) error
 }
 
-// WebSocketAcceptFunc is injectable for application tests; production uses the
-// coder/websocket RFC 6455 upgrader.
-type WebSocketAcceptFunc func(http.ResponseWriter, *http.Request) (WebSocketConnection, error)
+type WebSocketRequest struct {
+	Ticket string
+	Cursor string
+}
+
+type WebSocketAcceptor func(context.Context) (WebSocketConnection, error)
 
 type WebSocketGatewayConfig struct {
 	Tickets      *WebSocketTicketService
@@ -41,7 +40,6 @@ type WebSocketGatewayConfig struct {
 	Recovery     RefreshRecoveryStore
 	QueueSize    int
 	WriteTimeout time.Duration
-	Accept       WebSocketAcceptFunc
 }
 
 type WebSocketGateway struct {
@@ -50,7 +48,6 @@ type WebSocketGateway struct {
 	recovery     RefreshRecoveryStore
 	queueSize    int
 	writeTimeout time.Duration
-	accept       WebSocketAcceptFunc
 
 	mu       sync.Mutex
 	sessions map[*webSocketSession]struct{}
@@ -63,47 +60,38 @@ func NewWebSocketGateway(config WebSocketGatewayConfig) *WebSocketGateway {
 	if config.WriteTimeout <= 0 {
 		config.WriteTimeout = WebSocketWriteTimeout
 	}
-	if config.Accept == nil {
-		config.Accept = acceptCoderWebSocket
-	}
 	return &WebSocketGateway{
 		tickets: config.Tickets, hub: config.Hub, recovery: config.Recovery,
-		queueSize: config.QueueSize, writeTimeout: config.WriteTimeout, accept: config.Accept,
+		queueSize: config.QueueSize, writeTimeout: config.WriteTimeout,
 		sessions: make(map[*webSocketSession]struct{}),
 	}
 }
 
-// Upgrade consumes the short-lived ticket before accepting an RFC 6455
-// connection, then binds the connection to that ticket's authenticated user.
-// The optional cursor is replayed through the durable recovery store. All
-// writes are serialized by a bounded per-connection queue.
-func (gateway *WebSocketGateway) Upgrade(ctx context.Context, writer http.ResponseWriter, request *http.Request, userID uint) error {
-	if gateway == nil || gateway.tickets == nil || gateway.hub == nil || gateway.accept == nil || request == nil || writer == nil {
+// Connect consumes the short-lived ticket before accepting a transport
+// connection, then binds it to the ticket's authenticated user. The Adapter
+// supplies the transport-specific accept function.
+func (gateway *WebSocketGateway) Connect(ctx context.Context, request WebSocketRequest, userID uint, accept WebSocketAcceptor) error {
+	if gateway == nil || gateway.tickets == nil || gateway.hub == nil || accept == nil {
 		return ErrWebSocketGatewayUnavailable
 	}
-	if userID == 0 {
+	if userID == 0 || request.Ticket == "" {
 		return ErrWebSocketTicketInvalid
 	}
-	ticket := request.URL.Query().Get("ticket")
-	if ticket == "" {
-		return ErrWebSocketTicketInvalid
-	}
-	if err := gateway.tickets.Consume(ctx, ticket, userID); err != nil {
+	if err := gateway.tickets.Consume(ctx, request.Ticket, userID); err != nil {
 		return err
 	}
 
 	var recovery RefreshRecovery
-	cursor := request.URL.Query().Get("cursor")
-	if cursor != "" && gateway.recovery != nil {
+	if request.Cursor != "" && gateway.recovery != nil {
 		var err error
-		recovery, err = gateway.recovery.ReplayRefresh(ctx, userID, cursor)
+		recovery, err = gateway.recovery.ReplayRefresh(ctx, userID, request.Cursor)
 		if err != nil {
 			return err
 		}
 	}
-	connection, err := gateway.accept(writer, request)
+	connection, err := accept(ctx)
 	if err != nil {
-		return fmt.Errorf("upgrade messaging WebSocket: %w", err)
+		return fmt.Errorf("accept messaging WebSocket: %w", err)
 	}
 	if connection == nil {
 		return ErrWebSocketGatewayUnavailable
@@ -119,13 +107,13 @@ func (gateway *WebSocketGateway) Upgrade(ctx context.Context, writer http.Respon
 	session.start()
 	if recovery.FullRefresh {
 		if err := session.enqueue(webSocketFrame{Type: "inbox.full_refresh_required"}); err != nil {
-			session.close(websocket.StatusGoingAway, "recovery queue unavailable")
+			session.close("recovery queue unavailable")
 			return err
 		}
 	} else {
 		for _, event := range recovery.Events {
 			if err := session.enqueue(refreshFrame(event)); err != nil {
-				session.close(websocket.StatusGoingAway, "recovery queue unavailable")
+				session.close("recovery queue unavailable")
 				return err
 			}
 		}
@@ -146,13 +134,9 @@ func (gateway *WebSocketGateway) Close() error {
 	}
 	gateway.mu.Unlock()
 	for _, session := range sessions {
-		session.close(websocket.StatusGoingAway, "gateway closed")
+		session.close("gateway closed")
 	}
 	return nil
-}
-
-func acceptCoderWebSocket(writer http.ResponseWriter, request *http.Request) (WebSocketConnection, error) {
-	return websocket.Accept(writer, request, nil)
 }
 
 func (gateway *WebSocketGateway) addSession(session *webSocketSession) {
@@ -217,7 +201,7 @@ func (session *webSocketSession) Send(ctx context.Context, event RefreshEvent) e
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		session.close(websocket.StatusGoingAway, "write queue full")
+		session.close("write queue full")
 		return ErrWebSocketQueueFull
 	}
 }
@@ -234,7 +218,7 @@ func (session *webSocketSession) enqueue(frame webSocketFrame) error {
 }
 
 func (session *webSocketSession) writeLoop() {
-	defer session.close(websocket.StatusNormalClosure, "")
+	defer session.close("")
 	for {
 		select {
 		case <-session.done:
@@ -245,7 +229,7 @@ func (session *webSocketSession) writeLoop() {
 				return
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), session.writeTimeout)
-			err = session.connection.Write(ctx, websocket.MessageText, payload)
+			err = session.connection.Write(ctx, payload)
 			cancel()
 			if err != nil {
 				return
@@ -256,8 +240,8 @@ func (session *webSocketSession) writeLoop() {
 
 func (session *webSocketSession) readLoop() {
 	for {
-		if _, _, err := session.connection.Read(context.Background()); err != nil {
-			session.close(websocket.StatusNormalClosure, "client disconnected")
+		if _, err := session.connection.Read(context.Background()); err != nil {
+			session.close("client disconnected")
 			return
 		}
 	}
@@ -279,13 +263,13 @@ func (session *webSocketSession) setOnClose(onClose func()) {
 	}
 }
 
-func (session *webSocketSession) close(status websocket.StatusCode, reason string) {
+func (session *webSocketSession) close(reason string) {
 	if session == nil {
 		return
 	}
 	session.closeOnce.Do(func() {
 		close(session.done)
-		_ = session.connection.Close(status, reason)
+		_ = session.connection.Close(reason)
 		session.onCloseMu.Lock()
 		onClose := session.onClose
 		session.onCloseMu.Unlock()
@@ -295,5 +279,4 @@ func (session *webSocketSession) close(status websocket.StatusCode, reason strin
 	})
 }
 
-var _ WebSocketConnection = (*websocket.Conn)(nil)
 var _ RefreshSink = (*webSocketSession)(nil)

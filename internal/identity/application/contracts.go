@@ -52,11 +52,16 @@ type UserChanges struct {
 
 type UserManagementRepository interface {
 	UserRepository
+	UserLockRepository
 	List(context.Context, int, int, domain.UserScope) ([]domain.User, int64, error)
 	EmailExists(context.Context, string, uint) (bool, error)
 	Update(context.Context, uint, UserChanges) error
 	UpdatePassword(context.Context, uint, string) error
 	Delete(context.Context, uint) error
+}
+
+type UserLockRepository interface {
+	FindByIDForUpdate(context.Context, uint) (domain.User, error)
 }
 
 type TransactionRunner interface {
@@ -117,6 +122,7 @@ type EmailVerificationConfirmation struct {
 
 type EmailVerificationRepository interface {
 	CountIssuedSince(context.Context, uint, time.Time) (int, error)
+	IssueCredential(context.Context, domain.EmailVerificationCredential, time.Time, int) (bool, error)
 	ReplaceActive(context.Context, domain.EmailVerificationCredential) error
 	InvalidateActive(context.Context, uint, string, time.Time) error
 	Confirm(context.Context, uint, string, time.Time) (EmailVerificationConfirmation, error)

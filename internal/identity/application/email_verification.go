@@ -75,7 +75,7 @@ func (service *EmailVerificationService) Issue(ctx context.Context, userID uint,
 		return "", NewError(CodeInternalError, err)
 	}
 	if issued >= emailVerificationQuota {
-		return "", &Error{Code: CodeEmailVerificationRateLimited, Details: ErrorDetails{RetryAfterSeconds: int(emailVerificationWindow / time.Second)}}
+		return "", emailVerificationRateLimited()
 	}
 
 	rawToken := make([]byte, 32)
@@ -90,18 +90,27 @@ func (service *EmailVerificationService) Issue(ctx context.Context, userID uint,
 		CreatedAt: now,
 		ExpiresAt: now.Add(emailVerificationLifetime),
 	}
+	var admitted bool
 	operation := func(tx context.Context) error {
-		return service.credentials.ReplaceActive(tx, credential)
+		var operationErr error
+		admitted, operationErr = service.credentials.IssueCredential(tx, credential, now.Add(-emailVerificationWindow), emailVerificationQuota)
+		return operationErr
 	}
 	if service.transactions != nil {
 		if err := service.transactions.Run(ctx, operation); err != nil {
 			return "", NewError(CodeInternalError, err)
 		}
 	} else if err := operation(ctx); err != nil {
-
 		return "", NewError(CodeInternalError, err)
 	}
+	if !admitted {
+		return "", emailVerificationRateLimited()
+	}
 	return base64.RawURLEncoding.EncodeToString(rawToken), nil
+}
+
+func emailVerificationRateLimited() *Error {
+	return &Error{Code: CodeEmailVerificationRateLimited, Details: ErrorDetails{RetryAfterSeconds: int(emailVerificationWindow / time.Second)}}
 }
 
 func (service *EmailVerificationService) Cleanup(ctx context.Context) error {

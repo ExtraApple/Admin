@@ -102,15 +102,17 @@ func (*userHandlerInboxStoreFake) CountUnreadInbox(context.Context, application.
 }
 
 type userHandlerFilesFake struct {
-	upload application.MessageImageUpload
+	upload  application.MessageImageUpload
+	binding application.MessageImageBinding
 }
 
 func (files *userHandlerFilesFake) UploadMessageImage(_ context.Context, upload application.MessageImageUpload) (application.TemporaryMessageImage, error) {
 	files.upload = upload
 	return application.TemporaryMessageImage{ID: 9, ExpiresAt: time.Date(2026, 8, 24, 1, 15, 0, 0, time.UTC)}, nil
 }
-func (*userHandlerFilesFake) BindMessageImages(context.Context, application.MessageImageBinding) error {
-	panic("unused")
+func (files *userHandlerFilesFake) BindMessageImages(_ context.Context, binding application.MessageImageBinding) error {
+	files.binding = binding
+	return nil
 }
 func (*userHandlerFilesFake) OpenMessageImage(context.Context, application.VisibleMessageImage) (application.MessageImageContent, error) {
 	return application.MessageImageContent{Reader: io.NopCloser(strings.NewReader("img")), ContentType: "image/png", Size: 3}, nil
@@ -119,13 +121,17 @@ func (*userHandlerFilesFake) OpenMessageImage(context.Context, application.Visib
 func TestUserMessageHandlerSendsPrivateMessageWithAuthenticatedActor(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := &userHandlerMessageStoreFake{}
-	service := application.NewService(application.Dependencies{Messages: store, Identity: userHandlerIdentityFake{}, Organizations: userHandlerOrganizationFake{}, Clock: application.ClockFunc(func() time.Time { return time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC) })})
+	files := &userHandlerFilesFake{}
+	service := application.NewService(application.Dependencies{Messages: store, Identity: userHandlerIdentityFake{}, Organizations: userHandlerOrganizationFake{}, Files: files, Clock: application.ClockFunc(func() time.Time { return time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC) })})
 	descriptor := findMessageRoute(t, Routes(service), http.MethodPost, "/api/user/messages/private")
-	context, response := newGinRequest(t, http.MethodPost, "/api/user/messages/private", `{"recipient_id":8,"title":"hello","markdown":"body"}`)
+	context, response := newGinRequest(t, http.MethodPost, "/api/user/messages/private", `{"recipient_id":8,"title":"hello","markdown":"body","image_ids":[91]}`)
 	context.Set("userID", uint(7))
 	descriptor.Handler(context)
 	if response.Code != http.StatusOK || store.persisted.Message.SenderID != 7 || store.persisted.Recipient == nil || store.persisted.Recipient.RecipientID != 8 || store.persisted.Message.BodyHTML == "body" {
 		t.Fatalf("send response=%d body=%s persistence=%#v", response.Code, response.Body.String(), store.persisted)
+	}
+	if files.binding.ActorID != 7 || files.binding.MessageLogicalID != store.message.LogicalID || len(files.binding.ImageIDs) != 1 || files.binding.ImageIDs[0] != 91 {
+		t.Fatalf("image binding=%#v", files.binding)
 	}
 }
 

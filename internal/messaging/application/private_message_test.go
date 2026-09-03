@@ -36,6 +36,41 @@ func (store *privateMessageStoreFake) ListAudienceRules(context.Context, uint) (
 
 func (store *privateMessageStoreFake) _messageStore() application.MessageStore { return store }
 
+type privateMessageFilesFake struct {
+	binding application.MessageImageBinding
+}
+
+func (*privateMessageFilesFake) UploadMessageImage(context.Context, application.MessageImageUpload) (application.TemporaryMessageImage, error) {
+	panic("unused")
+}
+func (files *privateMessageFilesFake) BindMessageImages(_ context.Context, binding application.MessageImageBinding) error {
+	files.binding = binding
+	return nil
+}
+func (*privateMessageFilesFake) OpenMessageImage(context.Context, application.VisibleMessageImage) (application.MessageImageContent, error) {
+	panic("unused")
+}
+
+func TestPrivateMessageServiceBindsReferencedImagesInMessageOperation(t *testing.T) {
+	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
+	store := &privateMessageStoreFake{}
+	files := &privateMessageFilesFake{}
+	service := application.NewService(application.Dependencies{
+		Messages:      store,
+		Identity:      privateIdentityFake{users: map[uint]application.IdentityUser{7: {ID: 7, Enabled: true}, 8: {ID: 8, Enabled: true}}},
+		Organizations: privateOrganizationFake{memberships: map[uint][]application.OrganizationMembership{7: {{OrganizationID: 10}}, 8: {{OrganizationID: 10}}}},
+		Files:         files,
+		Clock:         application.ClockFunc(func() time.Time { return now }),
+	})
+	message, err := service.SendPrivateMessage(context.Background(), application.SendPrivateMessageRequest{SenderID: 7, RecipientID: 8, Title: "hello", Markdown: "body", ImageIDs: []uint{91, 92}})
+	if err != nil {
+		t.Fatalf("SendPrivateMessage() = %v", err)
+	}
+	if files.binding.ActorID != 7 || files.binding.MessageLogicalID != message.LogicalID || len(files.binding.ImageIDs) != 2 || files.binding.ImageIDs[0] != 91 || files.binding.ImageIDs[1] != 92 {
+		t.Fatalf("image binding = %#v", files.binding)
+	}
+}
+
 type privateIdentityFake struct {
 	users map[uint]application.IdentityUser
 }
@@ -72,10 +107,10 @@ func TestPrivateMessageServicePersistsSharedOrganizationAndOutbox(t *testing.T) 
 	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
 	store := &privateMessageStoreFake{}
 	service := application.NewService(application.Dependencies{
-		Messages: store,
-		Identity: privateIdentityFake{users: map[uint]application.IdentityUser{7: {ID: 7, Enabled: true}, 8: {ID: 8, Enabled: true}}},
+		Messages:      store,
+		Identity:      privateIdentityFake{users: map[uint]application.IdentityUser{7: {ID: 7, Enabled: true}, 8: {ID: 8, Enabled: true}}},
 		Organizations: privateOrganizationFake{memberships: map[uint][]application.OrganizationMembership{7: {{OrganizationID: 10}, {OrganizationID: 20}}, 8: {{OrganizationID: 20}}}},
-		Clock: application.ClockFunc(func() time.Time { return now }),
+		Clock:         application.ClockFunc(func() time.Time { return now }),
 	})
 	message, err := service.SendPrivateMessage(context.Background(), application.SendPrivateMessageRequest{SenderID: 7, RecipientID: 8, Title: "hello", Markdown: "body"})
 	if err != nil {

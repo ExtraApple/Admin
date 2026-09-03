@@ -380,6 +380,14 @@
 - **AND** 系统 SHALL NOT 使用无延迟的重复 `nack(requeue=true)` 形成热循环
 - **AND** 第五次处理失败后 SHALL 路由到按 Consumer 和事件类型隔离、保留 7 天的 Dead Letter Queue
 
+#### Scenario: 非法事件受控死信投影
+- **WHEN** Consumer 收到无法解析为 JSON 或无法通过 `MessageEvent` 校验的事件
+- **THEN** 系统 SHALL 使用稳定失败码 `message_event_invalid`，并按既定五级受控重试处理
+- **AND** 第五次失败后，DLQ Recorder SHALL 创建或更新该 Consumer 的 Consumer DLQ Projection
+- **AND** 缺少可信 `event_id` 时，Projection SHALL 使用稳定 payload fingerprint 作为唯一身份
+- **AND** Projection SHALL 只保存 Consumer、稳定身份、失败码、重试次数和 fingerprint 等安全元数据，不保存原始 payload
+- **AND** 非法事件 Projection SHALL 允许查询和丢弃，但重放 SHALL 返回稳定不可重放错误，且不得发布原始 payload
+
 #### Scenario: DLQ Recorder 持久化死信
 - **WHEN** DLQ Recorder 收到 Consumer Dead Letter Message
 - **THEN** Recorder SHALL 以 `(consumer_name, event_id)` 在 MySQL `message_consumer_dead_letters` 创建或更新唯一投影，持久化 Consumer、原队列、最小事件载荷、受控重试头、末次稳定失败码、观察到的受众数量和关联的完整受众快照（如有）后 ACK

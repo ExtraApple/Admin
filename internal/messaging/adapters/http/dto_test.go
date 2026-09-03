@@ -39,3 +39,21 @@ func TestMessageRequestDTOsUseStableJSONFieldNames(t *testing.T) {
 		t.Fatal("MessageDTO must not expose Markdown")
 	}
 }
+
+func TestMessageWriteRequestDTOsCarryImageIDs(t *testing.T) {
+	if got := (SendPrivateMessageRequest{ImageIDs: []uint{1}}).ImageIDs; len(got) != 1 || got[0] != 1 {
+		t.Fatalf("private image IDs = %#v", got)
+	}
+	if got := (CreateBroadcastRequest{ImageIDs: []uint{2}}).ImageIDs; len(got) != 1 || got[0] != 2 {
+		t.Fatalf("broadcast image IDs = %#v", got)
+	}
+	if got := (CreateAnnouncementRequest{ImageIDs: []uint{3}}).ImageIDs; len(got) != 1 || got[0] != 3 {
+		t.Fatalf("announcement image IDs = %#v", got)
+	}
+	if got := (EditAnnouncementRequest{ImageIDs: []uint{4}}).ImageIDs; len(got) != 1 || got[0] != 4 {
+		t.Fatalf("edit image IDs = %#v", got)
+	}
+	if got := (PublishAnnouncementRequest{ImageIDs: []uint{5}}).ImageIDs; len(got) != 1 || got[0] != 5 {
+		t.Fatalf("publish image IDs = %#v", got)
+	}
+}

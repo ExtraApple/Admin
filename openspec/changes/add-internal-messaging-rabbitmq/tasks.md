@@ -123,3 +123,19 @@
 - [x] 12.6 定义 Messaging 调用 Identity 的已验证邮箱通知渠道 Contract：未验证当前邮箱更换不产生可投递旧地址；`pending_email` 期间继续仅返回当前已验证 `email`，确认原子提升后才切换；沿用现有邮箱校验/唯一性，保持手机号、短信和用户偏好为非目标
 - [x] 12.7 增加安全邮箱验证状态 DTO、已认证签发/确认 HTTP 路由、邮箱变更 `current_password` 请求/422 字段错误、管理员邮箱字段拒绝、四字段错误、审计/日志脱敏和 SMTP 配置验证
 - [x] 12.8 增加邮箱验证状态机、邮箱变更再认证、自动/显式签发共用节流及额度耗尽不变更状态、SMTP 失败后账户/新邮箱/候选邮箱保留、24 小时清理、迁移、未验证当前邮箱的原子替换与旧凭据失效、`pending_email` 原子替换/冲突/提升及确认并发、旧已验证邮箱业务通知与确认后渠道切换、脱敏测试
+
+## 13. Code Review 整改
+
+- [x] 13.1 修复公告 draft-first 生命周期：创建始终为 `draft`，定时发布和立即发布均通过显式发布动作完成，并补充回归测试
+- [x] 13.2 接通消息图片 `image_ids`：在消息创建、编辑或发布事务中绑定当前操作者持有且未过期的临时图片，并补充端到端测试
+- [x] 13.4 增加邮箱确认与邮箱变更的同一用户事务锁，保证先提交状态生效并补充交叉并发测试
+- [x] 13.3 修复动态受众快照的原子性：使用覆盖受众解析与完整快照写入的单一 `REPEATABLE READ` 事务；租约或 `snapshot_fence` 失效时不得保留部分投递行、写入 Redis Stream 或 ACK，并补充故障注入与 MySQL 并发测试
+- [x] 13.5 将邮箱签发额度检查与凭据写入合并为原子操作，保证自动签发和显式重发共享每小时三次上限
+- [x] 13.6 移除 Messaging Application 对 WebSocket SDK 的直接依赖，将升级和协议状态码转换下沉到 Adapter
+- [x] 13.7 按项目约定将 Messaging 跨模块 Contract 整理到单一 `contracts.go`
+- [x] 13.8 将 App 后台 Messaging 日志统一接入受控 `RuntimeLogger` Contract，并限制为允许字段
+- [ ] 13.10 按 OpenSpec 流程处理主规格同步：完成实现和验证后 archive 当前 Change，再合并 delta 到主规格
+- [x] 13.9 清理 `CONTEXT.md` 中的 RabbitMQ、WebSocket、DLQ 和运行时实现细节
+- [x] 13.11 评估 RabbitMQ Publisher 的重复发布流程，抽取共享实现或记录明确保留重复的理由
+- [x] 13.12 运行整改回归测试、完整 Go 测试和严格 OpenSpec 校验
+- [x] 13.13 处理非法 RabbitMQ 事件：按受控五级重试进入 Consumer DLQ Projection；仅保存安全元数据和稳定 fingerprint，不保存原始 payload；非法事件 Projection 仅允许查询和丢弃，不允许重放，并补充 RabbitMQ、Repository 和 HTTP 契约测试

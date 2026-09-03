@@ -16,8 +16,12 @@ func (store captchaRedisStore) Set(id, value string) error {
 
 func (store captchaRedisStore) Get(id string, clear bool) string {
 	value, err := store.client.Get(context.Background(), captchaPrefix+id).Result()
-	if err != nil { return "" }
-	if clear { _ = store.client.Del(context.Background(), captchaPrefix+id).Err() }
+	if err != nil {
+		return ""
+	}
+	if clear {
+		_ = store.client.Del(context.Background(), captchaPrefix+id).Err()
+	}
 	return value
 }
 

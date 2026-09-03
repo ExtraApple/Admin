@@ -77,7 +77,7 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 	composition := messagingComposition{
 		service: service, tickets: ticketService, gateway: gateway, refresh: hub, readiness: readiness,
 		jobs: []BackgroundJob{{Name: "messaging-refresh-subscriber", Run: func(ctx context.Context) {
-			runMessagingRefreshSubscriber(ctx, messagingredis.NewRefreshSubscriber(resources.Redis), hub, resources.Logger)
+			runMessagingRefreshSubscriber(ctx, messagingredis.NewRefreshSubscriber(resources.Redis), hub, runtimeLogger)
 		}}},
 	}
 	if !configured {
@@ -93,26 +93,27 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 		RetryDelays:    retryDelays,
 		Logger:         runtimeLogger,
 	})
-	recorder := messagingapplication.NewConsumerDeadLetterRecorder(messagingapplication.ConsumerDeadLetterRecorderConfig{Store: repository, Metrics: messagingZapMetrics{logger: resources.Logger}, Logger: runtimeLogger})
+	recorder := messagingapplication.NewConsumerDeadLetterRecorder(messagingapplication.ConsumerDeadLetterRecorderConfig{Store: repository, Metrics: messagingZapMetrics{logger: runtimeLogger}, Logger: runtimeLogger})
 	failureRouter := messagingrabbitmq.NewRecordingFailureRouter(messagingrabbitmq.NewConsumerFailurePublisher(messagingConsumerName, factory))
 	consumer := messagingapplication.NewEventConsumer(messagingapplication.EventConsumerConfig{
-		ConsumerName:     messagingConsumerName,
-		WorkerID:         workerID,
-		Lease:            time.Duration(config.RabbitMQ.WorkerLeaseSeconds) * time.Second,
-		BatchSize:        messagingapplication.DefaultConsumerBatchSize,
-		MaxAudienceUsers: config.Messaging.MaxAudienceUsers,
-		Messages:         repository,
-		Organizations:    organizationReader,
-		Identity:         identityReader,
-		Store:            repository,
-		Stream:           messagingredis.NewRefreshStreamPublisher(resources.Redis),
-		Logger:           runtimeLogger,
+		ConsumerName:         messagingConsumerName,
+		WorkerID:             workerID,
+		Lease:                time.Duration(config.RabbitMQ.WorkerLeaseSeconds) * time.Second,
+		BatchSize:            messagingapplication.DefaultConsumerBatchSize,
+		MaxAudienceUsers:     config.Messaging.MaxAudienceUsers,
+		Messages:             repository,
+		Organizations:        organizationReader,
+		Identity:             identityReader,
+		Store:                repository,
+		Stream:               messagingredis.NewRefreshStreamPublisher(resources.Redis),
+		SnapshotTransactions: platformdatabase.NewTransactionRunner(resources.DB),
+		Logger:               runtimeLogger,
 	})
 	competing := messagingrabbitmq.NewCompetingConsumer(messagingrabbitmq.CompetingConsumerConfig{Queue: messagingrabbitmq.ConsumerQueueName(messagingConsumerName), ConsumerName: messagingConsumerName, Channels: factory, Processor: consumer, Failures: failureRouter, Logger: runtimeLogger})
 	composition.jobs = append(composition.jobs,
-		BackgroundJob{Name: "messaging-outbox", Run: func(ctx context.Context) { runMessagingOutbox(ctx, outbox, resources.Logger, brokerState) }},
-		BackgroundJob{Name: "messaging-consumer", Run: func(ctx context.Context) { runMessagingConsumer(ctx, competing, resources.Logger, brokerState) }},
-		BackgroundJob{Name: "messaging-cleanup", Run: func(ctx context.Context) { runMessagingCleanup(ctx, repository, resources.Logger) }},
+		BackgroundJob{Name: "messaging-outbox", Run: func(ctx context.Context) { runMessagingOutbox(ctx, outbox, runtimeLogger, brokerState) }},
+		BackgroundJob{Name: "messaging-consumer", Run: func(ctx context.Context) { runMessagingConsumer(ctx, competing, runtimeLogger, brokerState) }},
+		BackgroundJob{Name: "messaging-cleanup", Run: func(ctx context.Context) { runMessagingCleanup(ctx, repository, runtimeLogger) }},
 	)
 	for attempt := 1; attempt <= len(retryDelays); attempt++ {
 		recorderConsumer := messagingrabbitmq.NewConsumerDeadLetterConsumer(messagingrabbitmq.ConsumerDeadLetterConsumerConfig{
@@ -125,7 +126,7 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 		})
 		currentRecorderConsumer := recorderConsumer
 		composition.jobs = append(composition.jobs, BackgroundJob{Name: "messaging-dlq-recorder-" + strconv.Itoa(attempt), Run: func(ctx context.Context) {
-			runMessagingDeadLetterConsumer(ctx, currentRecorderConsumer, resources.Logger)
+			runMessagingDeadLetterConsumer(ctx, currentRecorderConsumer, runtimeLogger)
 		}})
 	}
 
@@ -157,11 +158,11 @@ func messagingDLQRetention(config platformconfig.RabbitMQConfig) time.Duration {
 	return time.Duration(days) * 24 * time.Hour
 }
 
-func runMessagingOutbox(ctx context.Context, worker *messagingapplication.OutboxWorker, logger *zap.Logger, brokerState *messagingBrokerState) {
+func runMessagingOutbox(ctx context.Context, worker *messagingapplication.OutboxWorker, logger messagingapplication.RuntimeLogger, brokerState *messagingBrokerState) {
 	for {
 		if _, err := worker.RunOnce(ctx, 100); err != nil && ctx.Err() == nil {
 			brokerState.MarkUnavailable("rabbitmq_publish_failed")
-			logger.Warn("messaging outbox run deferred", zap.String("component", "rabbitmq"), zap.String("error_code", "rabbitmq_publish_failed"))
+			logger.Warn("messaging_outbox_run_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "run"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "rabbitmq_publish_failed"})
 		} else if err == nil {
 			brokerState.MarkHealthy()
 		}
@@ -171,11 +172,11 @@ func runMessagingOutbox(ctx context.Context, worker *messagingapplication.Outbox
 	}
 }
 
-func runMessagingConsumer(ctx context.Context, consumer *messagingrabbitmq.CompetingConsumer, logger *zap.Logger, brokerState *messagingBrokerState) {
+func runMessagingConsumer(ctx context.Context, consumer *messagingrabbitmq.CompetingConsumer, logger messagingapplication.RuntimeLogger, brokerState *messagingBrokerState) {
 	for {
 		if err := consumer.Run(ctx); err != nil && ctx.Err() == nil {
 			brokerState.MarkUnavailable("consumer_unavailable")
-			logger.Warn("messaging Consumer run deferred", zap.String("component", "rabbitmq"), zap.String("error_code", "consumer_unavailable"))
+			logger.Warn("messaging_consumer_run_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "run"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "consumer_unavailable"})
 		} else if err == nil {
 			brokerState.MarkHealthy()
 		}
@@ -185,10 +186,10 @@ func runMessagingConsumer(ctx context.Context, consumer *messagingrabbitmq.Compe
 	}
 }
 
-func runMessagingDeadLetterConsumer(ctx context.Context, consumer *messagingrabbitmq.ConsumerDeadLetterConsumer, logger *zap.Logger) {
+func runMessagingDeadLetterConsumer(ctx context.Context, consumer *messagingrabbitmq.ConsumerDeadLetterConsumer, logger messagingapplication.RuntimeLogger) {
 	for {
 		if err := consumer.Run(ctx); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging dead-letter recorder deferred", zap.String("component", "rabbitmq"), zap.String("error_code", "consumer_dlq_recorder_unavailable"))
+			logger.Warn("messaging_dlq_recorder_run_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "run"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "consumer_dlq_recorder_unavailable"})
 		}
 		if !waitMessagingInterval(ctx, time.Second) {
 			return
@@ -196,10 +197,10 @@ func runMessagingDeadLetterConsumer(ctx context.Context, consumer *messagingrabb
 	}
 }
 
-func runMessagingRefreshSubscriber(ctx context.Context, subscriber *messagingredis.RefreshSubscriber, hub *messagingapplication.RefreshHub, logger *zap.Logger) {
+func runMessagingRefreshSubscriber(ctx context.Context, subscriber *messagingredis.RefreshSubscriber, hub *messagingapplication.RefreshHub, logger messagingapplication.RuntimeLogger) {
 	for {
 		if err := subscriber.Run(ctx, hub); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging refresh subscription deferred", zap.String("component", "redis"), zap.String("error_code", "refresh_subscription_unavailable"))
+			logger.Warn("messaging_refresh_subscription_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "run"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "refresh_subscription_unavailable"})
 		}
 		if !waitMessagingInterval(ctx, time.Second) {
 			return
@@ -207,14 +208,14 @@ func runMessagingRefreshSubscriber(ctx context.Context, subscriber *messagingred
 	}
 }
 
-func runMessagingCleanup(ctx context.Context, repository *messaginggorm.Repository, logger *zap.Logger) {
+func runMessagingCleanup(ctx context.Context, repository *messaginggorm.Repository, logger messagingapplication.RuntimeLogger) {
 	cleanup := func() {
 		now := time.Now().UTC()
 		if _, err := repository.CleanupAudienceDeliveries(ctx, now, 500); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging snapshot cleanup deferred", zap.String("component", "messaging"), zap.String("error_code", "snapshot_cleanup_failed"))
+			logger.Warn("messaging_snapshot_cleanup_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "cleanup"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "snapshot_cleanup_failed"})
 		}
 		if _, err := repository.CleanupFinalConsumerDeadLetters(ctx, now.Add(-30*24*time.Hour), 500); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging dead-letter cleanup deferred", zap.String("component", "messaging"), zap.String("error_code", "dead_letter_cleanup_failed"))
+			logger.Warn("messaging_dead_letter_cleanup_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "cleanup"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "dead_letter_cleanup_failed"})
 		}
 	}
 	cleanup()
@@ -266,6 +267,8 @@ func (runtime messagingRuntimeLogger) log(level zapcore.Level, message string, f
 			encoded = append(encoded, zap.Uint(field.Key, value))
 		case uint64:
 			encoded = append(encoded, zap.Uint64(field.Key, value))
+		case time.Duration:
+			encoded = append(encoded, zap.Duration(field.Key, value))
 		}
 	}
 	runtime.logger.Check(level, message).Write(encoded...)
@@ -273,20 +276,22 @@ func (runtime messagingRuntimeLogger) log(level zapcore.Level, message string, f
 
 func messagingRuntimeLogKeyAllowed(key string) bool {
 	switch key {
-	case "consumer", "event_id", "failure_code", "stage", "retry_attempt", "worker_id", "outbox_id", "dead_lettered", "state", "audience_observed_count", "projection_id", "replay_cycle", "result", "pending_count":
+	case "consumer", "event_id", "failure_code", "stage", "retry_attempt", "worker_id", "outbox_id", "dead_lettered", "state", "audience_observed_count", "projection_id", "replay_cycle", "result", "pending_count", "oldest_pending_age":
 		return true
 	default:
 		return false
 	}
 }
 
-type messagingZapMetrics struct{ logger *zap.Logger }
+type messagingZapMetrics struct {
+	logger messagingapplication.RuntimeLogger
+}
 
 func (metrics messagingZapMetrics) RecordConsumerDLQPending(_ context.Context, observation messagingapplication.ConsumerDLQPendingObservation) {
 	if metrics.logger == nil {
 		return
 	}
-	metrics.logger.Warn("messaging Consumer dead letter pending", zap.String("consumer", observation.ConsumerName), zap.String("failure_code", observation.FailureCode), zap.Int64("pending_count", observation.PendingCount), zap.Duration("oldest_pending_age", observation.OldestPendingAge))
+	metrics.logger.Warn("messaging_consumer_dlq_pending", messagingapplication.RuntimeLogField{Key: "consumer", Value: observation.ConsumerName}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: observation.FailureCode}, messagingapplication.RuntimeLogField{Key: "pending_count", Value: observation.PendingCount}, messagingapplication.RuntimeLogField{Key: "oldest_pending_age", Value: observation.OldestPendingAge})
 }
 
 type messagingIdentityReader struct {

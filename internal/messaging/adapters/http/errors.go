@@ -78,11 +78,10 @@ func classifyMessageError(err error) httpresponse.ErrorDefinition {
 		return messageError(CodeScopeDenied, http.StatusForbidden, "message organization is outside the allowed scope")
 	case errors.Is(err, application.ErrNotFound):
 		return messageError(CodeNotFound, http.StatusNotFound, "message resource was not found")
-	case errors.Is(err, application.ErrStateConflict), errors.Is(err, application.ErrMessageImmutable), errors.Is(err, application.ErrCategoryInUse), errors.Is(err, application.ErrLeaseNotHeld):
-		if errors.Is(err, application.ErrCategoryInUse) {
-			return messageError(CodeCategoryInUse, http.StatusConflict, "message category is in use")
-		}
+	case errors.Is(err, application.ErrStateConflict), errors.Is(err, application.ErrMessageImmutable), errors.Is(err, application.ErrLeaseNotHeld), errors.Is(err, application.ErrConsumerDeadLetterInvalid):
 		return messageError(CodeStateConflict, http.StatusConflict, "message state conflicts with the requested operation")
+	case errors.Is(err, application.ErrCategoryInUse):
+		return messageError(CodeCategoryInUse, http.StatusConflict, "message category is in use")
 	case errors.Is(err, application.ErrCategoryUnavailable):
 		return messageError(CodeCategoryUnavailable, http.StatusUnprocessableEntity, "message category is unavailable")
 	case errors.Is(err, application.ErrBroadcastAudienceInvalid), errors.Is(err, domain.ErrAudienceRuleInvalid):

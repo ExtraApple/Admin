@@ -58,16 +58,37 @@ func (consumerIdentityFake) LookupVerifiedEmail(context.Context, uint) (applicat
 }
 
 type consumerStoreFake struct {
-	claim           application.EventConsumption
-	acquired        bool
-	batches         []application.AudienceDeliveryBatch
-	completion      application.EventConsumptionFinalization
-	failed          application.EventConsumptionFailure
-	snapshotUserIDs []uint
-	resetCalls      int
-	marked          int
-	renewCalls      int
-	failRenewAt     int
+	claim            application.EventConsumption
+	acquired         bool
+	batches          []application.AudienceDeliveryBatch
+	completion       application.EventConsumptionFinalization
+	failed           application.EventConsumptionFailure
+	snapshotUserIDs  []uint
+	resetCalls       int
+	discardCalls     int
+	marked           int
+	renewCalls       int
+	failRenewAt      int
+	failPersistAt    int
+	persistErr       error
+	persistContexts  []context.Context
+	completeContexts []context.Context
+}
+
+type consumerSnapshotTransactionFake struct {
+	calls int
+}
+
+type consumerSnapshotTransactionMarker struct{}
+
+func (runner *consumerSnapshotTransactionFake) RunRepeatableRead(ctx context.Context, operation func(context.Context) error) error {
+	runner.calls++
+	return operation(context.WithValue(ctx, consumerSnapshotTransactionMarker{}, true))
+}
+
+func hasConsumerSnapshotTransactionMarker(ctx context.Context) bool {
+	marked, _ := ctx.Value(consumerSnapshotTransactionMarker{}).(bool)
+	return marked
 }
 
 func (store *consumerStoreFake) ClaimEventConsumption(context.Context, application.EventConsumptionClaim) (application.EventConsumption, bool, error) {
@@ -86,8 +107,21 @@ func (store *consumerStoreFake) ResetIncompleteAudienceSnapshot(context.Context,
 	store.snapshotUserIDs = nil
 	return true, nil
 }
-func (store *consumerStoreFake) PersistAudienceDeliveryBatch(_ context.Context, batch application.AudienceDeliveryBatch) (bool, error) {
+func (store *consumerStoreFake) PersistAudienceDeliveryBatch(ctx context.Context, batch application.AudienceDeliveryBatch) (bool, error) {
+	store.persistContexts = append(store.persistContexts, ctx)
+	if store.failPersistAt > 0 && len(store.persistContexts) >= store.failPersistAt {
+		if store.persistErr == nil {
+			store.persistErr = errors.New("injected snapshot persist failure")
+		}
+		return false, store.persistErr
+	}
 	store.batches = append(store.batches, batch)
+	return true, nil
+}
+
+func (store *consumerStoreFake) DiscardAudienceDeliverySnapshot(context.Context, application.EventConsumptionLease) (bool, error) {
+	store.discardCalls++
+	store.batches = nil
 	return true, nil
 }
 func (store *consumerStoreFake) FailEventConsumption(_ context.Context, failure application.EventConsumptionFailure) (bool, error) {
@@ -95,7 +129,8 @@ func (store *consumerStoreFake) FailEventConsumption(_ context.Context, failure 
 	return true, nil
 }
 
-func (store *consumerStoreFake) MarkAudienceSnapshotComplete(context.Context, application.EventConsumptionLease) (bool, error) {
+func (store *consumerStoreFake) MarkAudienceSnapshotComplete(ctx context.Context, _ application.EventConsumptionLease) (bool, error) {
+	store.completeContexts = append(store.completeContexts, ctx)
 	store.marked++
 	store.claim.SnapshotComplete = true
 	return true, nil
@@ -113,10 +148,29 @@ func (store *consumerStoreFake) CleanupAudienceDeliveries(context.Context, time.
 
 type refreshStreamFake struct{ refreshes []application.RefreshEvent }
 
-func (stream *refreshStreamFake) PublishRefresh(_ context.Context, refresh application.RefreshEvent) error {
-	stream.refreshes = append(stream.refreshes, refresh)
+func (stream *refreshStreamFake) PublishRefreshBatch(_ context.Context, refreshes []application.RefreshEvent) error {
+	stream.refreshes = append(stream.refreshes, refreshes...)
 	return nil
 }
+
+func TestEventConsumerUsesOneSnapshotTransactionAndDoesNotRefreshAfterBatchFailure(t *testing.T) {
+	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
+	store := &consumerStoreFake{claim: application.EventConsumption{ConsumerName: "websocket", EventID: "event-atomic", MessageCopyID: 41, AggregateVersion: 1, Status: domain.EventConsumptionStatusSnapshotting, WorkerID: "worker-a", SnapshotFence: 3, LeaseExpiresAt: timePtr(now.Add(time.Minute))}, acquired: true, failPersistAt: 2}
+	stream := &refreshStreamFake{}
+	transactions := &consumerSnapshotTransactionFake{}
+	consumer := application.NewEventConsumer(application.EventConsumerConfig{ConsumerName: "websocket", WorkerID: "worker-a", Lease: 30 * time.Second, BatchSize: 2, MaxAudienceUsers: 100000, Messages: consumerMessageStoreFake{rules: []domain.AudienceRule{{OrganizationID: 10, Type: domain.AudienceTypeOrganization}}}, Organizations: consumerOrganizationFake{members: map[uint][]uint{10: {2, 3, 4, 5, 6}}}, Identity: consumerIdentityFake{users: map[uint]application.IdentityUser{2: {ID: 2, Enabled: true}, 3: {ID: 3, Enabled: true}, 4: {ID: 4, Enabled: true}, 5: {ID: 5, Enabled: true}, 6: {ID: 6, Enabled: true}}}, Store: store, Stream: stream, SnapshotTransactions: transactions, Clock: application.ClockFunc(func() time.Time { return now })})
+	event := domain.MessageEvent{EventID: "event-atomic", EventName: domain.EventNameMessagePublished, EventVersion: 1, MessageCopyID: 41, OrganizationID: 10, OccurredAt: now, AggregateVersion: 1}
+	if _, err := consumer.Process(context.Background(), event); err == nil || transactions.calls != 1 {
+		t.Fatalf("Process() err=%v, snapshot transaction calls=%d, want one transaction and an error", err, transactions.calls)
+	}
+	if len(store.persistContexts) != 2 || !hasConsumerSnapshotTransactionMarker(store.persistContexts[0]) || !hasConsumerSnapshotTransactionMarker(store.persistContexts[1]) || len(store.completeContexts) != 0 {
+		t.Fatalf("snapshot contexts=%#v complete contexts=%#v, want all writes in transaction and no completion", store.persistContexts, store.completeContexts)
+	}
+	if len(stream.refreshes) != 0 || store.completion.Completed {
+		t.Fatalf("failed snapshot produced refreshes=%#v completion=%#v", stream.refreshes, store.completion)
+	}
+}
+
 func TestEventConsumerSnapshotsDeduplicatedEnabledAudienceBeforeRefreshWrites(t *testing.T) {
 	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
 	store := &consumerStoreFake{claim: application.EventConsumption{ConsumerName: "websocket", EventID: "event-1", MessageCopyID: 41, AggregateVersion: 1, Status: domain.EventConsumptionStatusSnapshotting, WorkerID: "worker-a", SnapshotFence: 3, LeaseExpiresAt: timePtr(now.Add(time.Minute))}, acquired: true}
@@ -165,15 +219,15 @@ func TestEventConsumerRecalculatesAudienceAfterCapacityFailure(t *testing.T) {
 
 func TestEventConsumerStopsAfterSnapshotLeaseLossBeforeRefreshAndAck(t *testing.T) {
 	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
-	store := &consumerStoreFake{claim: application.EventConsumption{ConsumerName: "websocket", EventID: "event-fence", MessageCopyID: 41, AggregateVersion: 1, Status: domain.EventConsumptionStatusSnapshotting, WorkerID: "worker-a", SnapshotFence: 3, LeaseExpiresAt: timePtr(now.Add(time.Minute))}, acquired: true, failRenewAt: 2}
+	store := &consumerStoreFake{claim: application.EventConsumption{ConsumerName: "websocket", EventID: "event-fence", MessageCopyID: 41, AggregateVersion: 1, Status: domain.EventConsumptionStatusSnapshotting, WorkerID: "worker-a", SnapshotFence: 3, LeaseExpiresAt: timePtr(now.Add(time.Minute))}, acquired: true, failRenewAt: 1}
 	stream := &refreshStreamFake{}
 	consumer := application.NewEventConsumer(application.EventConsumerConfig{ConsumerName: "websocket", WorkerID: "worker-a", Lease: 30 * time.Second, BatchSize: 500, MaxAudienceUsers: 100000, Messages: consumerMessageStoreFake{rules: []domain.AudienceRule{{OrganizationID: 10, Type: domain.AudienceTypeOrganization}}}, Organizations: consumerOrganizationFake{members: map[uint][]uint{10: {2}}, roles: map[[2]uint][]uint{}}, Identity: consumerIdentityFake{users: map[uint]application.IdentityUser{2: {ID: 2, Enabled: true}}}, Store: store, Stream: stream, Clock: application.ClockFunc(func() time.Time { return now })})
 	event := domain.MessageEvent{EventID: "event-fence", EventName: domain.EventNameMessagePublished, EventVersion: 1, MessageCopyID: 41, OrganizationID: 10, OccurredAt: now, AggregateVersion: 1}
 	if _, err := consumer.Process(context.Background(), event); err != application.ErrLeaseNotHeld {
 		t.Fatalf("Process() error = %v, want ErrLeaseNotHeld", err)
 	}
-	if len(store.batches) != 1 || len(stream.refreshes) != 0 || store.completion.Completed {
-		t.Fatalf("lease-loss state batches=%#v refreshes=%#v completion=%#v", store.batches, stream.refreshes, store.completion)
+	if len(store.batches) != 0 || store.discardCalls != 1 || len(stream.refreshes) != 0 || store.completion.Completed {
+		t.Fatalf("lease-loss state batches=%#v discard_calls=%d refreshes=%#v completion=%#v", store.batches, store.discardCalls, stream.refreshes, store.completion)
 	}
 }
 

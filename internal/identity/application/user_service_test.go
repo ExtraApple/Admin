@@ -16,6 +16,12 @@ type managementRepositoryFake struct {
 	emailExists       bool
 	emailExistsValues []bool
 	updateErr         error
+	lockCalls         int
+}
+
+func (fake *managementRepositoryFake) FindByIDForUpdate(_ context.Context, _ uint) (domain.User, error) {
+	fake.lockCalls++
+	return fake.user, nil
 }
 
 func (fake *managementRepositoryFake) List(context.Context, int, int, domain.UserScope) ([]domain.User, int64, error) {

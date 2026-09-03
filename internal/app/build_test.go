@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"admin/testsupport/testutil"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"

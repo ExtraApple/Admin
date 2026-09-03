@@ -2,7 +2,7 @@ package rabbitmq
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
 
 	"admin/internal/messaging/domain"
@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	FailureCodeHeader            = "x-failure-code"
-	AudienceObservedCountHeader  = "x-audience-observed-count"
-	terminalConsumerRetryAttempt = 5
+	FailureCodeHeader             = "x-failure-code"
+	AudienceObservedCountHeader   = "x-audience-observed-count"
+	InvalidEventHeader            = "x-invalid-event"
+	InvalidEventFingerprintHeader = "x-event-fingerprint"
+	terminalConsumerRetryAttempt  = 5
 )
 
 type ConsumerFailurePublisher struct {
@@ -38,28 +40,42 @@ func (publisher *ConsumerFailurePublisher) PublishDeadLetter(ctx context.Context
 	return publisher.publish(ctx, DeadLetterExchange, "consumer."+publisher.consumerName, event, amqp.Table{RetryAttemptHeader: int32(terminalConsumerRetryAttempt), FailureCodeHeader: failureCode, AudienceObservedCountHeader: int32(audienceObservedCount)})
 }
 
+func (publisher *ConsumerFailurePublisher) PublishInvalidRetry(ctx context.Context, body []byte, fingerprint string, attempt int) error {
+	if !validFingerprint(fingerprint) || attempt < 1 || attempt >= terminalConsumerRetryAttempt {
+		return fmt.Errorf("invalid Consumer invalid-event retry payload")
+	}
+	return publisher.publishRaw(ctx, RetryExchange, RetryRoutingKey(publisher.consumerName, attempt), body, amqp.Table{RetryAttemptHeader: int32(attempt), InvalidEventHeader: true, InvalidEventFingerprintHeader: fingerprint}, "Consumer invalid-event retry")
+}
+
+func (publisher *ConsumerFailurePublisher) PublishInvalidDeadLetter(ctx context.Context, body []byte, fingerprint, failureCode string) error {
+	if !validFingerprint(fingerprint) || failureCode == "" {
+		return fmt.Errorf("invalid Consumer invalid-event dead-letter payload")
+	}
+	return publisher.publishRaw(ctx, DeadLetterExchange, "consumer."+publisher.consumerName, body, amqp.Table{RetryAttemptHeader: int32(terminalConsumerRetryAttempt), FailureCodeHeader: failureCode, AudienceObservedCountHeader: int32(0), InvalidEventHeader: true, InvalidEventFingerprintHeader: fingerprint}, "Consumer invalid-event dead letter")
+}
+
 func (publisher *ConsumerFailurePublisher) publish(ctx context.Context, exchange, routingKey string, event domain.MessageEvent, headers amqp.Table) error {
 	if publisher == nil || publisher.consumerName == "" || publisher.channels == nil {
 		return fmt.Errorf("Consumer failure publisher is unavailable")
 	}
-	if err := domain.ValidateMessageEvent(event); err != nil {
-		return fmt.Errorf("validate Consumer failure event: %w", err)
+	return publishConfirmedEvent(ctx, publisher.channels, exchange, routingKey, event, headers, "Consumer failure event")
+}
+
+func (publisher *ConsumerFailurePublisher) publishRaw(ctx context.Context, exchange, routingKey string, body []byte, headers amqp.Table, description string) error {
+	if publisher == nil || publisher.consumerName == "" || publisher.channels == nil {
+		return fmt.Errorf("Consumer failure publisher is unavailable")
 	}
 	channel, err := publisher.channels.OpenPublisherChannel(ctx)
 	if err != nil {
-		return fmt.Errorf("open Consumer failure publisher channel: %w", err)
+		return fmt.Errorf("open %s publisher channel: %w", description, err)
 	}
 	defer channel.Close()
 	if err := channel.Confirm(false); err != nil {
-		return fmt.Errorf("enable Consumer failure publisher confirms: %w", err)
+		return fmt.Errorf("enable %s publisher confirms: %w", description, err)
 	}
 	confirmations := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
-	payload, err := json.Marshal(eventPayload{EventID: event.EventID, EventName: event.EventName, EventVersion: event.EventVersion, MessageCopyID: event.MessageCopyID, OrganizationID: event.OrganizationID, OccurredAt: event.OccurredAt.UTC(), AggregateVersion: event.AggregateVersion})
-	if err != nil {
-		return fmt.Errorf("encode Consumer failure event: %w", err)
-	}
-	if err := channel.PublishWithContext(ctx, exchange, routingKey, true, false, amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Headers: headers, Body: payload}); err != nil {
-		return fmt.Errorf("publish Consumer failure event: %w", err)
+	if err := channel.PublishWithContext(ctx, exchange, routingKey, true, false, amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Headers: headers, Body: append([]byte(nil), body...)}); err != nil {
+		return fmt.Errorf("publish %s: %w", description, err)
 	}
 	select {
 	case confirmation, open := <-confirmations:
@@ -68,6 +84,14 @@ func (publisher *ConsumerFailurePublisher) publish(ctx context.Context, exchange
 		}
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("await Consumer failure publisher confirm: %w", ctx.Err())
+		return fmt.Errorf("await %s publisher confirm: %w", description, ctx.Err())
 	}
+}
+
+func validFingerprint(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }

@@ -15,13 +15,22 @@ import (
 )
 
 type emailCredentialRepositoryFake struct {
-	issuedCount   int
-	credential    domain.EmailVerificationCredential
-	replaceCall   int
-	deletedBefore time.Time
-	confirmUserID uint
-	confirmHash   string
-	confirmAt     time.Time
+	issuedCount      int
+	credential       domain.EmailVerificationCredential
+	replaceCall      int
+	atomicIssueCalls int
+	deletedBefore    time.Time
+	confirmUserID    uint
+	confirmHash      string
+	confirmAt        time.Time
+}
+
+func (fake *emailCredentialRepositoryFake) IssueCredential(ctx context.Context, credential domain.EmailVerificationCredential, _ time.Time, limit int) (bool, error) {
+	fake.atomicIssueCalls++
+	if fake.issuedCount >= limit {
+		return false, nil
+	}
+	return true, fake.ReplaceActive(ctx, credential)
 }
 
 func (fake *emailCredentialRepositoryFake) CountIssuedSince(context.Context, uint, time.Time) (int, error) {
@@ -70,12 +79,23 @@ func TestEmailVerificationIssueUsesSingleUseHashed32ByteCredential(t *testing.T)
 	if err != nil || len(rawToken) != 32 {
 		t.Fatalf("token length = %d, error = %v; want 32 random bytes", len(rawToken), err)
 	}
+
 	wantHash := sha256.Sum256(rawToken)
 	if repository.replaceCall != 1 || repository.credential.UserID != 42 || repository.credential.Email != "new@example.com" || repository.credential.TokenHash != hex.EncodeToString(wantHash[:]) {
 		t.Fatalf("stored credential = %#v", repository.credential)
 	}
 	if !repository.credential.CreatedAt.Equal(now) || !repository.credential.ExpiresAt.Equal(now.Add(15*time.Minute)) || repository.credential.UsedAt != nil {
 		t.Fatalf("credential lifetime = %#v", repository.credential)
+	}
+}
+func TestEmailVerificationIssueUsesAtomicQuotaAndCredentialWrite(t *testing.T) {
+	repository := &emailCredentialRepositoryFake{}
+	service := application.NewEmailVerificationService(repository, emailVerificationTransactionFake{}, application.WithEmailVerificationRandom(bytesReader(make([]byte, 32))))
+	if _, err := service.Issue(context.Background(), 42, "new@example.com"); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	if repository.atomicIssueCalls != 1 {
+		t.Fatalf("atomic issue calls = %d, want 1", repository.atomicIssueCalls)
 	}
 }
 

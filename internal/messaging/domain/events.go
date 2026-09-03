@@ -13,6 +13,7 @@ const (
 	EventNameMessageEdited    EventName = "messaging.message.edited.v1"
 	EventNameMessageRevoked   EventName = "messaging.message.revoked.v1"
 	EventNameMessageExpired   EventName = "messaging.message.expired.v1"
+	EventNameInvalid          EventName = "messaging.message.invalid.v1"
 )
 
 type MessageEvent struct {

@@ -21,10 +21,14 @@ type CreateAnnouncementRequest struct {
 	AllUsers     bool
 	PublishAt    *time.Time
 	ExpiresAt    *time.Time
+	ImageIDs     []uint
 }
 
 func (service *Service) CreateAnnouncement(ctx context.Context, request CreateAnnouncementRequest) ([]domain.Message, error) {
 	if service == nil || service.messages == nil || service.categories == nil || service.authorization == nil || service.organizations == nil || service.transactions == nil {
+		return nil, ErrMessagingDependency
+	}
+	if len(request.ImageIDs) > 0 && service.files == nil {
 		return nil, ErrMessagingDependency
 	}
 	if err := service.requirePermission(ctx, request.ActorID, PermissionAnnouncementManage); err != nil {
@@ -39,7 +43,8 @@ func (service *Service) CreateAnnouncement(ctx context.Context, request CreateAn
 		return nil, err
 	}
 	now := service.clock.Now().UTC()
-	status, publishAt := announcementInitialStatus(request.PublishAt, now)
+	status := domain.MessageStatusDraft
+	publishAt := copyUTC(request.PublishAt)
 	expiresAt := copyUTC(request.ExpiresAt)
 	logicalID := uuid.NewString()
 	copies := make([]domain.Message, 0, len(audiencesByOrganization))
@@ -77,6 +82,11 @@ func (service *Service) CreateAnnouncement(ctx context.Context, request CreateAn
 				return err
 			}
 			copies = append(copies, copy)
+		}
+		if len(request.ImageIDs) > 0 {
+			if err := service.files.BindMessageImages(tx, MessageImageBinding{ActorID: request.ActorID, MessageLogicalID: logicalID, ImageIDs: append([]uint(nil), request.ImageIDs...)}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -145,17 +155,6 @@ func (service *Service) transitionDueAnnouncements(ctx context.Context, now time
 	return changed, nil
 }
 
-func announcementInitialStatus(requested *time.Time, now time.Time) (domain.MessageStatus, *time.Time) {
-	publishAt := copyUTC(requested)
-	if publishAt == nil {
-		return domain.MessageStatusDraft, nil
-	}
-	if publishAt.After(now) {
-		return domain.MessageStatusScheduled, publishAt
-	}
-	return domain.MessageStatusPublished, publishAt
-}
-
 func copyUTC(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
@@ -172,11 +171,15 @@ type EditAnnouncementRequest struct {
 	Markdown     string
 	Targets      []DynamicAudienceTarget
 	AllUsers     bool
+	ImageIDs     []uint
 	ExpiresAt    *time.Time
 }
 
 func (service *Service) EditAnnouncement(ctx context.Context, request EditAnnouncementRequest) (domain.Message, error) {
 	if service == nil || service.messages == nil || service.categories == nil || service.authorization == nil || service.organizations == nil || service.transactions == nil {
+		return domain.Message{}, ErrMessagingDependency
+	}
+	if len(request.ImageIDs) > 0 && service.files == nil {
 		return domain.Message{}, ErrMessagingDependency
 	}
 	if err := service.requirePermission(ctx, request.ActorID, PermissionAnnouncementManage); err != nil {
@@ -239,6 +242,11 @@ func (service *Service) EditAnnouncement(ctx context.Context, request EditAnnoun
 		updated, err := service.messages.ChangeMessage(tx, MessageChange{Message: message, ReplaceAudiences: &replacementAudiences, Event: event})
 		if err != nil {
 			return err
+		}
+		if len(request.ImageIDs) > 0 {
+			if err := service.files.BindMessageImages(tx, MessageImageBinding{ActorID: request.ActorID, MessageLogicalID: updated.LogicalID, ImageIDs: append([]uint(nil), request.ImageIDs...)}); err != nil {
+				return err
+			}
 		}
 		changed = updated
 		return nil

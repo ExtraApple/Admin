@@ -117,7 +117,7 @@
 
 ## 12. 文档同步与最终验收
 
-- [x] 12.1 更新 `docs/modify/文件上传安全优化建议.md` 的实施状态，只保留实现说明和背景，避免重复复制 OpenSpec 的完整可观察行为
+- [x] 12.1 更新 `docs/modify/file-upload-security-recommendations.md` 的实施状态，只保留实现说明和背景，避免重复复制 OpenSpec 的完整可观察行为
 - [x] 12.2 在优化建议中保留 V2 后续项：ClamAV/外部恶意文件扫描、隔离区、批量重新验证、限流、配额、批量上传和新增类型评审
 - [x] 12.3 更新 `docs/modify/README.md`、相关模块 API/Apifox 文档和部署配置说明，明确三个 `config.yaml` key、硬上限及前后端迁移影响
 - [x] 12.4 对照 `file-management`、`user-management`、`logging` 三份 delta spec 逐条验收实现和自动化测试，不提前删除历史字段或读取历史 MinIO 对象

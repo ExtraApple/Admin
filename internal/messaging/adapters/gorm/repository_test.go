@@ -278,6 +278,24 @@ func TestRepositoryRetainsLinkedAudienceSnapshotUntilDeadLetterFinalization(t *t
 	}
 }
 
+func TestRepositoryStoresInvalidConsumerDeadLetterWithoutPayloadAndRejectsReplay(t *testing.T) {
+	repository, _ := openRepository(t)
+	ctx := context.Background()
+	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
+	fingerprint := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	deadLetter, err := repository.RecordConsumerDeadLetter(ctx, application.ConsumerDeadLetterInput{ConsumerName: "websocket", OriginalQueue: "admin.messaging.websocket", RetryAttempt: 5, FailureCode: "message_event_invalid", Invalid: true, Fingerprint: fingerprint, Now: now})
+	if err != nil || !deadLetter.Invalid || deadLetter.Fingerprint != fingerprint || deadLetter.Replayable {
+		t.Fatalf("invalid dead letter = %#v, err=%v", deadLetter, err)
+	}
+	items, total, err := repository.ListConsumerDeadLetters(ctx, application.ConsumerDeadLetterListQuery{ConsumerName: "websocket"})
+	if err != nil || total != 1 || len(items) != 1 || items[0].Fingerprint != fingerprint || items[0].Event.EventID == "" {
+		t.Fatalf("listed invalid dead letters = %#v total=%d err=%v", items, total, err)
+	}
+	if _, acquired, err := repository.ClaimConsumerDeadLetterReplay(ctx, application.ConsumerDeadLetterReplayClaim{ID: deadLetter.ID, WorkerID: "worker-a", Now: now, Lease: time.Minute}); err == nil || acquired {
+		t.Fatalf("invalid dead-letter replay claim = acquired:%t err:%v, want rejection", acquired, err)
+	}
+}
+
 func TestRepositoryReusesOnlyMarkedCompleteAudienceSnapshots(t *testing.T) {
 	repository, _ := openRepository(t)
 	ctx := context.Background()
@@ -317,6 +335,13 @@ func TestRepositoryReusesOnlyMarkedCompleteAudienceSnapshots(t *testing.T) {
 	}
 	if ok, err := repository.PersistAudienceDeliveryBatch(ctx, application.AudienceDeliveryBatch{EventConsumptionLease: lease, MessageCopyID: incomplete.MessageCopyID, UserIDs: []uint{9}, ExpiresAt: now.Add(24 * time.Hour)}); err != nil || !ok {
 		t.Fatalf("persist partial snapshot = %t, %v", ok, err)
+	}
+	if discarded, err := repository.DiscardAudienceDeliverySnapshot(ctx, lease); err != nil || !discarded {
+		t.Fatalf("DiscardAudienceDeliverySnapshot() = %t, %v", discarded, err)
+	}
+	userIDs, err = repository.ListAudienceDeliveryUserIDs(ctx, "websocket", incomplete.EventID)
+	if err != nil || len(userIDs) != 0 {
+		t.Fatalf("discarded incomplete snapshot users = %#v, %v", userIDs, err)
 	}
 	claim, acquired, err = repository.ClaimEventConsumption(ctx, application.EventConsumptionClaim{ConsumerName: "websocket", Event: incomplete, WorkerID: "worker-b", Now: now.Add(2 * time.Second), Lease: time.Minute})
 	if err != nil || !acquired || claim.SnapshotComplete {

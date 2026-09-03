@@ -2,6 +2,8 @@ package rabbitmq_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -136,5 +138,23 @@ func TestConsumerDeadLetterConsumerLogsControlledRecorderFailure(t *testing.T) {
 		if record == "database password=secret" {
 			t.Fatalf("runtime logger received raw error: %q", record)
 		}
+	}
+}
+
+func TestConsumerDeadLetterConsumerRecordsInvalidEventAsFingerprintOnlyProjection(t *testing.T) {
+	messages := make(chan amqp.Delivery, 1)
+	channel := &competingConsumerChannelFake{messages: messages}
+	recorder := &dlqRecorderFake{}
+	consumer := messagingrabbitmq.NewConsumerDeadLetterConsumer(messagingrabbitmq.ConsumerDeadLetterConsumerConfig{Queue: messagingrabbitmq.DeadLetterQueueName("websocket"), ConsumerName: "websocket", OriginalQueue: messagingrabbitmq.ConsumerQueueName("websocket"), Channels: consumerChannelFactoryFake{channel: channel}, Recorder: recorder})
+	body := []byte(`{"event_id":"leak-me","markdown":"secret","password":"secret"}`)
+	digest := sha256.Sum256(body)
+	fingerprint := hex.EncodeToString(digest[:])
+	messages <- amqp.Delivery{DeliveryTag: 15, Headers: amqp.Table{messagingrabbitmq.RetryAttemptHeader: int32(5), messagingrabbitmq.FailureCodeHeader: "message_event_invalid", messagingrabbitmq.InvalidEventHeader: true, messagingrabbitmq.InvalidEventFingerprintHeader: fingerprint}, Body: body}
+	close(messages)
+	if err := consumer.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(recorder.inputs) != 1 || !recorder.inputs[0].Invalid || recorder.inputs[0].Fingerprint != fingerprint || recorder.inputs[0].Event.EventID == "leak-me" || len(channel.acked) != 1 || len(channel.nacked) != 0 {
+		t.Fatalf("invalid projection inputs=%#v acked=%#v nacked=%#v", recorder.inputs, channel.acked, channel.nacked)
 	}
 }

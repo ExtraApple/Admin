@@ -22,6 +22,7 @@ var architectureAllowedInternalRoots = map[string]struct{}{
 	"organization":   {},
 	"dictionary":     {},
 	"files":          {},
+	"messaging":      {},
 	"audit":          {},
 	"routecatalog":   {},
 	"apidoc":         {},

@@ -4,14 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"admin/internal/messaging/application"
-	websocket "github.com/coder/websocket"
 )
 
 type gatewayConnectionFake struct {
@@ -27,12 +24,12 @@ func newGatewayConnectionFake() *gatewayConnectionFake {
 	return &gatewayConnectionFake{writeCh: make(chan struct{}, 10), closed: make(chan struct{})}
 }
 
-func (connection *gatewayConnectionFake) Read(context.Context) (websocket.MessageType, []byte, error) {
+func (connection *gatewayConnectionFake) Read(context.Context) ([]byte, error) {
 	<-connection.closed
-	return websocket.MessageText, nil, errors.New("connection closed")
+	return nil, errors.New("connection closed")
 }
 
-func (connection *gatewayConnectionFake) Write(ctx context.Context, _ websocket.MessageType, data []byte) error {
+func (connection *gatewayConnectionFake) Write(ctx context.Context, data []byte) error {
 	if connection.writeStarted != nil {
 		select {
 		case connection.writeStarted <- struct{}{}:
@@ -52,7 +49,7 @@ func (connection *gatewayConnectionFake) Write(ctx context.Context, _ websocket.
 	return nil
 }
 
-func (connection *gatewayConnectionFake) Close(websocket.StatusCode, string) error {
+func (connection *gatewayConnectionFake) Close(string) error {
 	connection.closeOnce.Do(func() { close(connection.closed) })
 	return nil
 }
@@ -84,15 +81,12 @@ func TestWebSocketGatewayConsumesTicketBindsUserAndBootstrapsRecovery(t *testing
 		Tickets:  application.NewWebSocketTicketService(ticketStore),
 		Hub:      application.NewRefreshHub(),
 		Recovery: recovery,
-		Accept: func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
-			accepted = true
-			return connection, nil
-		},
 	})
-	request := httptest.NewRequest(http.MethodGet, "/api/user/messages/ws?ticket=opaque-ticket&cursor=cursor-1", nil)
-	response := httptest.NewRecorder()
-	if err := gateway.Upgrade(context.Background(), response, request, 7); err != nil {
-		t.Fatalf("Upgrade() = %v", err)
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket", Cursor: "cursor-1"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+		accepted = true
+		return connection, nil
+	}); err != nil {
+		t.Fatalf("Connect() = %v", err)
 	}
 	select {
 	case <-connection.writeCh:
@@ -108,7 +102,30 @@ func TestWebSocketGatewayConsumesTicketBindsUserAndBootstrapsRecovery(t *testing
 			t.Fatalf("gateway payload includes forbidden field %q: %#v", forbidden, messages[0])
 		}
 	}
-	connection.Close(websocket.StatusNormalClosure, "test complete")
+	_ = connection.Close("test complete")
+}
+
+type transportNeutralGatewayConnectionFake struct{}
+
+func (transportNeutralGatewayConnectionFake) Read(context.Context) ([]byte, error) {
+	return nil, errors.New("closed")
+}
+func (transportNeutralGatewayConnectionFake) Write(context.Context, []byte) error { return nil }
+func (transportNeutralGatewayConnectionFake) Close(string) error                  { return nil }
+
+func TestWebSocketGatewayConnectUsesTransportNeutralAcceptor(t *testing.T) {
+	accepted := false
+	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
+		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 7, found: true}),
+		Hub:     application.NewRefreshHub(),
+	})
+	err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+		accepted = true
+		return transportNeutralGatewayConnectionFake{}, nil
+	})
+	if err != nil || !accepted {
+		t.Fatalf("Connect() error=%v accepted=%t", err, accepted)
+	}
 }
 
 func TestWebSocketGatewayClosesSlowConnectionWhenQueueFills(t *testing.T) {
@@ -120,12 +137,11 @@ func TestWebSocketGatewayClosesSlowConnectionWhenQueueFills(t *testing.T) {
 		Hub:          hub,
 		QueueSize:    1,
 		WriteTimeout: 20 * time.Millisecond,
-		Accept: func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
-			return connection, nil
-		},
 	})
-	if err := gateway.Upgrade(context.Background(), httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/ws?ticket=opaque-ticket", nil), 7); err != nil {
-		t.Fatalf("Upgrade() = %v", err)
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+		return connection, nil
+	}); err != nil {
+		t.Fatalf("Connect() = %v", err)
 	}
 	event := application.RefreshEvent{EventID: "event-queue", Cursor: "cursor-queue", MessageCopyID: 41, UserID: 7, AggregateVersion: 1}
 	hub.Publish(context.Background(), event)
@@ -148,13 +164,11 @@ func TestWebSocketGatewayRejectsInvalidTicketBeforeUpgrade(t *testing.T) {
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 8, found: true}),
 		Hub:     application.NewRefreshHub(),
-		Accept: func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
-			accepted = true
-			return newGatewayConnectionFake(), nil
-		},
 	})
-	request := httptest.NewRequest(http.MethodGet, "/api/user/messages/ws?ticket=opaque-ticket", nil)
-	if err := gateway.Upgrade(context.Background(), httptest.NewRecorder(), request, 7); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+		accepted = true
+		return newGatewayConnectionFake(), nil
+	}); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
 		t.Fatalf("invalid ticket error = %v", err)
 	}
 	if accepted {

@@ -75,29 +75,50 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 	}
 	emailRequested := request.Email != ""
 	emailChanged := emailRequested && request.Email != user.Email
-	var verificationToken string
 	if emailRequested {
 		if err := service.passwords.Compare(user.Password, request.CurrentPassword); err != nil {
 			return domain.User{}, NewValidationError([]FieldError{{Field: "current_password", ErrorCode: "IDENTITY_CURRENT_PASSWORD_INVALID", Message: "current password is invalid"}}, nil)
 		}
 	}
-	if emailChanged {
-		if service.emailVerificationIssuer == nil || service.verificationEmailSender == nil {
-			return domain.User{}, NewError(CodeInternalError, nil)
+	if !emailChanged {
+		if changes.Nickname == nil {
+			return domain.User{}, NewError(CodeValidationInvalid, nil)
 		}
-		exists, err := service.users.EmailExists(ctx, request.Email, userID)
-		if err != nil {
+		if err := service.users.Update(ctx, userID, changes); err != nil {
 			return domain.User{}, NewError(CodeInternalError, err)
 		}
-		if exists {
-			return domain.User{}, NewError(CodeConflict, nil)
-		}
-		verificationToken, err = service.emailVerificationIssuer.Issue(ctx, userID, request.Email)
+		return service.Get(ctx, userID)
+	}
+	if service.emailVerificationIssuer == nil || service.verificationEmailSender == nil {
+		return domain.User{}, NewError(CodeInternalError, nil)
+	}
+
+	var verificationToken string
+	updateEmail := func(tx context.Context) error {
+		lockedUser, err := service.users.FindByIDForUpdate(tx, userID)
 		if err != nil {
-			return domain.User{}, err
+			return err
+		}
+		if err := service.passwords.Compare(lockedUser.Password, request.CurrentPassword); err != nil {
+			return NewValidationError([]FieldError{{Field: "current_password", ErrorCode: "IDENTITY_CURRENT_PASSWORD_INVALID", Message: "current password is invalid"}}, nil)
+		}
+		if request.Email == lockedUser.Email {
+			emailChanged = false
+			return nil
+		}
+		exists, err := service.users.EmailExists(tx, request.Email, userID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if exists {
+			return NewError(CodeConflict, nil)
+		}
+		verificationToken, err = service.emailVerificationIssuer.Issue(tx, userID, request.Email)
+		if err != nil {
+			return err
 		}
 		value := request.Email
-		if user.EmailVerifiedAt == nil {
+		if lockedUser.EmailVerifiedAt == nil {
 			changes.Email = &value
 			pending := ""
 			changes.PendingEmail = &pending
@@ -105,23 +126,21 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 		} else {
 			changes.PendingEmail = &value
 		}
+		return service.users.Update(tx, userID, changes)
 	}
-	if changes.Nickname == nil && !emailChanged {
-		return domain.User{}, NewError(CodeValidationInvalid, nil)
+	if service.transactions != nil {
+		err = service.transactions.Run(ctx, updateEmail)
+	} else {
+		err = updateEmail(ctx)
 	}
-	update := func(tx context.Context) error { return service.users.Update(tx, userID, changes) }
-	if emailChanged || service.transactions == nil {
-		if service.transactions != nil {
-			if err := service.transactions.Run(ctx, update); err != nil {
-				_ = service.emailVerificationIssuer.Invalidate(ctx, userID, request.Email)
-				return domain.User{}, service.classifyEmailUpdateFailure(ctx, userID, request.Email, err)
-			}
-		} else if err := update(ctx); err != nil {
+	if err != nil {
+		if verificationToken != "" {
 			_ = service.emailVerificationIssuer.Invalidate(ctx, userID, request.Email)
-			return domain.User{}, service.classifyEmailUpdateFailure(ctx, userID, request.Email, err)
 		}
-	} else if err := service.users.Update(ctx, userID, changes); err != nil {
-		return domain.User{}, NewError(CodeInternalError, err)
+		if code, ok := CodeOf(err); ok && code != CodeInternalError {
+			return domain.User{}, err
+		}
+		return domain.User{}, service.classifyEmailUpdateFailure(ctx, userID, request.Email, err)
 	}
 	if emailChanged {
 		if err := service.verificationEmailSender.SendVerification(ctx, request.Email, verificationToken); err != nil {

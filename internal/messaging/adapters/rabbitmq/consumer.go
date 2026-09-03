@@ -2,6 +2,8 @@ package rabbitmq
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,17 +93,15 @@ func (consumer *CompetingConsumer) Run(ctx context.Context) error {
 			}
 			var event eventPayload
 			if err := json.Unmarshal(delivery.Body, &event); err != nil {
-				consumer.log("warn", "messaging_rabbitmq_event_decode_failed", application.RuntimeLogField{Key: "consumer", Value: consumer.consumerName}, application.RuntimeLogField{Key: "stage", Value: "decode"}, application.RuntimeLogField{Key: "failure_code", Value: "message_event_invalid"})
-				if nackErr := channel.Nack(delivery.DeliveryTag, false, false); nackErr != nil {
-					return nackErr
+				if routeErr := consumer.routeInvalidDelivery(ctx, channel, delivery, "message_event_invalid"); routeErr != nil {
+					return routeErr
 				}
 				continue
 			}
 			messageEvent := event.toDomain()
 			if err := domain.ValidateMessageEvent(messageEvent); err != nil {
-				consumer.log("warn", "messaging_rabbitmq_event_validation_failed", application.RuntimeLogField{Key: "consumer", Value: consumer.consumerName}, application.RuntimeLogField{Key: "event_id", Value: messageEvent.EventID}, application.RuntimeLogField{Key: "stage", Value: "validate"}, application.RuntimeLogField{Key: "failure_code", Value: "message_event_invalid"})
-				if nackErr := channel.Nack(delivery.DeliveryTag, false, false); nackErr != nil {
-					return nackErr
+				if routeErr := consumer.routeInvalidDelivery(ctx, channel, delivery, "message_event_invalid"); routeErr != nil {
+					return routeErr
 				}
 				continue
 			}
@@ -153,4 +153,28 @@ func consumerFailureCode(err error) string {
 
 func (payload eventPayload) toDomain() domain.MessageEvent {
 	return domain.MessageEvent{EventID: payload.EventID, EventName: payload.EventName, EventVersion: payload.EventVersion, MessageCopyID: payload.MessageCopyID, OrganizationID: payload.OrganizationID, OccurredAt: payload.OccurredAt, AggregateVersion: payload.AggregateVersion}
+}
+
+func (consumer *CompetingConsumer) routeInvalidDelivery(ctx context.Context, channel ConsumerChannel, delivery amqp.Delivery, failureCode string) error {
+	fingerprintBytes := sha256.Sum256(delivery.Body)
+	fingerprint := hex.EncodeToString(fingerprintBytes[:])
+	attempt, valid := controlledRetryAttempt(delivery.Headers)
+	if !valid {
+		attempt = 0
+	}
+	if router, ok := consumer.failures.(InvalidFailureRouter); ok {
+		if attempt >= 4 {
+			if err := router.PublishInvalidDeadLetter(ctx, delivery.Body, fingerprint, failureCode); err != nil {
+				return fmt.Errorf("route invalid event to dead letter: %w", err)
+			}
+		} else if err := router.PublishInvalidRetry(ctx, delivery.Body, fingerprint, attempt+1); err != nil {
+			return fmt.Errorf("route invalid event to retry: %w", err)
+		}
+		consumer.log("info", "messaging_rabbitmq_invalid_event_routed", application.RuntimeLogField{Key: "consumer", Value: consumer.consumerName}, application.RuntimeLogField{Key: "stage", Value: "invalid_event_route"}, application.RuntimeLogField{Key: "failure_code", Value: failureCode}, application.RuntimeLogField{Key: "retry_attempt", Value: attempt})
+		return channel.Ack(delivery.DeliveryTag, false)
+	}
+	if err := channel.Nack(delivery.DeliveryTag, false, false); err != nil {
+		return err
+	}
+	return nil
 }

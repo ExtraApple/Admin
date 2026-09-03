@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"admin/testsupport/testutil"
 	"admin/internal/app"
 	"admin/internal/audit"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
+	"admin/testsupport/testutil"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"

@@ -16,6 +16,7 @@ const (
 type PublishAnnouncementRequest struct {
 	ActorID   uint
 	MessageID uint
+	ImageIDs  []uint
 }
 
 func (service *Service) ListAnnouncements(ctx context.Context, request ManagedMessageListRequest) ([]domain.Message, int64, error) {
@@ -62,6 +63,9 @@ func (service *Service) PublishAnnouncement(ctx context.Context, request Publish
 	if service == nil || service.messages == nil || service.transactions == nil {
 		return domain.Message{}, ErrMessagingDependency
 	}
+	if len(request.ImageIDs) > 0 && service.files == nil {
+		return domain.Message{}, ErrMessagingDependency
+	}
 	if err := service.requirePermission(ctx, request.ActorID, PermissionAnnouncementManage); err != nil {
 		return domain.Message{}, err
 	}
@@ -78,22 +82,40 @@ func (service *Service) PublishAnnouncement(ctx context.Context, request Publish
 	if err := service.requireManagedOrganization(ctx, request.ActorID, message.OrganizationID); err != nil {
 		return domain.Message{}, err
 	}
-	if !domain.CanTransitionMessage(message.Kind, message.Status, domain.MessageStatusPublished) {
+	if !domain.CanTransitionMessage(message.Kind, message.Status, domain.MessageStatusScheduled) && !domain.CanTransitionMessage(message.Kind, message.Status, domain.MessageStatusPublished) {
 		return domain.Message{}, ErrMessageImmutable
 	}
 	now := service.clock.Now().UTC()
+	publishAt := message.PublishAt
+	if publishAt != nil {
+		planned := publishAt.UTC()
+		publishAt = &planned
+	}
+	if publishAt != nil && publishAt.After(now) {
+		message.Status = domain.MessageStatusScheduled
+		message.PublishAt = publishAt
+	} else {
+		message.Status = domain.MessageStatusPublished
+		message.PublishAt = &now
+	}
 	if message.ExpiresAt != nil && !message.ExpiresAt.After(now) {
 		return domain.Message{}, ErrMessageImmutable
 	}
-	message.Status = domain.MessageStatusPublished
-	message.PublishAt = &now
 	message.AggregateVersion++
-	event := domain.MessageEvent{EventID: newMessageEventID(), EventName: domain.EventNameMessagePublished, EventVersion: 1, MessageCopyID: message.ID, OrganizationID: message.OrganizationID, OccurredAt: now, AggregateVersion: message.AggregateVersion}
+	event := domain.MessageEvent{}
+	if message.Status == domain.MessageStatusPublished {
+		event = domain.MessageEvent{EventID: newMessageEventID(), EventName: domain.EventNameMessagePublished, EventVersion: 1, MessageCopyID: message.ID, OrganizationID: message.OrganizationID, OccurredAt: now, AggregateVersion: message.AggregateVersion}
+	}
 	var published domain.Message
 	if err := service.transactions.Run(ctx, func(tx context.Context) error {
 		changed, err := service.messages.ChangeMessage(tx, MessageChange{Message: message, Event: event})
 		if err != nil {
 			return err
+		}
+		if len(request.ImageIDs) > 0 {
+			if err := service.files.BindMessageImages(tx, MessageImageBinding{ActorID: request.ActorID, MessageLogicalID: changed.LogicalID, ImageIDs: append([]uint(nil), request.ImageIDs...)}); err != nil {
+				return err
+			}
 		}
 		published = changed
 		return nil

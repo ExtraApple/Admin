@@ -16,13 +16,13 @@ type deadLetterStoreFake struct {
 
 func (store *deadLetterStoreFake) RecordConsumerDeadLetter(_ context.Context, input application.ConsumerDeadLetterInput) (application.ConsumerDeadLetter, error) {
 	for index := range store.items {
-		if store.items[index].ConsumerName == input.ConsumerName && store.items[index].Event.EventID == input.Event.EventID {
+		if store.items[index].ConsumerName == input.ConsumerName && store.items[index].Event.EventID == input.Event.EventID && store.items[index].Fingerprint == input.Fingerprint {
 			store.items[index].LastFailureCode = input.FailureCode
 			store.items[index].AudienceObservedCount = input.AudienceObservedCount
 			return store.items[index], nil
 		}
 	}
-	item := application.ConsumerDeadLetter{ID: uint(len(store.items) + 1), ConsumerName: input.ConsumerName, Event: input.Event, OriginalQueue: input.OriginalQueue, RetryAttempt: input.RetryAttempt, Status: domain.ConsumerDLQStatusPending, LastFailureCode: input.FailureCode, AudienceObservedCount: input.AudienceObservedCount}
+	item := application.ConsumerDeadLetter{ID: uint(len(store.items) + 1), ConsumerName: input.ConsumerName, Event: input.Event, OriginalQueue: input.OriginalQueue, RetryAttempt: input.RetryAttempt, Status: domain.ConsumerDLQStatusPending, LastFailureCode: input.FailureCode, AudienceObservedCount: input.AudienceObservedCount, Invalid: input.Invalid, Fingerprint: input.Fingerprint, Replayable: !input.Invalid}
 	store.items = append(store.items, item)
 	return item, nil
 }
@@ -112,5 +112,16 @@ func TestConsumerDeadLetterRecorderPersistsWhenObservationFails(t *testing.T) {
 				t.Fatalf("recorded items = %#v", test.store.items)
 			}
 		})
+	}
+}
+
+func TestConsumerDeadLetterRecorderAcceptsInvalidEventAsNonReplayableSafeProjection(t *testing.T) {
+	now := time.Date(2026, 8, 24, 1, 2, 3, 0, time.UTC)
+	store := &deadLetterStoreFake{}
+	recorder := application.NewConsumerDeadLetterRecorder(application.ConsumerDeadLetterRecorderConfig{Store: store, Clock: application.ClockFunc(func() time.Time { return now })})
+	fingerprint := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	item, err := recorder.Record(context.Background(), application.ConsumerDeadLetterInput{ConsumerName: "websocket", OriginalQueue: "admin.messaging.websocket", RetryAttempt: 5, FailureCode: "message_event_invalid", Invalid: true, Fingerprint: fingerprint, Now: now})
+	if err != nil || !item.Invalid || item.Fingerprint != fingerprint || item.Replayable {
+		t.Fatalf("invalid dead letter = %#v, err=%v", item, err)
 	}
 }

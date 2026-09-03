@@ -283,10 +283,14 @@ type SendPrivateMessageRequest struct {
 	RecipientID uint
 	Title       string
 	Markdown    string
+	ImageIDs    []uint
 }
 
 func (service *Service) SendPrivateMessage(ctx context.Context, request SendPrivateMessageRequest) (domain.Message, error) {
 	if service == nil || service.messages == nil || service.identity == nil || service.organizations == nil {
+		return domain.Message{}, ErrMessagingDependency
+	}
+	if len(request.ImageIDs) > 0 && service.files == nil {
 		return domain.Message{}, ErrMessagingDependency
 	}
 	if request.SenderID == 0 || request.RecipientID == 0 || request.SenderID == request.RecipientID {
@@ -311,7 +315,22 @@ func (service *Service) SendPrivateMessage(ctx context.Context, request SendPriv
 	now := service.clock.Now().UTC()
 	message := domain.Message{LogicalID: uuid.NewString(), OrganizationID: organizationID, SenderID: request.SenderID, Kind: domain.MessageKindPrivate, Status: domain.MessageStatusPublished, Title: compiled.Title, BodyHTML: compiled.HTML, PublishAt: &now, AggregateVersion: 1}
 	event := domain.MessageEvent{EventID: uuid.NewString(), EventName: domain.EventNameMessageCreated, EventVersion: 1, OrganizationID: organizationID, OccurredAt: now, AggregateVersion: 1}
-	return service.messages.PersistMessage(ctx, MessagePersistence{Message: message, Recipient: &domain.PrivateRecipient{SenderID: request.SenderID, RecipientID: request.RecipientID}, Event: &event})
+	persistence := MessagePersistence{Message: message, Recipient: &domain.PrivateRecipient{SenderID: request.SenderID, RecipientID: request.RecipientID}, Event: &event}
+	if len(request.ImageIDs) == 0 {
+		return service.messages.PersistMessage(ctx, persistence)
+	}
+	var persisted domain.Message
+	if err := service.transactions.Run(ctx, func(tx context.Context) error {
+		var err error
+		persisted, err = service.messages.PersistMessage(tx, persistence)
+		if err != nil {
+			return err
+		}
+		return service.files.BindMessageImages(tx, MessageImageBinding{ActorID: request.SenderID, MessageLogicalID: persisted.LogicalID, ImageIDs: append([]uint(nil), request.ImageIDs...)})
+	}); err != nil {
+		return domain.Message{}, err
+	}
+	return persisted, nil
 }
 
 type RevokeMessageRequest struct {

@@ -36,24 +36,28 @@ func (publisher *Publisher) Publish(ctx context.Context, event domain.MessageEve
 	if publisher == nil || publisher.channels == nil {
 		return errors.New("RabbitMQ publisher is unavailable")
 	}
+	return publishConfirmedEvent(ctx, publisher.channels, EventsExchange, string(event.EventName), event, nil, "RabbitMQ event")
+}
+
+func publishConfirmedEvent(ctx context.Context, channels PublisherChannelFactory, exchange, routingKey string, event domain.MessageEvent, headers amqp.Table, description string) error {
 	if err := domain.ValidateMessageEvent(event); err != nil {
-		return fmt.Errorf("validate RabbitMQ event: %w", err)
+		return fmt.Errorf("validate %s: %w", description, err)
 	}
-	channel, err := publisher.channels.OpenPublisherChannel(ctx)
+	channel, err := channels.OpenPublisherChannel(ctx)
 	if err != nil {
-		return fmt.Errorf("open RabbitMQ publisher channel: %w", err)
+		return fmt.Errorf("open %s publisher channel: %w", description, err)
 	}
 	defer channel.Close()
 	if err := channel.Confirm(false); err != nil {
-		return fmt.Errorf("enable RabbitMQ publisher confirms: %w", err)
+		return fmt.Errorf("enable %s publisher confirms: %w", description, err)
 	}
 	confirmations := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
 	payload, err := json.Marshal(eventPayload{EventID: event.EventID, EventName: event.EventName, EventVersion: event.EventVersion, MessageCopyID: event.MessageCopyID, OrganizationID: event.OrganizationID, OccurredAt: event.OccurredAt.UTC(), AggregateVersion: event.AggregateVersion})
 	if err != nil {
-		return fmt.Errorf("encode RabbitMQ event: %w", err)
+		return fmt.Errorf("encode %s: %w", description, err)
 	}
-	if err := channel.PublishWithContext(ctx, EventsExchange, string(event.EventName), true, false, amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Body: payload}); err != nil {
-		return fmt.Errorf("publish RabbitMQ event: %w", err)
+	if err := channel.PublishWithContext(ctx, exchange, routingKey, true, false, amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent, Headers: headers, Body: payload}); err != nil {
+		return fmt.Errorf("publish %s: %w", description, err)
 	}
 	select {
 	case confirmation, open := <-confirmations:
@@ -62,7 +66,7 @@ func (publisher *Publisher) Publish(ctx context.Context, event domain.MessageEve
 		}
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("await RabbitMQ publisher confirm: %w", ctx.Err())
+		return fmt.Errorf("await %s publisher confirm: %w", description, ctx.Err())
 	}
 }
 

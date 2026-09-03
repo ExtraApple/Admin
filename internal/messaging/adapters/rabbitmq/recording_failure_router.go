@@ -33,3 +33,19 @@ func (router *RecordingFailureRouter) PublishDeadLetter(ctx context.Context, eve
 	}
 	return router.publisher.PublishDeadLetter(ctx, event, failureCode, audienceObservedCount)
 }
+
+func (router *RecordingFailureRouter) PublishInvalidRetry(ctx context.Context, body []byte, fingerprint string, attempt int) error {
+	invalidRouter, ok := router.publisher.(InvalidFailureRouter)
+	if !ok {
+		return fmt.Errorf("Consumer invalid-event failure publisher is unavailable")
+	}
+	return invalidRouter.PublishInvalidRetry(ctx, body, fingerprint, attempt)
+}
+
+func (router *RecordingFailureRouter) PublishInvalidDeadLetter(ctx context.Context, body []byte, fingerprint, failureCode string) error {
+	invalidRouter, ok := router.publisher.(InvalidFailureRouter)
+	if !ok {
+		return fmt.Errorf("Consumer invalid-event failure publisher is unavailable")
+	}
+	return invalidRouter.PublishInvalidDeadLetter(ctx, body, fingerprint, failureCode)
+}

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"admin/internal/messaging/application"
-	websocket "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 )
 
@@ -34,14 +33,14 @@ type httpGatewayConnectionFake struct {
 func newHTTPGatewayConnectionFake() *httpGatewayConnectionFake {
 	return &httpGatewayConnectionFake{closed: make(chan struct{})}
 }
-func (connection *httpGatewayConnectionFake) Read(context.Context) (websocket.MessageType, []byte, error) {
+func (connection *httpGatewayConnectionFake) Read(context.Context) ([]byte, error) {
 	<-connection.closed
-	return websocket.MessageText, nil, errors.New("closed")
+	return nil, errors.New("closed")
 }
-func (*httpGatewayConnectionFake) Write(context.Context, websocket.MessageType, []byte) error {
+func (*httpGatewayConnectionFake) Write(context.Context, []byte) error {
 	return nil
 }
-func (connection *httpGatewayConnectionFake) Close(websocket.StatusCode, string) error {
+func (connection *httpGatewayConnectionFake) Close(string) error {
 	select {
 	case <-connection.closed:
 	default:
@@ -69,12 +68,12 @@ func TestWebSocketUpgradeHandlerRejectsInvalidTicketBeforeProtocolUpgrade(t *tes
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets: tickets,
 		Hub:     application.NewRefreshHub(),
-		Accept: func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
-			accepted = true
-			return newHTTPGatewayConnectionFake(), nil
-		},
 	})
-	descriptor := findMessageRoute(t, WebSocketRoutes(tickets, gateway), http.MethodGet, "/api/user/messages/ws")
+	accept := func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
+		accepted = true
+		return newHTTPGatewayConnectionFake(), nil
+	}
+	descriptor := findMessageRoute(t, webSocketRoutes(tickets, gateway, accept), http.MethodGet, "/api/user/messages/ws")
 	context, response := newGinRequest(t, http.MethodGet, "/api/user/messages/ws?ticket=secret-ticket", "")
 	context.Set("userID", uint(7))
 	descriptor.Handler(context)
@@ -90,19 +89,19 @@ func TestWebSocketUpgradeHandlerPassesValidTicketToGateway(t *testing.T) {
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets: tickets,
 		Hub:     application.NewRefreshHub(),
-		Accept: func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
-			accepted = true
-			return connection, nil
-		},
 	})
-	descriptor := findMessageRoute(t, WebSocketRoutes(tickets, gateway), http.MethodGet, "/api/user/messages/ws")
+	accept := func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error) {
+		accepted = true
+		return connection, nil
+	}
+	descriptor := findMessageRoute(t, webSocketRoutes(tickets, gateway, accept), http.MethodGet, "/api/user/messages/ws")
 	context, response := newGinRequest(t, http.MethodGet, "/api/user/messages/ws?ticket=valid-ticket&cursor=cursor-1", "")
 	context.Set("userID", uint(7))
 	descriptor.Handler(context)
 	if !accepted || response.Body.Len() != 0 {
 		t.Fatalf("valid upgrade accepted=%t response=%d body=%s", accepted, response.Code, response.Body.String())
 	}
-	_ = connection.Close(websocket.StatusNormalClosure, "test complete")
+	_ = connection.Close("test complete")
 }
 
 func containsSensitiveTicket(body string) bool {
