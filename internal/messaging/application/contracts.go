@@ -103,25 +103,6 @@ type MessageImageContent struct {
 	Size        int64
 }
 
-// MessagingAuditSink records allowlisted metadata of a Messaging operation.
-type MessagingAuditSink interface {
-	Record(context.Context, MessagingAuditEntry)
-}
-
-// MessagingAuditEntry excludes content, external URLs, media bytes,
-// credentials, and infrastructure errors.
-type MessagingAuditEntry struct {
-	ActorID        uint
-	MessageCopyID  uint
-	OrganizationID uint
-	EventID        string
-	ConsumerName   string
-	ReplayCycle    uint
-	Action         string
-	Result         string
-	ReasonCode     string
-}
-
 // MessagingMetrics is a best-effort operational observation seam. Its method
 // never returns an error and never influences persistence or acknowledgement.
 type MessagingMetrics interface {

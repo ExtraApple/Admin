@@ -13,6 +13,7 @@ import (
 	"admin/internal/app"
 	"admin/internal/audit"
 	platformconfig "admin/internal/platform/config"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"admin/testsupport/testutil"
 
@@ -44,7 +45,7 @@ func TestAppRegistersFilesAuditAndPersistsAPIRequestsAsynchronously(t *testing.T
 		Handler: func(c *gin.Context) {
 			c.Set("userID", uint(7))
 			c.Set("username", "alice")
-			c.Set(audit.UploadAuditMetadataContextKey, appAuditMetadata{Purpose: "managed_file", ValidationResult: audit.UploadValidationAccepted, ObjectName: "private/object"})
+			c.Set(httpresponse.UploadAuditMetadataKey, appAuditMetadata{Purpose: "managed_file", ValidationResult: audit.UploadValidationAccepted, ObjectName: "private/object"})
 			c.JSON(http.StatusAccepted, gin.H{"accepted": true})
 		},
 		Name: "Audit Probe", Group: "test", DefaultAuditCategory: "operation",

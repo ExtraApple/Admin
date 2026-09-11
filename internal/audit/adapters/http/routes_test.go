@@ -11,6 +11,7 @@ import (
 
 	"admin/internal/audit"
 	httpadapter "admin/internal/audit/adapters/http"
+	"admin/internal/platform/httpresponse"
 
 	"github.com/gin-gonic/gin"
 )
@@ -60,7 +61,7 @@ func TestMiddlewareCapturesRedactedRequestAndAllowlistedUploadMetadata(t *testin
 	router.POST("/api/admin/files", func(c *gin.Context) {
 		c.Set("userID", uint(7))
 		c.Set("username", "alice")
-		c.Set(audit.UploadAuditMetadataContextKey, uploadMetadata{Purpose: "managed_file", FileName: "report.pdf", ValidationResult: audit.UploadValidationAccepted, ObjectName: "private/object"})
+		c.Set(httpresponse.UploadAuditMetadataKey, uploadMetadata{Purpose: "managed_file", FileName: "report.pdf", ValidationResult: audit.UploadValidationAccepted, ObjectName: "private/object"})
 		c.JSON(http.StatusCreated, gin.H{"ok": true})
 	})
 

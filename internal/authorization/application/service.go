@@ -440,28 +440,6 @@ func (service *Service) VisibleOrganizationIDs(ctx context.Context, operatorID u
 	return scope.OrganizationIDs, scope.All, err
 }
 
-func (service *Service) UserVisible(ctx context.Context, operatorID, targetID uint) error {
-	ids, all, err := service.VisibleUserIDs(ctx, operatorID)
-	if err != nil {
-		return wrapError(err)
-	}
-	if all || containsID(ids, targetID) {
-		return nil
-	}
-	return NewError(CodeInvalidUser, nil)
-}
-
-func (service *Service) OrganizationVisible(ctx context.Context, operatorID, organizationID uint) error {
-	ids, all, err := service.VisibleOrganizationIDs(ctx, operatorID)
-	if err != nil {
-		return wrapError(err)
-	}
-	if all || containsID(ids, organizationID) {
-		return nil
-	}
-	return NewError(CodeInvalidUser, nil)
-}
-
 func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint) (bool, []uint, error) {
 	roles, err := service.repository.RolesForUser(ctx, operatorID)
 	if err != nil {

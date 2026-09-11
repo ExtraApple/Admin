@@ -54,6 +54,11 @@ type ErrorContext struct {
 
 const errorContextKey = "httpresponse.error_context"
 
+// UploadAuditMetadataKey is the shared Gin context key carrying upload audit
+// metadata from the writing module to the audit module. It lives here so both
+// sides reference one literal instead of keeping independent copies.
+const UploadAuditMetadataKey = "upload_audit_metadata"
+
 var errorCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 var internalErrorDefinition = ErrorDefinition{

@@ -229,8 +229,8 @@ WebSocket ticket 依赖 Redis TTL 自清理，无需任务。
 | `CleanupExpiredMessageImages` | `files/application/service.go:196` | 🔴 **真缺口** |
 | `PublishDueAnnouncements` | `messaging/application/announcement_service.go:99` | 🔴 **真缺口** |
 | `ExpireDueAnnouncements` | `messaging/application/announcement_service.go:103` | 🔴 **真缺口** |
-| `UserVisible` | `authorization/application/service.go:443` | 🟠 **待裁决** |
-| `OrganizationVisible` | `authorization/application/service.go:454` | 🟠 **待裁决** |
+| `UserVisible` | `authorization/application/service.go:443` | ✅ 已删除（批次 1） |
+| `OrganizationVisible` | `authorization/application/service.go:454` | ✅ 已删除（批次 1） |
 | `ExternalProxy.Fetch` | `messaging/application/external_proxy.go` | 🔴 真缺口（即 S4） |
 | `revalidationReader` | `files/application/service.go` | ⬜ 假阳性：私有方法 |
 
@@ -335,8 +335,8 @@ dead_letter_recorder.go:84   调用
 | --- | --- | --- | --- |
 | 外链代理 | `internal-messaging/spec.md:51`（Requirement 正文，**非**"未来"章节）<br>"**外链代理只允许 HTTPS 公网目标，拒绝私网、环回、云元数据、不受控重定向、超时、超大响应和 MIME 不匹配。**" | `ExternalProxy` + `NewExternalProxy` 完整实现，**构造器从未被调用**；`ExternalProxy.Fetch` 无调用方 | 🔴 **规格要求未生效** |
 | 消息审计 | `internal-messaging/spec.md:93`（Requirement 正文）<br>"**关键消息操作、权限拒绝、Outbox/Consumer/DLQ 处置 SHALL 写入受控审计或运行日志**" | `MessagingAuditSink` + `MessagingAuditEntry`（白名单结构体）已定义，**连 `Dependencies` 字段都没有**；仅路由级审计 `DefaultAuditCategory="message"` 覆盖 | ⚠️ **需核实覆盖范围** |
-| 文件授权 | `file-management/spec.md` **零命中** "Authorization"/"数据范围" | `AuthorizationScope` 声明 + 7 处调用点，依赖未注入 ⇒ 静默放行 | 🔴 已裁决删除（C1） |
-| 资源可见性 | 无规格出处 | `UserVisible` / `OrganizationVisible` 零调用方 | 🟠 待裁决（C1b） |
+| 文件授权 | `file-management/spec.md` **零命中** "Authorization"/"数据范围" | `AuthorizationScope` 声明 + 8 处调用点，依赖未注入 ⇒ 静默放行 | ✅ 已删除（C1，批次 1） |
+| 资源可见性 | 无规格出处 | `UserVisible` / `OrganizationVisible` 零调用方 | ✅ 已删除（C1b，批次 1） |
 
 **关于"消息审计"的措辞**：规格写的是"受控审计**或**运行日志"。
 路由级审计中间件确实为消息入口记录了审计；但 ADR 0007:65 的表述更严格
@@ -587,11 +587,11 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 
 | # | 覆盖发现 | 状态 |
 | --- | --- | --- |
-| **C1** | S1(B)：`AuthorizationScope` + `Dependencies.Authorization` + 7 处 `authorize` 调用 + 未被调用的 `OperationDownload`/`OperationPreview` 常量 | ✅ 已裁决 B |
-| **C1b** | `authorization.UserVisible` / `OrganizationVisible`（第五节发现 B） | ✅ 零引用确认（含测试） |
-| **C2** | 护栏：14 条 `wiring` 注解 + 1 个 Go AST 架构测试 | ✅ 设计完成 |
-| **C3** | `AuditMetadataSink` 死代码 + `deps.Audit` + 两个 `UploadAuditMetadataContextKey` 常量合一 | ✅ 规格已由 GIN context 通道满足 |
-| **C4** | `messaging.MessagingAuditSink` + `MessagingAuditEntry` + 其契约测试 | ✅ 规格 `:93` 已由运行日志满足 |
+| **C1** | S1(B)：`AuthorizationScope` + `Dependencies.Authorization` + 8 处 `authorize` 调用 + 未被调用的 `OperationDownload`/`OperationPreview` 常量 | ✅ **已实施**（批次 1） |
+| **C1b** | `authorization.UserVisible` / `OrganizationVisible`（第五节发现 B） | ✅ **已实施**（零引用确认含测试） |
+| **C2** | 护栏：14 条 `wiring` 注解 + 1 个 Go AST 架构测试 | ✅ 设计完成，⛔ 待批次 1 归档后实施 |
+| **C3** | `AuditMetadataSink` 死代码 + `deps.Audit` + 两个 `UploadAuditMetadataContextKey` 常量合一 | ✅ **已实施**（规格已由 GIN context 通道满足） |
+| **C4** | `messaging.MessagingAuditSink` + `MessagingAuditEntry` + 其契约测试 | ✅ **已实施**（规格 `:93` 已由运行日志满足） |
 | **C5** | `PublishDueAnnouncements` / `ExpireDueAnnouncements` + `CleanupExpiredMessageImages` | ⬜ 扫描完成，**阻塞于设计** |
 | **C6a** | 已确认的事实性错误：X1 / X2 / X6 / 外链 `:51` / dict 4 条 📄未记录 / 3 条 ⚠️ 冲突 + 首轮报告 10 条"文档过期" | ✅ 范围已定 |
 | **C6b** | 剩余 10 个规格 / 578 SHALL 的逐条核对 | ❌ 边界未定，需继续调研 |
@@ -606,8 +606,8 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 ### 完成顺序（批次）
 
 ```
-批次 1  移除未生效的依赖端口        C1 + C1b + C3 + C4      ✅ 可立即开始
-批次 2  依赖接线护栏                C2                      ⛔ 阻塞于批次 1
+批次 1  移除未生效的依赖端口        C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
+批次 2  依赖接线护栏                C2                      ✅ 可立即开始（批次 1 已落地）
 批次 3  消息长度上限接入配置        C7                      ✅ 需先定默认行为
 批次 4  文档事实性修正              C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理      C5                      ⛔ 阻塞于设计
@@ -615,6 +615,41 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 ```
 
 **4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
+
+### 批次 1 实施记录（`openspec/changes/remove-unwired-ports/`）
+
+**状态**：代码、ADR 与验证全部完成，待归档。
+
+| 覆盖 | 实际删除内容 |
+| --- | --- |
+| C1 | `files/application`：`AuthorizationScope`、`Operation` 常量集（9 个）、`Dependencies.Authorization`、`authorize`、`inputOperation` 与 8 处调用点 |
+| C3 | `files/application`：`AuditMetadataSink`、`Dependencies.Audit`、`recordAudit` 与 2 处调用点；`UploadAuditMetadataContextKey` 收敛为 `platform/httpresponse.UploadAuditMetadataKey` 单一来源（读写两侧改为引用同一常量） |
+| C4 | `messaging/application`：`MessagingAuditSink`、`MessagingAuditEntry`、`audit_contract_test.go` |
+| C1b | `authorization/application`：`UserVisible`、`OrganizationVisible` |
+
+**与本节原记录的差异**：`authorize` 调用点实际为 **8 处**（`Upload` / `List` / `Get` /
+`Update` / `Delete` / `Browse` / `Revalidate` / `Open`），本文件多处原记为 7 处，已更正。
+差异不影响裁决，但重新引入文件级授权时须按 8 个操作点评估。
+
+**验证证据**（全部通过）：
+
+```
+go build ./...                                         → exit 0
+go test ./testsupport -run TestArchitecture -count=1   → ok
+go test ./... -count=1                                 → 43 ok / 10 no-test-files / 0 FAIL
+go test -tags=mysql_integration ./... -count=1         → 43 ok / 0 FAIL（独立探针库）
+120 条路由快照（集合 + 声明顺序 + Access Level + 权限码） → 与变更前逐行一致
+/api/admin/files 与 /files/:id/download 的 5 个 HTTP 采样（状态码 + 响应信封）→ 逐字节一致
+```
+
+**决策记录**：`docs/adr/0008-authorization-and-audit-ports-on-demand.md`
+（含被删端口的原始签名、A 类接缝清单与其 ADR 0007 依据、以及"按规格未要求删除"的裁决依据）。
+
+**行为契约固化**：删除后「文件访问授权只由路由级权限码决定」失去代码痕迹，
+由新增规格 `file-access-contract`（`openspec/changes/remove-unwired-ports/specs/file-access-contract/spec.md`）承载。
+
+**未触碰**：A 类接缝（`MessagingMetrics`、通知投影 Contract、邮件/短信 Consumer、`ExternalProxy`）、
+C5（公告调度与消息图片清理）、C6a/C6b、C7，以及护栏 C2 —— 均按批次计划保持独立。
 
 `C1+C1b+C3+C4` 合并的理由：它们**不是四件不同的事**，而是
 「声明的端口/实现，没有一个生效路径」这一根因的四个实例，

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"admin/internal/files/application"
+	"admin/internal/platform/httpresponse"
 	"admin/internal/routecatalog"
 	"admin/internal/uploadsecurity"
 )
@@ -124,7 +125,7 @@ func (h *handler) upload(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.Set(application.UploadAuditMetadataContextKey, application.AuditMetadata{Purpose: string(uploadsecurity.PurposeManagedFile), FileName: info.Name, FileSize: info.Size, DeclaredMIME: file.Header.Get("Content-Type"), DetectedMIME: info.DetectedContentType, ValidationResult: application.UploadValidationAccepted, PolicyVersion: info.ValidationPolicyVersion})
+	c.Set(httpresponse.UploadAuditMetadataKey, application.AuditMetadata{Purpose: string(uploadsecurity.PurposeManagedFile), FileName: info.Name, FileSize: info.Size, DeclaredMIME: file.Header.Get("Content-Type"), DetectedMIME: info.DetectedContentType, ValidationResult: application.UploadValidationAccepted, PolicyVersion: info.ValidationPolicyVersion})
 	fileSuccess(c, info)
 }
 func (h *handler) list(c *gin.Context) {
@@ -308,5 +309,5 @@ func setRejectedAudit(c *gin.Context, file *multipart.FileHeader, err error) {
 		metadata.FileSize = file.Size
 		metadata.DeclaredMIME = file.Header.Get("Content-Type")
 	}
-	c.Set(application.UploadAuditMetadataContextKey, metadata)
+	c.Set(httpresponse.UploadAuditMetadataKey, metadata)
 }

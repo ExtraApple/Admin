@@ -65,7 +65,7 @@ func readBody(c *gin.Context) []byte {
 }
 
 func metadata(c *gin.Context) []byte {
-	value, ok := c.Get(audit.UploadAuditMetadataContextKey)
+	value, ok := c.Get(httpresponse.UploadAuditMetadataKey)
 	if ok {
 		return audit.UploadMetadata(value)
 	}

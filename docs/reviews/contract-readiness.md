@@ -11,11 +11,12 @@
 
 ### 最终定论（2026-09-22）
 
-**四个待删项均为死代码**（当前配置下无执行路径，已逐一核实读取点）：
+**四个待删项均为死代码**（当前配置下无执行路径，已逐一核实读取点）——
+**均已由批次 1（`remove-unwired-ports`）删除**：
 
 | 项 | 位置 | 核实依据 |
 | --- | --- | --- |
-| `files.AuthorizationScope` + `Dependencies.Authorization` + 7 处 `authorize` 调用 + 2 个未用 `Operation` 常量 | `files/application/` | `service.go:56-59` nil 时提前 `return nil`；组合根不注入 |
+| `files.AuthorizationScope` + `Dependencies.Authorization` + 8 处 `authorize` 调用 + `Operation` 常量集 | `files/application/` | `service.go:56-59` nil 时提前 `return nil`；组合根不注入 |
 | `authorization.UserVisible` / `OrganizationVisible` | `authorization/application/service.go:443,454` | 全库零引用、**测试亦零引用** |
 | `files.AuditMetadataSink` + `Dependencies.Audit` + `service.go:510-511` | `files/application/` | 唯一读取点在 `if != nil` 内；实际审计走 Gin context |
 | `messaging.MessagingAuditSink` + `MessagingAuditEntry` + `audit_contract_test.go` | `messaging/application/` | 生产零引用、无 `Dependencies` 字段；规格 `:93` 已由运行日志满足 |
@@ -46,27 +47,33 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 **不在调研阶段一次性生成全部 Change**。
 
 ```
-批次 1  移除未生效的依赖端口              C1 + C1b + C3 + C4      ✅ 可立即开始
-批次 2  依赖接线护栏                      C2                      ⛔ 阻塞于批次 1
+批次 1  移除未生效的依赖端口              C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
+批次 2  依赖接线护栏                      C2                      ✅ 可立即开始（批次 1 已落地）
 批次 3  消息长度上限接入配置              C7                      ✅ 需先定默认行为
 批次 4  文档事实性修正                    C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理            C5                      ⛔ 阻塞于设计
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
 
-**Change 工件已创建（2026-09-22，未实施）**：
+**Change 工件已创建（2026-09-22，批次 1 已实施）**：
 
-| 批次 | Change 名 | 工件 | 任务数 |
-| --- | --- | --- | --- |
-| 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 |
-| 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 |
-| 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 |
-| 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 |
+| 批次 | Change 名 | 工件 | 任务数 | 实施状态 |
+| --- | --- | --- | --- | --- |
+| 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 | ✅ 39/39 完成，待归档 |
+| 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ⬜ 未开始（依赖批次 1） |
+| 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ⬜ 未开始 |
+| 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ⬜ 未开始 |
 
-四个均已通过 `openspec validate`，**实施尚未开始**（tasks 全部未勾选）。
+四个均已通过 `openspec validate`。
+
+**批次 1 实施结果**：代码删除、ADR 与验证全部完成；
+决策记录见 `docs/adr/0008-authorization-and-audit-ports-on-demand.md`，
+行为契约由新增规格 `file-access-contract` 承载，
+验证证据（build / 架构测试 / 全量测试 / MySQL 门禁 / 120 条路由快照 / HTTP 信封采样）
+见 [wire-audit.md](wire-audit.md) 的「批次 1 实施记录」。
 
 **4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
-本批次**不创建任何 change** —— 本文件是计划记录，change 待逐轮创建。
+本文件是计划记录，不创建 change；change 由各批次自行维护。
 
 #### 为何 C1+C1b+C3+C4 合并为批次 1
 
@@ -74,7 +81,7 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 
 | 项 | 位置 | 核心事实 |
 | --- | --- | --- |
-| C1 | `files.AuthorizationScope` + `Dependencies.Authorization` + 7 处 `authorize` 调用 + 2 个未用 `Operation` 常量 | `service.go:56-59` nil 时提前 `return nil`；组合根不注入 ⇒ 恒放行 |
+| C1 | `files.AuthorizationScope` + `Dependencies.Authorization` + 8 处 `authorize` 调用 + `Operation` 常量集 | `service.go:56-59` nil 时提前 `return nil`；组合根不注入 ⇒ 恒放行 |
 | C1b | `authorization.UserVisible` / `OrganizationVisible` | 全库零引用、**测试亦零引用** |
 | C3 | `files.AuditMetadataSink` + `Dependencies.Audit` + `service.go:510-511` | 唯一读取点在 `if != nil` 内；实际审计走 Gin context |
 | C4 | `messaging.MessagingAuditSink` + `MessagingAuditEntry` + `audit_contract_test.go` | 生产零引用、无 `Dependencies` 字段；规格 `:93` 已由运行日志满足 |

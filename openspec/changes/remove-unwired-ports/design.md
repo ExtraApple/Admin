@@ -69,12 +69,12 @@
 | 待删项 | 唯一读取点 | 可达性 |
 | --- | --- | --- |
 | `files.Dependencies.Audit` | `files/application/service.go:510-511` | ❌ `if s.deps.Audit != nil` 恒为假 |
-| `files.Dependencies.Authorization` | `files/application/service.go:56-59` | ⚠️ 7 处调用点会执行，但函数体第一步 `return nil` ⇒ 输出恒为"放行" |
+| `files.Dependencies.Authorization` | `files/application/service.go:56-59` | ⚠️ 8 处调用点会执行，但函数体第一步 `return nil` ⇒ 输出恒为"放行" |
 | `UserVisible` / `OrganizationVisible` | 无（生产与测试均零引用） | ❌ 不可达 |
 | `MessagingAuditSink` | 无（无 `Dependencies` 字段） | ❌ 不可达 |
 
 **注意第二行**：`Authorization` 的调用点**确实会执行**。
-删除它们会让 7 处调用消失 —— 净行为不变（都是放行），
+删除它们会让 8 处调用消失 —— 净行为不变（都是放行），
 但这是本变更中最需要谨慎的一处：**必须先确认 `deps.Authorization`
 在所有构造路径下都为 nil**，否则删除会改变行为。
 
@@ -92,7 +92,7 @@
 
 **替代方案**：保留代码但加 `// 未接线，勿使用` 注释。
 **否决理由**：本变更的动因恰恰是"留着会误导"——
-注释不改变 7 处调用点看起来在检查权限这一事实，
+注释不改变 8 处调用点看起来在检查权限这一事实，
 而 `docs/reviews/wire-audit.md` 的审计过程已证明该形态会反复导致误判。
 
 ### D3｜审计常量收敛为单一来源
@@ -107,13 +107,27 @@
 **取舍**：需要决定常量归属方。`audit` 是消费方且定义读取语义，
 但 `files` 是写入方且该常量描述的是 upload 语义 —— 具体归属在 tasks 中确定。
 
-### D4｜Capabilities 为空是刻意的
+### D4｜新增规格固化文件访问契约
 
-**决策**：本变更不产生 delta spec 文件，`## ADDED/MODIFIED/REMOVED Requirements` 均为空。
+**决策**：新增 `file-access-contract` 能力规格，固化
+「文件模块的访问授权只由路由级权限码决定、不存在对象级所有权或数据范围校验」。
 
-**理由**：删除的代码在规格中**没有任何对应要求**（见 D0 的核对结论），
-因此不存在需要修改的规格行为。若强行新增一条"系统不提供文件对象级授权"
-的规格要求，那是**引入新约束**，属 C6a 的范围，不应混入本次清理。
+**理由**：核实中发现 `authorize()` 的 8 个调用点**确实会执行**
+（见 D1 表第二行），删除后该契约将失去**唯一的代码痕迹**。
+审计过程已证明这一处会被反复误判为"已有对象级授权"——
+`docs/reviews/wire-audit.md` 第一节与首轮报告的误判均源于此。
+把当前有效行为写成可引用的规格，是防止重复误判的手段。
+
+**为何是 ADDED 而非 MODIFIED**：`openspec/specs/file-management/spec.md`
+检索 "Authorization" 与 "数据范围" 均为零命中 —— 该规格从未要求对象级授权，
+故不存在被修改的既有要求。
+
+**替代方案**：不产生 delta spec（初稿曾如此）。
+**否决理由**：删除后契约只能靠读代码推断，与
+`docs/README.md:10`「当前系统行为以 `openspec/specs/` 为准」相悖。
+
+**注意**：本条与 `fix-stale-docs-and-specs` 变更的分工 ——
+后者修正**已存在的**规格错误，本变更**新增**一条此前无规格声明的行为契约。
 
 ## Risks / Trade-offs
 

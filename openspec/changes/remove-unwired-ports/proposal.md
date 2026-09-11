@@ -4,7 +4,7 @@
 （`docs/reviews/wire-audit.md` 第一、五节）。经逐一核实读取点，它们在当前配置下
 **没有执行路径**，因此既未提供任何能力，也无法从外部观察到。
 
-其中 `files.Dependencies.Authorization` 的缺失会让 7 处对象级授权调用恒返回 nil，
+其中 `files.Dependencies.Authorization` 的缺失会让 8 处对象级授权调用恒返回 nil，
 使读者误以为文件模块存在数据范围校验。**留着比删掉更危险**：它把"未实现"
 伪装成"已实现"，是本次审计反复误判同一处的根本原因。
 
@@ -13,7 +13,7 @@
 ## What Changes
 
 - **删除** `internal/files/application` 的 `AuthorizationScope` 接口、
-  `Dependencies.Authorization` 字段、`authorize` 函数及其 7 处调用点，
+  `Dependencies.Authorization` 字段、`authorize` 函数及其 8 处调用点，
   以及从未被使用的 `OperationDownload`、`OperationPreview` 常量。
 - **删除** `internal/authorization/application` 的 `UserVisible` 与
   `OrganizationVisible` 方法（生产代码与测试均零引用）。
@@ -44,7 +44,7 @@
 
 - `file-access-contract`: 固化「文件模块的访问授权只由路由级权限码决定、
   不存在对象级所有权或数据范围校验」这一当前有效行为。
-  **动机**：删除 `authorize()` 的 7 个调用点后，该契约将失去唯一的代码痕迹，
+  **动机**：删除 `authorize()` 的 8 个调用点后，该契约将失去唯一的代码痕迹，
   而审计过程已证明这一处会被反复误判为"已有对象级授权"。
   新增规格使它成为可引用的事实，而不是只能靠读代码推断的隐含行为。
 
@@ -65,7 +65,7 @@ MODIFIED；`openspec/specs/internal-messaging/spec.md:93` 要求消息操作写�
 
 | 模块 | 删除内容 |
 | --- | --- |
-| `internal/files/application` | `contracts.go`：`AuthorizationScope`、`Operation` 常量集、`Dependencies.Authorization`、`AuditMetadataSink`、`Dependencies.Audit`；`service.go`：`authorize`、`recordAudit` 直接分支、7 处 `authorize` 调用 |
+| `internal/files/application` | `contracts.go`：`AuthorizationScope`、`Operation` 常量集、`Dependencies.Authorization`、`AuditMetadataSink`、`Dependencies.Audit`；`service.go`：`authorize`、`recordAudit` 直接分支、8 处 `authorize` 调用 |
 | `internal/authorization/application` | `service.go`：`UserVisible`、`OrganizationVisible` |
 | `internal/messaging/application` | `contracts.go`：`MessagingAuditSink`、`MessagingAuditEntry`；删除 `audit_contract_test.go` |
 | `internal/audit` | `UploadAuditMetadataContextKey` 常量收敛后的引用调整 |

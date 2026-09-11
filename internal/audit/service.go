@@ -17,10 +17,9 @@ const (
 	AuditCategoryDataAccess = "data_access"
 	AuditCategoryMessage    = "message"
 
-	UploadAuditMetadataContextKey = "upload_audit_metadata"
-	UploadValidationAccepted      = "accepted"
-	UploadValidationRejected      = "rejected"
-	MaxAuditBodySize              = 2000
+	UploadValidationAccepted = "accepted"
+	UploadValidationRejected = "rejected"
+	MaxAuditBodySize         = 2000
 )
 
 // UploadAuditMetadata is the allowlist persisted for upload operations. It

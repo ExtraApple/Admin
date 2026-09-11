@@ -43,23 +43,6 @@ type ListOptions struct {
 type UploadValidator interface {
 	Validate(context.Context, uploadsecurity.Input) (uploadsecurity.Result, error)
 }
-type AuthorizationScope interface {
-	Authorize(context.Context, uint, Operation, uint) error
-}
-type Operation string
-
-const (
-	OperationUpload     Operation = "upload"
-	OperationList       Operation = "list"
-	OperationDetail     Operation = "detail"
-	OperationUpdate     Operation = "update"
-	OperationDelete     Operation = "delete"
-	OperationDownload   Operation = "download"
-	OperationPreview    Operation = "preview"
-	OperationRevalidate Operation = "revalidate"
-	OperationBrowse     Operation = "browse"
-)
-
 type TransactionRunner interface {
 	Run(context.Context, func(context.Context) error) error
 }
@@ -150,14 +133,9 @@ type AuditMetadata struct {
 	ReasonCode       string `json:"reason_code,omitempty"`
 	PolicyVersion    string `json:"policy_version,omitempty"`
 }
-type AuditMetadataSink interface {
-	Record(context.Context, AuditMetadata)
-}
-
 const (
-	UploadAuditMetadataContextKey = "upload_audit_metadata"
-	UploadValidationAccepted      = "accepted"
-	UploadValidationRejected      = "rejected"
+	UploadValidationAccepted = "accepted"
+	UploadValidationRejected = "rejected"
 )
 
 type UploadInput struct {
@@ -237,11 +215,9 @@ type Dependencies struct {
 	Validator                UploadValidator
 	MessageImages            MessageImageRepository
 	MessageImageValidator    UploadValidator
-	Authorization            AuthorizationScope
 	Transactions             TransactionRunner
 	Signer                   Signer
 	Clock                    Clock
 	ObjectNames              ObjectNameGenerator
-	Audit                    AuditMetadataSink
 	DownloadURLExpireSeconds int
 }

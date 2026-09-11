@@ -52,12 +52,6 @@ func (directTransactionRunner) Run(ctx context.Context, operation func(context.C
 	return operation(ctx)
 }
 
-func (s *Service) authorize(ctx context.Context, actor uint, op Operation, id uint) error {
-	if s == nil || s.deps.Authorization == nil {
-		return nil
-	}
-	return s.deps.Authorization.Authorize(ctx, actor, op, id)
-}
 func (s *Service) repository() error {
 	if s == nil || s.deps.Repository == nil || s.deps.Storage == nil {
 		return uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
@@ -76,9 +70,6 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (*FileInfo, err
 		ctx = context.Background()
 	}
 	if err := s.repository(); err != nil {
-		return nil, err
-	}
-	if err := s.authorize(ctx, input.UploaderID, OperationUpload, 0); err != nil {
 		return nil, err
 	}
 	if s.deps.Validator == nil {
@@ -108,7 +99,6 @@ func (s *Service) Upload(ctx context.Context, input UploadInput) (*FileInfo, err
 		return nil, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
 	}
 	info := toFileInfo(&file)
-	s.recordAudit(ctx, AuditMetadata{Purpose: string(uploadsecurity.PurposeManagedFile), FileName: info.Name, FileSize: info.Size, DeclaredMIME: input.ContentType, DetectedMIME: info.DetectedContentType, ValidationResult: UploadValidationAccepted, PolicyVersion: info.ValidationPolicyVersion})
 	return info, nil
 }
 func (s *Service) UploadMessageImage(ctx context.Context, input MessageImageUploadInput) (TemporaryMessageImage, error) {
@@ -146,7 +136,6 @@ func (s *Service) UploadMessageImage(ctx context.Context, input MessageImageUplo
 		_ = s.deps.Storage.Delete(ctx, file.Bucket, file.ObjectName)
 		return TemporaryMessageImage{}, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
 	}
-	s.recordAudit(ctx, AuditMetadata{Purpose: string(uploadsecurity.PurposeMessageImage), FileName: file.Name, FileSize: file.Size, DeclaredMIME: input.ContentType, DetectedMIME: file.DetectedContentType, ValidationResult: UploadValidationAccepted, PolicyVersion: file.ValidationPolicyVersion})
 	return TemporaryMessageImage{ID: file.ID, ExpiresAt: expiresAt}, nil
 }
 
@@ -239,9 +228,6 @@ func (s *Service) List(ctx context.Context, actor uint, page, size int, prefix s
 	if page < 1 || size < 1 {
 		return nil, 0, uploadsecurity.NewError(uploadsecurity.CodeRequestInvalid, nil)
 	}
-	if err := s.authorize(ctx, actor, OperationList, 0); err != nil {
-		return nil, 0, err
-	}
 	files, total, err := s.deps.Repository.List(ctx, page, size, prefix)
 	if err != nil {
 		return nil, 0, uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
@@ -258,9 +244,6 @@ func (s *Service) Get(ctx context.Context, actor, id uint) (*FileDetailResponse,
 		ctx = context.Background()
 	}
 	if err := s.repository(); err != nil {
-		return nil, err
-	}
-	if err := s.authorize(ctx, actor, OperationDetail, id); err != nil {
 		return nil, err
 	}
 	file, err := s.find(ctx, id)
@@ -299,9 +282,6 @@ func (s *Service) Update(ctx context.Context, actor, id uint, request UpdateFile
 	if err := s.repository(); err != nil {
 		return nil, err
 	}
-	if err := s.authorize(ctx, actor, OperationUpdate, id); err != nil {
-		return nil, err
-	}
 	file, err := s.find(ctx, id)
 	if err != nil {
 		return nil, err
@@ -332,9 +312,6 @@ func (s *Service) Delete(ctx context.Context, actor, id uint) error {
 	if err := s.repository(); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, actor, OperationDelete, id); err != nil {
-		return err
-	}
 	file, err := s.find(ctx, id)
 	if err != nil {
 		return err
@@ -353,9 +330,6 @@ func (s *Service) Browse(ctx context.Context, actor uint, prefix string) ([]File
 		ctx = context.Background()
 	}
 	if err := s.repository(); err != nil {
-		return nil, err
-	}
-	if err := s.authorize(ctx, actor, OperationBrowse, 0); err != nil {
 		return nil, err
 	}
 	objects, err := s.deps.Storage.List(ctx, "files", ListOptions{Prefix: prefix, Recursive: true})
@@ -377,9 +351,6 @@ func (s *Service) Revalidate(ctx context.Context, actor, id uint, maxBytes int64
 		ctx = context.Background()
 	}
 	if err := s.repository(); err != nil {
-		return nil, err
-	}
-	if err := s.authorize(ctx, actor, OperationRevalidate, id); err != nil {
 		return nil, err
 	}
 	if s.deps.Validator == nil {
@@ -452,9 +423,6 @@ func (s *Service) Open(ctx context.Context, input FileAccessInput) (*Content, er
 	if err := s.repository(); err != nil {
 		return nil, err
 	}
-	if err := s.authorize(ctx, input.UserID, inputOperation(input.Mode), input.FileID); err != nil {
-		return nil, err
-	}
 	file, err := s.find(ctx, input.FileID)
 	if err != nil {
 		return nil, err
@@ -479,13 +447,6 @@ func (s *Service) Open(ctx context.Context, input FileAccessInput) (*Content, er
 	}
 	return &Content{FileName: decision.FileName, ContentType: decision.ContentType, Disposition: decision.Disposition, Reader: reader}, nil
 }
-func inputOperation(mode AccessMode) Operation {
-	if mode == ModePreview {
-		return OperationPreview
-	}
-	return OperationDownload
-}
-
 func (s *Service) find(ctx context.Context, id uint) (domain.File, error) {
 	file, err := s.deps.Repository.FindByID(ctx, id)
 	if err != nil {
@@ -505,11 +466,6 @@ func (s *Service) updateValidation(ctx context.Context, id uint, update Validati
 func (s *Service) saveFailure(ctx context.Context, file *domain.File, code uploadsecurity.Code) error {
 	now := s.deps.Clock.Now().UTC()
 	return s.updateValidation(ctx, file.ID, ValidationUpdate{ContentType: file.ContentType, DetectedContentType: file.DetectedContentType, ContentSHA256: file.ContentSHA256, Status: domain.ValidationStatusValidationError, PolicyVersion: uploadsecurity.PolicyVersionV1, ErrorCode: string(code), ValidatedAt: &now})
-}
-func (s *Service) recordAudit(ctx context.Context, metadata AuditMetadata) {
-	if s.deps.Audit != nil {
-		s.deps.Audit.Record(ctx, metadata)
-	}
 }
 func classifyStorageError(err error) error {
 	if _, ok := uploadsecurity.CodeOf(err); ok {
