@@ -42,7 +42,7 @@ func (service *Service) CreateBroadcast(ctx context.Context, request CreateBroad
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown)
+	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown, service.contentLimits)
 	if err != nil {
 		return nil, err
 	}

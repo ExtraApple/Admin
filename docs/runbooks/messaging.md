@@ -19,6 +19,26 @@ App 启用 RabbitMQ 配置后由组合根声明 Topic Exchange、Quorum Queue、
 
 主消费队列和重试/死信队列均为 durable Quorum Queue。事件发布使用 Publisher Confirm；Outbox 发布失败按 `1s`、`2s`、`4s`、`8s`、`16s` 受控重试。
 
+## 消息长度上限
+
+标题与正文的 Unicode 长度上限来自配置，由组合根在启动时转换为 Messaging 领域的
+`ContentLimits`；领域层不读取配置文件。
+
+| 配置项 | 默认值 | 允许范围 | 生效位置 |
+|---|---|---|---|
+| `messaging.max_title_runes` | 100 | 1 ～ 1000 | 标题的 Unicode 字符数 |
+| `messaging.max_body_runes` | 20000 | 1 ～ 100000 | Markdown 正文的 Unicode 字符数 |
+
+- 计数单位是 Unicode 字符（rune），不是字节；多字节字符按 1 个字符计。
+- 值为 `0` 或键缺失表示"未配置"，取默认值；负数或超出上界会在**配置加载阶段**直接失败，
+  应用不会以静默默认值启动。
+- 上限在**启动时读取一次**，修改配置需要重启应用，不支持热更新。
+- **调小上限的影响**：编辑既有公告时会按新上限重新校验正文
+  （`EditAnnouncement`）。若新上限低于既有消息长度，该消息将无法再被编辑或重新发布，
+  只能先撤销后重建。调小前请先评估库中既有消息的长度分布。
+- 清洗后 HTML 的 128 KiB 上限与上面两项无关，**不可通过配置调整**；
+  超限时返回 `MSG_HTML_TOO_LARGE`。
+
 ## 健康与就绪
 
 - `GET /api/health` 只表示进程存活。

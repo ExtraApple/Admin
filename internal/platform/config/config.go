@@ -109,8 +109,14 @@ type SMTPConfig struct {
 
 type MessagingConfig struct {
 	MaxAudienceUsers int `yaml:"max_audience_users"`
-	MaxTitleRunes    int `yaml:"max_title_runes"`
-	MaxBodyRunes     int `yaml:"max_body_runes"`
+	// MaxTitleRunes caps the Unicode length of a message title. The composition
+	// root converts it into the Messaging domain ContentLimits, so the domain
+	// layer never reads configuration. The sanitized-HTML safety limit stays
+	// independent of this value.
+	MaxTitleRunes int `yaml:"max_title_runes"`
+	// MaxBodyRunes caps the Unicode length of a Markdown message body under the
+	// same rules as MaxTitleRunes.
+	MaxBodyRunes int `yaml:"max_body_runes"`
 }
 
 type AdminConfig struct {
@@ -279,8 +285,11 @@ func validateMessaging(result Config) error {
 	if result.Messaging.MaxAudienceUsers < 1 || result.Messaging.MaxAudienceUsers > 100000 {
 		return errors.New("messaging.max_audience_users must be between 1 and 100000")
 	}
-	if result.Messaging.MaxTitleRunes < 1 || result.Messaging.MaxBodyRunes < 1 {
-		return errors.New("messaging content limits must be positive integers")
+	if result.Messaging.MaxTitleRunes < 1 || result.Messaging.MaxTitleRunes > 1000 {
+		return errors.New("messaging.max_title_runes must be between 1 and 1000")
+	}
+	if result.Messaging.MaxBodyRunes < 1 || result.Messaging.MaxBodyRunes > 100000 {
+		return errors.New("messaging.max_body_runes must be between 1 and 100000")
 	}
 	return nil
 }

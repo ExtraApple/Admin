@@ -431,7 +431,7 @@ C4（端口与能力对齐）
 **结果**：11 个候选，其中 9 个是 `*Env` 字段（合理 —— 它们只在 config 包内用于读环境变量，
 如 `PasswordEnv`、`SecretEnv`、`UsernameEnv`）。**2 个是实质性发现：**
 
-#### 🟠 W1｜`messaging.max_title_runes` / `max_body_runes` 是死配置
+#### 🟠 W1｜`messaging.max_title_runes` / `max_body_runes` 是死配置 ✅ 已修复（批次 3）
 
 ```
 配置链路（完整）
@@ -595,7 +595,7 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 | **C5** | `PublishDueAnnouncements` / `ExpireDueAnnouncements` + `CleanupExpiredMessageImages` | ⬜ 扫描完成，**阻塞于设计** |
 | **C6a** | 已确认的事实性错误：X1 / X2 / X6 / 外链 `:51` / dict 4 条 📄未记录 / 3 条 ⚠️ 冲突 + 首轮报告 10 条"文档过期" | ✅ 范围已定 |
 | **C6b** | 剩余 10 个规格 / 578 SHALL 的逐条核对 | ❌ 边界未定，需继续调研 |
-| **C7** | **W1**：`messaging.max_title_runes` / `max_body_runes` 死配置接入校验路径 | ⬜ 需先定默认行为 |
+| **C7** | **W1**：`messaging.max_title_runes` / `max_body_runes` 死配置接入校验路径 | ✅ **已实施**（批次 3） |
 
 **C5 的两条是同一形态**：实现完整、有仓储与测试支持、只是没有后台任务调用。
 `CleanupExpiredMessageImages` 在首轮报告中未被发现（当时只掌握了公告调度一条）。
@@ -608,7 +608,7 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 ```
 批次 1  移除未生效的依赖端口        C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
 批次 2  依赖接线护栏                C2                      ✅ 已完成 add-dependency-wiring-guardrail
-批次 3  消息长度上限接入配置        C7                      ✅ 需先定默认行为
+批次 3  消息长度上限接入配置        C7                      ✅ 已完成 wire-message-length-limits
 批次 4  文档事实性修正              C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理      C5                      ⛔ 阻塞于设计
 押后    规格逐条核对                C6b                     ❌ 需继续调研
@@ -681,6 +681,50 @@ go test ./testsupport -run TestArchitecture       → ok（17 个架构测试）
 go test ./... -count=1                            → 43 ok / 10 no-test-files / 0 FAIL
 go test -tags=mysql_integration ./... -count=1    → 43 ok / 0 FAIL（独立探针库）
 ```
+
+### 批次 3 实施记录（`openspec/changes/wire-message-length-limits/`）
+
+**状态**：代码、配置校验、测试与文档全部完成，待归档。
+
+| 覆盖 | 实际交付 |
+| --- | --- |
+| C7 / W1 | 死配置的标题与正文上限接入校验路径：新增领域值类型 `ContentLimits` + `DefaultContentLimits()`；`CompileMessageContent` 接受上限参数；4 处调用点全部传入注入上限；组合根把 `config.Messaging` 两个值转换为 `ContentLimits` 注入；配置补充上界校验与字段注释 |
+
+**关键设计约束（已满足）**：`internal/messaging/domain` **未新增任何 import** ——
+上限以值类型经 application 层传入，域层不读配置（架构测试通过）。
+
+**与设计/任务的差异**：
+
+```
+domain 新增错误      设计未提及 → 实际新增 ErrMessageLimitsInvalid
+                     非法上限（0 或负数）在域层返回它，未被 HTTP 映射，
+                     落到 errors.go 的 default 分支 ⇒ 500 内部错误（符合 tasks 2.5）
+content_test.go 调用点  任务记为「4 处」→ 实际 8 处调用（5 个测试函数），已全部更新
+spec 第 7 个 Scenario  原写「小于 1 即失败」，但 0 是配置的「未配置」哨兵（→取默认值）
+                     ⇒ 经裁决收紧措辞为「负数或高于上限」，并新增「未配置取默认值」Scenario
+上界取值             MaxTitleRunes [1, 1000]、MaxBodyRunes [1, 100000]
+                     依据：≥ 既有测试用值（120 / 25000）且为明显的健全性边界；
+                     128 KiB HTML 安全上限保持独立，不参与该边界推导
+```
+
+**验证证据**：
+
+```
+go build ./...                                     → exit 0
+go test ./testsupport -run TestArchitecture        → ok（domain 层无 config 依赖）
+go test ./... -count=1                             → 43 ok / 10 no-test-files / 0 FAIL
+go test -tags=mysql_integration ./... -count=1     → 43 ok / 0 FAIL（独立探针库）
+默认值不变断言                                      → config.yaml = 100/20000 = domain 默认值；
+                                                     标题 100 通过 / 101 拒；正文 20000 通过 / 20001 拒
+配置生效断言                                         → 注入 120/25000 后四条路径
+                                                     （CreateAnnouncement / EditAnnouncement /
+                                                     CreateBroadcast / SendPrivateMessage）
+                                                     均接受 101 字符标题与 20001 字符正文，并拒绝超限值
+```
+
+**部署期风险核对（tasks 10.4）**：仓库内唯一的 `config.yaml` 使用默认值 100 / 20000，
+因此本变更上线后行为与既往完全一致；若某部署另行填入了非默认值，本变更上线后这些值
+**将首次真正生效**。运维说明见 `docs/runbooks/messaging.md` 的「消息长度上限」一节。
 
 `C1+C1b+C3+C4` 合并的理由：它们**不是四件不同的事**，而是
 「声明的端口/实现，没有一个生效路径」这一根因的四个实例，

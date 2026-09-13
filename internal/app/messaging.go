@@ -14,6 +14,7 @@ import (
 	messagingrabbitmq "admin/internal/messaging/adapters/rabbitmq"
 	messagingredis "admin/internal/messaging/adapters/redis"
 	messagingapplication "admin/internal/messaging/application"
+	messagingdomain "admin/internal/messaging/domain"
 	"admin/internal/organization"
 	platformconfig "admin/internal/platform/config"
 	platformdatabase "admin/internal/platform/database"
@@ -64,6 +65,10 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 		Identity: identityReader, Organizations: organizationReader,
 		Authorization: messagingAuthorizationReader{service: authorization}, Files: messagingFilesReader{service: files.service},
 		Transactions: platformdatabase.NewTransactionRunner(resources.DB),
+		ContentLimits: messagingdomain.ContentLimits{
+			MaxTitleRunes: config.Messaging.MaxTitleRunes,
+			MaxBodyRunes:  config.Messaging.MaxBodyRunes,
+		},
 	})
 	hub := messagingapplication.NewRefreshHub()
 	readiness := newMessagingReadiness(configured, brokerState, repository)

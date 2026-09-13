@@ -10,6 +10,8 @@
 - 标题 SHALL 按 Unicode 字符数计数，上限取自 `max_title_runes`。
 - Markdown 正文 SHALL 按 Unicode 字符数计数，上限取自 `max_body_runes`。
 - 默认值 SHALL 为标题 100、正文 20,000，与既往行为一致。
+- 配置值为 `0` SHALL 视为"未配置"，取上述默认值；
+  配置值为负数或高于上限 SHALL 在配置加载阶段失败。
 - 校验 SHALL 在领域层执行，且领域层 SHALL NOT 依赖配置模块；
   上限 SHALL 以值的形式由应用层传入。
 - 超出上限时系统 SHALL 返回稳定错误码 `MSG_TITLE_TOO_LONG`
@@ -54,6 +56,12 @@
 
 #### Scenario: 非法上限配置被拒绝
 
-- **WHEN** 配置的 `max_title_runes` 或 `max_body_runes` 小于 1
+- **WHEN** 配置的 `max_title_runes` 或 `max_body_runes` 为负数或高于允许上限
 - **THEN** 系统 SHALL 在配置加载阶段失败
 - **AND** 系统 SHALL NOT 以静默默认值继续启动
+
+#### Scenario: 未配置的上限取默认值
+
+- **WHEN** 配置的 `max_title_runes` 或 `max_body_runes` 为 `0` 或该键缺失
+- **THEN** 系统 SHALL 使用默认值（标题 100、正文 20,000）
+- **AND** 系统 SHALL NOT 在配置加载阶段失败

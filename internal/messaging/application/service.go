@@ -59,6 +59,8 @@ type Dependencies struct {
 	Files MessageImageFiles
 	// wiring: optional —— 缺失时 constructor 兜底 directTransactionRunner{}，事务退化为直通执行
 	Transactions TransactionRunner
+	// wiring: optional —— 缺失时 constructor 兜底 domain.DefaultContentLimits()（标题 100 / 正文 20000）
+	ContentLimits domain.ContentLimits
 	// wiring: optional —— 缺失时 constructor 兜底 ClockFunc(time.Now)
 	Clock Clock
 }
@@ -76,6 +78,7 @@ type Service struct {
 	authorization            AuthorizationReader
 	files                    MessageImageFiles
 	transactions             TransactionRunner
+	contentLimits            domain.ContentLimits
 	clock                    Clock
 }
 
@@ -86,12 +89,16 @@ func NewService(dependencies Dependencies) *Service {
 	if dependencies.Transactions == nil {
 		dependencies.Transactions = directTransactionRunner{}
 	}
+	if dependencies.ContentLimits == (domain.ContentLimits{}) {
+		dependencies.ContentLimits = domain.DefaultContentLimits()
+	}
 	return &Service{
 		messages: dependencies.Messages, categories: dependencies.Categories, inbox: dependencies.Inbox,
 		notifications: dependencies.Notifications, outboxes: dependencies.Outboxes,
 		consumerDeadLetters: dependencies.ConsumerDeadLetters, consumerDeadLetterReplay: dependencies.ConsumerDeadLetterReplay,
 		identity: dependencies.Identity, organizations: dependencies.Organizations, authorization: dependencies.Authorization,
-		files: dependencies.Files, transactions: dependencies.Transactions, clock: dependencies.Clock,
+		files: dependencies.Files, transactions: dependencies.Transactions,
+		contentLimits: dependencies.ContentLimits, clock: dependencies.Clock,
 	}
 }
 
@@ -321,7 +328,7 @@ func (service *Service) SendPrivateMessage(ctx context.Context, request SendPriv
 	if err != nil {
 		return domain.Message{}, err
 	}
-	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown)
+	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown, service.contentLimits)
 	if err != nil {
 		return domain.Message{}, err
 	}

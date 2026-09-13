@@ -49,19 +49,19 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 ```
 批次 1  移除未生效的依赖端口              C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
 批次 2  依赖接线护栏                      C2                      ✅ 已完成 add-dependency-wiring-guardrail
-批次 3  消息长度上限接入配置              C7                      ✅ 需先定默认行为
+批次 3  消息长度上限接入配置              C7                      ✅ 已完成 wire-message-length-limits
 批次 4  文档事实性修正                    C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理            C5                      ⛔ 阻塞于设计
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
 
-**Change 工件已创建（2026-09-22，批次 1 与批次 2 已实施）**：
+**Change 工件已创建（2026-09-22，批次 1 ～ 批次 3 已实施）**：
 
 | 批次 | Change 名 | 工件 | 任务数 | 实施状态 |
 | --- | --- | --- | --- | --- |
 | 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 | ✅ 39/39 完成，待归档 |
 | 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ✅ 45/45 完成，待归档 |
-| 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ⬜ 未开始 |
+| 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ✅ 48/48 完成，待归档 |
 | 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ⬜ 未开始 |
 
 四个均已通过 `openspec validate`。
@@ -77,6 +77,13 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 required 漏装配、缺注解、注解拼写错误、类型别名、位置参数式字面量五种形态
 均经负向验证实测失败。设计差异与已知局限见
 [wire-guardrail-design.md](wire-guardrail-design.md) 第七节。
+
+**批次 3 实施结果**：两个死配置接入校验路径 —— 领域新增 `ContentLimits` 值类型
+（域层零新增 import），`CompileMessageContent` 接受上限参数，4 处调用点全部传入注入值，
+组合根把配置值转换为 `ContentLimits`；配置补充上界校验、字段注释与「未配置取默认值」语义。
+默认值 100 / 20000 不变。差异与证据见
+[wire-audit.md](wire-audit.md) 的「批次 3 实施记录」，运维说明见
+[runbooks/messaging.md](../runbooks/messaging.md) 的「消息长度上限」一节。
 
 **4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
 本文件是计划记录，不创建 change；change 由各批次自行维护。

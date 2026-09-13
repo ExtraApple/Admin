@@ -38,7 +38,7 @@ func (service *Service) CreateAnnouncement(ctx context.Context, request CreateAn
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown)
+	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown, service.contentLimits)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (service *Service) EditAnnouncement(ctx context.Context, request EditAnnoun
 	if message.Status != domain.MessageStatusPublished || (message.ExpiresAt != nil && !message.ExpiresAt.After(now)) {
 		return domain.Message{}, ErrMessageImmutable
 	}
-	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown)
+	compiled, err := domain.CompileMessageContent(request.Title, request.Markdown, service.contentLimits)
 	if err != nil {
 		return domain.Message{}, err
 	}

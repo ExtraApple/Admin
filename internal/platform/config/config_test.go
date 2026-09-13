@@ -395,3 +395,77 @@ file_upload:
 		t.Fatalf("messaging defaults = %+v", got.Messaging)
 	}
 }
+
+func TestLoadRejectsOutOfRangeMessagingContentLimits(t *testing.T) {
+	for name, test := range map[string]struct {
+		yaml       string
+		wantDetail string
+	}{
+		"negative title":      {yaml: "max_title_runes: -1\n  max_body_runes: 20000", wantDetail: "max_title_runes"},
+		"negative body":       {yaml: "max_title_runes: 100\n  max_body_runes: -1", wantDetail: "max_body_runes"},
+		"title above maximum": {yaml: "max_title_runes: 1001\n  max_body_runes: 20000", wantDetail: "max_title_runes"},
+		"body above maximum":  {yaml: "max_title_runes: 100\n  max_body_runes: 100001", wantDetail: "max_body_runes"},
+		"both above maximum":  {yaml: "max_title_runes: 1001\n  max_body_runes: 100001", wantDetail: "max_title_runes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := platformconfig.Load(writeMessagingConfig(t, test.yaml))
+			if err == nil {
+				t.Fatalf("out-of-range messaging limits %q were accepted", test.yaml)
+			}
+			if !strings.Contains(err.Error(), test.wantDetail) {
+				t.Fatalf("load error %q does not point at %s", err, test.wantDetail)
+			}
+		})
+	}
+}
+
+// Zero is the "unset" sentinel for every integer in this configuration, so an
+// omitted or zero-valued limit falls back to the documented default instead of
+// failing the load. Negative values are the ones rejected above.
+func TestLoadTreatsZeroMessagingContentLimitsAsUnset(t *testing.T) {
+	got, err := platformconfig.Load(writeMessagingConfig(t, "max_title_runes: 0\n  max_body_runes: 0"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if got.Messaging.MaxTitleRunes != 100 || got.Messaging.MaxBodyRunes != 20000 {
+		t.Fatalf("zero messaging limits = %+v, want the documented defaults", got.Messaging)
+	}
+}
+
+func TestLoadAcceptsMessagingContentLimitsAtTheirBounds(t *testing.T) {
+	for name, limits := range map[string]struct {
+		yaml             string
+		title, bodyRunes int
+	}{
+		"lower bounds": {yaml: "max_title_runes: 1\n  max_body_runes: 1", title: 1, bodyRunes: 1},
+		"upper bounds": {yaml: "max_title_runes: 1000\n  max_body_runes: 100000", title: 1000, bodyRunes: 100000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := platformconfig.Load(writeMessagingConfig(t, limits.yaml))
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if got.Messaging.MaxTitleRunes != limits.title || got.Messaging.MaxBodyRunes != limits.bodyRunes {
+				t.Fatalf("boundary messaging limits = %+v", got.Messaging)
+			}
+		})
+	}
+}
+
+// writeMessagingConfig writes a configuration that is valid apart from the
+// supplied messaging block, so a load failure can only come from the content
+// limits rather than from an unrelated missing section.
+func writeMessagingConfig(t *testing.T, messagingYAML string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("messaging:\n  " + messagingYAML + "\n" + `
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return configPath
+}
