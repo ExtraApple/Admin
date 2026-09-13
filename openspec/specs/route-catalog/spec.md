@@ -3,9 +3,7 @@
 ## Purpose
 
 定义代码静态路由事实、Route Descriptor 完整性、启动前校验、最低访问等级、唯一 Gin 注册和同步文档统一快照的消费边界。
-
 ## Requirements
-
 ### Requirement: 模块声明 Route Descriptor
 每个业务模块 SHALL 声明自身 HTTP 路由的 Route Descriptor，而不是直接向 Gin Engine 注册路由；Descriptor SHALL 同时声明 Handler 自身可能返回的公开成功和错误契约。
 
@@ -23,6 +21,7 @@
 - **AND** HTTP 422 字段校验响应 SHALL 同时声明可能的字段级错误定义
 - **AND** 缺少必需 OpenAPI 描述或公开错误定义时 Route Catalog SHALL 在 Gin 注册前返回校验错误
 - **AND** 系统 SHALL NOT 静默生成遗漏该路由、Schema 或错误码的 OpenAPI 文档
+
 ### Requirement: Route Catalog 启动前校验路由
 Route Catalog SHALL 在 Gin 注册前收集和校验全部 Route Descriptor、响应 Schema 和公开错误定义。
 
@@ -51,6 +50,7 @@ Route Catalog SHALL 在 Gin 注册前收集和校验全部 Route Descriptor、�
 - **WHEN** 多条路由引用同一所有者的同一公开错误定义
 - **THEN** Route Catalog SHALL 接受这些引用
 - **AND** 只读快照中的定义 SHALL 保持相同语义且不能被消费者修改
+
 ### Requirement: App 是唯一 Gin 路由注册点
 `internal/app` SHALL 是唯一允许修改 Gin Engine 路由集合的位置。
 
@@ -193,7 +193,7 @@ Route Catalog SHALL 确保业务 JSON 错误响应使用统一信封，并允许
 
 #### Scenario: RabbitMQ 就绪
 - **WHEN** App 声明 `/api/ready`
-- **THEN** 该入口 SHALL 与 `/api/health` 的进程存活语义分离
+- **THEN** 该入口 SHALL 与 `/ping` 的进程存活语义分离
 - **AND** Broker 不可用时只报告受控 RabbitMQ 状态，不以 Consumer DLQ 告警改变 HTTP 路由或响应集合
 
 #### Scenario: 消息 WebSocket 入口完整声明
@@ -221,3 +221,4 @@ Route Catalog SHALL 确保业务 JSON 错误响应使用统一信封，并允许
 - **WHEN** 管理员触发 API 路由同步或权限同步
 - **THEN** API Metadata 和 Authorization SHALL 消费包含消息 HTTP 路由及访问等级的 Route Catalog Snapshot
 - **AND** 同步 SHALL NOT 扫描 Gin Engine 或 RabbitMQ 拓扑发现消息入口
+
