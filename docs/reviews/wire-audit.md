@@ -589,7 +589,7 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 | --- | --- | --- |
 | **C1** | S1(B)：`AuthorizationScope` + `Dependencies.Authorization` + 8 处 `authorize` 调用 + 未被调用的 `OperationDownload`/`OperationPreview` 常量 | ✅ **已实施**（批次 1） |
 | **C1b** | `authorization.UserVisible` / `OrganizationVisible`（第五节发现 B） | ✅ **已实施**（零引用确认含测试） |
-| **C2** | 护栏：14 条 `wiring` 注解 + 1 个 Go AST 架构测试 | ✅ 设计完成，⛔ 待批次 1 归档后实施 |
+| **C2** | 护栏：23 条 `wiring` 注解 + 1 个 Go AST 架构测试 | ✅ **已实施**（批次 2） |
 | **C3** | `AuditMetadataSink` 死代码 + `deps.Audit` + 两个 `UploadAuditMetadataContextKey` 常量合一 | ✅ **已实施**（规格已由 GIN context 通道满足） |
 | **C4** | `messaging.MessagingAuditSink` + `MessagingAuditEntry` + 其契约测试 | ✅ **已实施**（规格 `:93` 已由运行日志满足） |
 | **C5** | `PublishDueAnnouncements` / `ExpireDueAnnouncements` + `CleanupExpiredMessageImages` | ⬜ 扫描完成，**阻塞于设计** |
@@ -607,7 +607,7 @@ C2 接线护栏  ──依赖──▶  C1 必须先完成
 
 ```
 批次 1  移除未生效的依赖端口        C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
-批次 2  依赖接线护栏                C2                      ✅ 可立即开始（批次 1 已落地）
+批次 2  依赖接线护栏                C2                      ✅ 已完成 add-dependency-wiring-guardrail
 批次 3  消息长度上限接入配置        C7                      ✅ 需先定默认行为
 批次 4  文档事实性修正              C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理      C5                      ⛔ 阻塞于设计
@@ -651,6 +651,37 @@ go test -tags=mysql_integration ./... -count=1         → 43 ok / 0 FAIL（独�
 **未触碰**：A 类接缝（`MessagingMetrics`、通知投影 Contract、邮件/短信 Consumer、`ExternalProxy`）、
 C5（公告调度与消息图片清理）、C6a/C6b、C7，以及护栏 C2 —— 均按批次计划保持独立。
 
+### 批次 2 实施记录（`openspec/changes/add-dependency-wiring-guardrail/`）
+
+**状态**：注解、护栏测试、负向验证与文档全部完成，待归档。
+
+| 覆盖 | 实际交付 |
+| --- | --- |
+| C2 | 两个 `Dependencies` 结构体共 **23 个字段**全部标注 `// wiring: required|optional`（files 6+4，messaging 11+2）；新增 AST 护栏测试 `TestArchitectureDeclaredDependenciesAreWired` |
+
+**与设计原文的差异**：设计写「14 条注解 + 需修正组合根 2 处」，
+实际为 **23 条注解、组合根 0 处改动** ——
+`Authorization` 与 `Audit` 已由批次 1 删除，其余 optional 字段沿用构造器兜底
+（策略见 [wire-guardrail-design.md](wire-guardrail-design.md) 第七节）。
+
+**护栏实际拦截的形态**（均经负向验证实测失败，随后恢复）：
+required 字段漏赋值、字段缺注解、注解拼写错误、
+`type X = Dependencies` 类型别名、位置参数式依赖字面量。
+
+**已知局限**：静态检查无法求值，`messaging.ConsumerDeadLetterReplay` 在
+RabbitMQ 未配置时组合根赋 `nil` —— 字段标 `required` 且护栏通过，
+但 nil 由 `admin_service.go:198` 的守卫降级为受控错误。
+这是 design R5 声明的取舍，不是护栏缺陷。
+
+**验证证据**：
+
+```
+go build ./...                                    → exit 0
+go test ./testsupport -run TestArchitecture       → ok（17 个架构测试）
+go test ./... -count=1                            → 43 ok / 10 no-test-files / 0 FAIL
+go test -tags=mysql_integration ./... -count=1    → 43 ok / 0 FAIL（独立探针库）
+```
+
 `C1+C1b+C3+C4` 合并的理由：它们**不是四件不同的事**，而是
 「声明的端口/实现，没有一个生效路径」这一根因的四个实例，
 且都是"留着比删掉更危险 —— 让读者以为存在校验"。
@@ -678,7 +709,8 @@ C5（公告调度与消息图片清理）、C6a/C6b、C7，以及护栏 C2 —�
 
 ```
 ① 后台任务注册     已发现 1 条（公告调度未注册），需系统扫描全部 BackgroundJob
-② 门禁覆盖         testsupport/architecture_boundary_test.go 校验形状但不校验接线；
+② 门禁覆盖         ✅ 已由批次 2 补齐 —— required 字段是否被组合根显式装配，
+                   由 TestArchitectureDeclaredDependenciesAreWired 强制
                   缺一条"每个声明的必需端口是否都被注入"的断言
 ③ 其余模块的端口    本审计的候选来自全库扫描，但逐条核对只做了 12 个候选
 ```

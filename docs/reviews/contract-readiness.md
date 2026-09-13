@@ -48,19 +48,19 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 
 ```
 批次 1  移除未生效的依赖端口              C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
-批次 2  依赖接线护栏                      C2                      ✅ 可立即开始（批次 1 已落地）
+批次 2  依赖接线护栏                      C2                      ✅ 已完成 add-dependency-wiring-guardrail
 批次 3  消息长度上限接入配置              C7                      ✅ 需先定默认行为
 批次 4  文档事实性修正                    C6a                     ✅ 范围已定
 批次 5  公告调度与消息图片清理            C5                      ⛔ 阻塞于设计
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
 
-**Change 工件已创建（2026-09-22，批次 1 已实施）**：
+**Change 工件已创建（2026-09-22，批次 1 与批次 2 已实施）**：
 
 | 批次 | Change 名 | 工件 | 任务数 | 实施状态 |
 | --- | --- | --- | --- | --- |
 | 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 | ✅ 39/39 完成，待归档 |
-| 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ⬜ 未开始（依赖批次 1） |
+| 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ✅ 45/45 完成，待归档 |
 | 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ⬜ 未开始 |
 | 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ⬜ 未开始 |
 
@@ -71,6 +71,12 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 行为契约由新增规格 `file-access-contract` 承载，
 验证证据（build / 架构测试 / 全量测试 / MySQL 门禁 / 120 条路由快照 / HTTP 信封采样）
 见 [wire-audit.md](wire-audit.md) 的「批次 1 实施记录」。
+
+**批次 2 实施结果**：23 个依赖字段全部标注 `wiring` 注解，新增 AST 护栏测试
+`TestArchitectureDeclaredDependenciesAreWired`，组合根零改动；
+required 漏装配、缺注解、注解拼写错误、类型别名、位置参数式字面量五种形态
+均经负向验证实测失败。设计差异与已知局限见
+[wire-guardrail-design.md](wire-guardrail-design.md) 第七节。
 
 **4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
 本文件是计划记录，不创建 change；change 由各批次自行维护。

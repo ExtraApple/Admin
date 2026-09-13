@@ -35,19 +35,32 @@ type ClockFunc func() time.Time
 func (clock ClockFunc) Now() time.Time { return clock() }
 
 type Dependencies struct {
-	Messages                 MessageStore
-	Categories               CategoryStore
-	Inbox                    InboxStore
-	Notifications            NotificationStore
-	Outboxes                 OutboxStore
-	ConsumerDeadLetters      ConsumerDeadLetterStore
+	// wiring: required —— 缺失时消息查询、私信发送、编辑与撤销返回 messaging_dependency_unavailable
+	Messages MessageStore
+	// wiring: required —— 缺失时分类管理与公告、群发创建返回 messaging_dependency_unavailable
+	Categories CategoryStore
+	// wiring: required —— 缺失时收件箱查询、已读与删除返回 messaging_dependency_unavailable
+	Inbox InboxStore
+	// wiring: required —— 缺失时通知投影查询返回 messaging_dependency_unavailable
+	Notifications NotificationStore
+	// wiring: required —— 缺失时 Outbox 管理与死信重放返回 messaging_dependency_unavailable
+	Outboxes OutboxStore
+	// wiring: required —— 缺失时 Consumer 死信查询与丢弃返回 messaging_dependency_unavailable
+	ConsumerDeadLetters ConsumerDeadLetterStore
+	// wiring: required —— 缺失时死信重放返回 messaging_dependency_unavailable；Broker 未配置时组合根赋 nil，仅该路径不可用
 	ConsumerDeadLetterReplay *ConsumerDeadLetterReplayService
-	Identity                 IdentityReader
-	Organizations            OrganizationAudienceReader
-	Authorization            AuthorizationReader
-	Files                    MessageImageFiles
-	Transactions             TransactionRunner
-	Clock                    Clock
+	// wiring: required —— 缺失时私信发送与通知投影返回 messaging_dependency_unavailable
+	Identity IdentityReader
+	// wiring: required —— 缺失时受众解析失败，收件箱、公告、群发与撤销返回 messaging_dependency_unavailable
+	Organizations OrganizationAudienceReader
+	// wiring: required —— 缺失时权限与数据范围校验失败，分类、公告、群发与撤销返回 messaging_dependency_unavailable
+	Authorization AuthorizationReader
+	// wiring: required —— 缺失时消息图片上传、绑定与读取返回 messaging_dependency_unavailable
+	Files MessageImageFiles
+	// wiring: optional —— 缺失时 constructor 兜底 directTransactionRunner{}，事务退化为直通执行
+	Transactions TransactionRunner
+	// wiring: optional —— 缺失时 constructor 兜底 ClockFunc(time.Now)
+	Clock Clock
 }
 
 type Service struct {

@@ -2,7 +2,12 @@
 
 > 目标：让「声明了但没接线」在**测试中失败**，而不是在生产中静默降级。
 > 这是实现审计（[wire-audit.md](wire-audit.md)）的防复发措施。
-> **本文只设计，不实施** —— 实施需独立 OpenSpec change。
+>
+> **状态：已实施**（批次 2，`openspec/changes/add-dependency-wiring-guardrail/`）。
+> 实现落点：`testsupport/architecture_boundary_test.go` 的
+> `TestArchitectureDeclaredDependenciesAreWired`；注解落在
+> `internal/files/application/contracts.go` 与 `internal/messaging/application/service.go`。
+> 本文以下内容为**设计原文**，实施差异在第 7 节记录。
 
 ---
 
@@ -191,12 +196,14 @@ func TestArchitectureDeclaredDependenciesAreWired(t *testing.T) {
 ## 六、实施影响面与顺序
 
 ```
-新增注解        14 处（files 12 + messaging 13，去掉重叠）
+新增注解        23 处（files 10 + messaging 13，全部字段）
 新增测试        1 个（testsupport/architecture_boundary_test.go）
-需要修正的现状   2 处：
-                ├─ files.Dependencies    缺 Authorization 与 Audit 的赋值或注解
-                └─ messaging.Dependencies 缺 Clock 的赋值或注解
+需要修正的现状   0 处 —— 6 个 optional 字段沿用构造器兜底，
+                组合根不改动（见第七节）
 ```
+
+> 上文「14 处 / 需要修正 2 处」是**设计阶段**的数字，写于 `files.Authorization`
+> 与 `files.Audit` 尚未删除时，且当时假定要为 optional 字段补显式赋值。实际数字见第七节。
 
 **注意**：`files.Authorization` 一旦标注为 `required`，测试**当天就会失败**
 （因为组合根确实没接线）。这是**期望行为** —— 护栏的价值就在于让已知缺口变成红灯。
@@ -210,3 +217,74 @@ C2  依赖接线完整性护栏（本文）        ← 后做：C1 完成后本�
 ```
 
 完整变更清单与顺序依据见 [wire-audit.md](wire-audit.md) 第六节。
+
+---
+
+## 七、实施结果（批次 2，`add-dependency-wiring-guardrail`）
+
+### 实际落点
+
+```
+注解    internal/files/application/contracts.go      Dependencies   10 字段（6 required + 4 optional）
+        internal/messaging/application/service.go    Dependencies   13 字段（11 required + 2 optional）
+                                                                    合计 23 字段，无未标注字段
+测试    testsupport/architecture_boundary_test.go    TestArchitectureDeclaredDependenciesAreWired
+辅助函数 architectureDependencyFields / architectureAssignedDependencyFields /
+        architectureWiringLevel / architectureDependencyFieldNames /
+        architectureDependencyTypeName / architectureDependencyOwner / architectureImportPaths
+```
+
+### 与设计原文的差异
+
+| 项 | 设计原文 | 实施结果 | 原因 |
+| --- | --- | --- | --- |
+| 注解数量 | 14 处（files 12） | **23 处**（files 10） | `Authorization` 与 `Audit` 已由批次 1 删除；设计阶段只列了「需关注」的字段而非全部字段 |
+| 组合根修正 | 需补 2 处赋值 | **0 处** | 6 个 optional 字段全部沿用构造器兜底，无需改动组合根（见下） |
+| 注解格式 | 「只接受精确的 `required` / `optional`」 | 额外**强制写明后果/兜底来源**：`^// wiring: (required\|optional) —— .+$` | 落实 D2「注解必须写明缺失后果」；只有标记而无说明同样失败 |
+| 组合根字面量归属 | 设计未定 | 通过**文件内 import 别名表**解析 `pkg.Dependencies{}` → import path；解析失败即报错 | 保证键为「模块路径 + 字段名」 |
+| 断言强度 | 仅 required | 额外断言「至少发现 1 个 `Dependencies` 结构体」与「至少发现 1 个组合根字面量」 | 防止扫描逻辑失效时测试恒绿 |
+
+### optional 字段的赋值策略（tasks 4.3 的裁决）
+
+**统一为「依赖构造器兜底」**：组合根显式赋值一切能提供真实实现的 optional 字段
+（`Transactions` 注入 `platformdatabase.NewTransactionRunner`、`DownloadURLExpireSeconds`
+注入配置值）；`Clock` 与 `ObjectNames` 无更优实现可注入，两处组合根一致省略，
+由注解声明兜底来源。
+
+`Transactions` 的兜底 `directTransactionRunner{}` 使事务退化为直通执行，
+但**生产不可达**：两个模块的唯一生产构造点（`internal/app/files.go:40`、
+`internal/app/messaging.go:66`）都显式注入真实事务运行器，
+仅当单元测试夹具省略该字段时生效，而夹具使用内存假实现。
+
+### 已知局限（design R5 的实例）
+
+`messaging.ConsumerDeadLetterReplay` 标为 `required` 且组合根已赋值，
+但该赋值在 **RabbitMQ 未配置时为 `nil`**（`internal/app/messaging.go:53,63`）：
+
+```
+静态检查只能确认「字段出现在字面量中」，无法求值是否为 nil。
+实际风险已被守卫覆盖：admin_service.go:198 在 nil 时返回 ErrMessagingDependency，
+重放端点按受控依赖不可用降级，不会 panic。
+该字段无构造器兜底，故不能标 optional（会违反 D4）；
+真正的防线是 review 时确认 required 字段赋的是真实实现。
+```
+
+### 负向验证证据（护栏有效性的唯一证据）
+
+| 场景 | 结果 |
+| --- | --- |
+| 移除 `files` 的 `Validator` 赋值 | ❌ FAIL：`admin/internal/files/application.Validator is declared required but never assigned in internal/app` |
+| 删除 `Clock` 的注解 | ❌ FAIL：`internal/files/application/contracts.go: Dependencies field Clock needs an exact ... annotation` |
+| 注解拼错为 `// wiring: requird` | ❌ FAIL（同上报错，未静默通过） |
+| 增加 `type ProbeAlias = Dependencies` | ❌ FAIL：`declares the type alias ProbeAlias = Dependencies, which bypasses the wiring guardrail` |
+| 组合根改为位置参数式字面量 | ❌ FAIL：`Dependencies literal uses positional values, so the wiring guardrail cannot match field names`（并连带报出 6 个未赋值 required 字段） |
+| 逐一恢复上述临时改动 | ✅ 全部恢复后与原文件 SHA-256 一致，测试重新通过 |
+
+### 常规验证
+
+```
+go build ./...                                    → exit 0
+go test ./testsupport -run TestArchitecture       → ok（17 个架构测试全通过）
+go test ./... -count=1                            → 43 ok / 10 no-test-files / 0 FAIL
+go test -tags=mysql_integration ./... -count=1    → 43 ok / 0 FAIL（独立探针库，用后 DROP）
+```

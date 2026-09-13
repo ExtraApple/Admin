@@ -6,8 +6,10 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -509,6 +511,211 @@ func TestArchitectureRetiredTopLevelPackagesAreAbsent(t *testing.T) {
 			t.Fatalf("stat retired package %s: %v", name, err)
 		}
 	}
+}
+
+// architectureWiringAnnotation is the only accepted dependency wiring
+// annotation form: an exact marker plus a required explanation of what breaks
+// when the field is missing. Typos and bare markers must fail loudly.
+var architectureWiringAnnotation = regexp.MustCompile(`^// wiring: (required|optional) —— .+$`)
+
+type architectureDependencyField struct {
+	Owner string
+	Name  string
+	Level string
+}
+
+func TestArchitectureDeclaredDependenciesAreWired(t *testing.T) {
+	root := architectureRepositoryRoot(t)
+	fields := architectureDependencyFields(t, root)
+	if len(fields) == 0 {
+		t.Fatal("no Dependencies struct with wiring annotations found under internal/")
+	}
+	assigned := architectureAssignedDependencyFields(t, root)
+	if len(assigned) == 0 {
+		t.Fatal("no Dependencies composite literal found in internal/app")
+	}
+	for _, field := range fields {
+		if field.Level != "required" {
+			continue
+		}
+		if _, ok := assigned[field.Owner+"."+field.Name]; !ok {
+			t.Errorf("%s.%s is declared required but never assigned in internal/app", field.Owner, field.Name)
+		}
+	}
+}
+
+func architectureDependencyFields(t *testing.T, root string) []architectureDependencyField {
+	t.Helper()
+	var fields []architectureDependencyField
+	for _, path := range architectureProductionGoFiles(t, filepath.Join(root, "internal")) {
+		relativePath, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("resolve relative path for %s: %v", path, err)
+		}
+		relativePath = filepath.ToSlash(relativePath)
+		owner := architectureDependencyOwner(relativePath)
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for _, declaration := range file.Decls {
+			generic, ok := declaration.(*ast.GenDecl)
+			if !ok || generic.Tok != token.TYPE {
+				continue
+			}
+			for _, specification := range generic.Specs {
+				typeSpec, ok := specification.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				if typeSpec.Assign.IsValid() && architectureDependencyTypeName(typeSpec.Type) == "Dependencies" {
+					t.Errorf("%s declares the type alias %s = Dependencies, which bypasses the wiring guardrail", relativePath, typeSpec.Name.Name)
+					continue
+				}
+				if typeSpec.Name.Name != "Dependencies" {
+					continue
+				}
+				structType, ok := typeSpec.Type.(*ast.StructType)
+				if !ok {
+					t.Errorf("%s declares Dependencies as a non-struct type", relativePath)
+					continue
+				}
+				for _, structField := range structType.Fields.List {
+					names := architectureDependencyFieldNames(structField)
+					level, ok := architectureWiringLevel(structField)
+					if !ok {
+						t.Errorf("%s: Dependencies field %s needs an exact `// wiring: required —— <consequence>` or `// wiring: optional —— <fallback>` annotation",
+							relativePath, strings.Join(names, ", "))
+						continue
+					}
+					for _, name := range names {
+						fields = append(fields, architectureDependencyField{Owner: owner, Name: name, Level: level})
+					}
+				}
+			}
+		}
+	}
+	return fields
+}
+
+func architectureAssignedDependencyFields(t *testing.T, root string) map[string]struct{} {
+	t.Helper()
+	assigned := map[string]struct{}{}
+	for _, path := range architectureProductionGoFiles(t, filepath.Join(root, "internal", "app")) {
+		relativePath, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("resolve relative path for %s: %v", path, err)
+		}
+		relativePath = filepath.ToSlash(relativePath)
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		importPaths := architectureImportPaths(file)
+		ast.Inspect(file, func(node ast.Node) bool {
+			literal, ok := node.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			selector, ok := literal.Type.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != "Dependencies" {
+				return true
+			}
+			alias, ok := selector.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			importPath, ok := importPaths[alias.Name]
+			if !ok {
+				t.Errorf("%s: cannot resolve the package of the %s.Dependencies literal", relativePath, alias.Name)
+				return true
+			}
+			for _, element := range literal.Elts {
+				key, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					t.Errorf("%s: Dependencies literal uses positional values, so the wiring guardrail cannot match field names", relativePath)
+					return false
+				}
+				name, ok := key.Key.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				assigned[importPath+"."+name.Name] = struct{}{}
+			}
+			return true
+		})
+	}
+	return assigned
+}
+
+func architectureWiringLevel(field *ast.Field) (string, bool) {
+	if field.Doc == nil {
+		return "", false
+	}
+	level := ""
+	for _, comment := range field.Doc.List {
+		text := strings.TrimRight(comment.Text, " \t")
+		if !strings.Contains(text, "wiring") {
+			continue
+		}
+		match := architectureWiringAnnotation.FindStringSubmatch(text)
+		if match == nil || level != "" {
+			return "", false
+		}
+		level = match[1]
+	}
+	return level, level != ""
+}
+
+func architectureDependencyFieldNames(field *ast.Field) []string {
+	if len(field.Names) == 0 {
+		return []string{"<embedded>"}
+	}
+	names := make([]string, 0, len(field.Names))
+	for _, name := range field.Names {
+		names = append(names, name.Name)
+	}
+	return names
+}
+
+func architectureDependencyTypeName(expression ast.Expr) string {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.SelectorExpr:
+		return typed.Sel.Name
+	}
+	return ""
+}
+
+func architectureDependencyOwner(relativePath string) string {
+	directory := filepath.ToSlash(filepath.Dir(relativePath))
+	if directory == "." {
+		return "admin"
+	}
+	return "admin/" + directory
+}
+
+func architectureImportPaths(file *ast.File) map[string]string {
+	importPaths := map[string]string{}
+	for _, specification := range file.Imports {
+		path, err := strconv.Unquote(specification.Path.Value)
+		if err != nil {
+			continue
+		}
+		name := path
+		if index := strings.LastIndex(path, "/"); index >= 0 {
+			name = path[index+1:]
+		}
+		if specification.Name != nil {
+			if specification.Name.Name == "_" || specification.Name.Name == "." {
+				continue
+			}
+			name = specification.Name.Name
+		}
+		importPaths[name] = path
+	}
+	return importPaths
 }
 
 func architectureIdentityPolicyLiteralAllowed(relativePath, literal string) bool {
