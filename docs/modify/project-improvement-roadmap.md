@@ -126,20 +126,29 @@
 
 详细目录、分层职责、模块边界和迁移阶段见[layered-monolith-restructuring](layered-monolith-restructuring.md)。
 
-### 9. 建立应用装配和基础设施层
+### 9. 建立应用装配和基础设施层（已完成）
 
-- 建立 `cmd/admin` 和 `internal/app`。
-- 将配置、数据库、Redis、MinIO 和日志创建迁移到 `internal/platform`。
-- 使用 constructor 显式注入依赖。
-- 停止新增 `global` 访问。
+- 建立 `internal/app` 作为唯一组合根；入口为仓库根目录的 `main.go`
+  （不是 `cmd/admin`，仓库中没有 `cmd/` 目录）。
+- 将配置、数据库、Redis、MinIO、RabbitMQ、HTTP 响应信封和日志创建迁移到
+  `internal/platform`（现有子目录：`config`、`database`、`cache`、
+  `objectstorage`、`rabbitmq`、`httpresponse`、`logging`）。
+- 使用 constructor 显式注入依赖：每个模块以 `Dependencies` 结构体接收依赖，
+  由 `internal/app` 逐字段装配，并由架构测试
+  `TestArchitectureDeclaredDependenciesAreWired` 强制校验。
+- 已停止 `global` 访问：仓库中不存在 `global` 包，
+  `TestArchitectureProductionDoesNotUseLegacyGlobal` 持续守卫。
 
-### 10. 按业务模块迁移
+### 10. 按业务模块迁移（已完成）
 
-- 先迁移字典模块验证模板。
-- 再迁移文件、授权、身份、组织、审计和 OpenAPI。
+- 先迁移字典模块验证模板：`internal/dictionary` 为扁平模块。
+- 再迁移文件、授权、身份、组织、审计和 OpenAPI：对应
+  `internal/files`、`internal/authorization`、`internal/identity`、
+  `internal/organization`、`internal/audit`、`internal/apidoc` 均已就位。
 - 复杂模块采用 Domain、Application、Adapter 分层。
 - 简单模块保持扁平，避免形式化分层膨胀。
-- 权限检查、数据范围和 Token 失效在 Authorization module 内统一收敛。
+- 权限检查、数据范围和 Token 失效在 Authorization module 内统一收敛
+  （见 ADR 0004、ADR 0005）。
 
 ### 11. 自动化 API 文档增强
 

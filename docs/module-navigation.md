@@ -41,9 +41,12 @@ Route Descriptor 是业务 HTTP 入口的唯一声明。新增或修改接口时
 ## 验证入口
 
 ```powershell
-go test ./initialize -run TestArchitecture -count=1
+go test ./testsupport -run TestArchitecture -count=1
 go test ./internal/routecatalog ./internal/app -count=1
 go test ./... -count=1
 ```
+
+第一条包含全部 17 个架构边界测试，其中 `TestArchitectureDeclaredDependenciesAreWired`
+校验每个 `Dependencies` 结构体的 `required` 字段是否已被组合根显式装配。
 
 真实 MySQL、Redis 和 MinIO 门禁位于 `testsupport/testutil/run-*-gate.ps1`；这些门禁验证 SQLite 无法覆盖的锁、并发、DDL、缓存和对象存储语义。

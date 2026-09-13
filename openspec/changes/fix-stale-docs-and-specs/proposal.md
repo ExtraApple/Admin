@@ -89,9 +89,20 @@ ADR 0007 与 `docs/runbooks/messaging.md` 共四处引用 `GET /api/health`，
 
 ### 不受影响
 
-**全部代码**（`internal/`、`main.go`）、路由（120 条）、权限码、
-HTTP 状态码与业务 JSON、数据库结构、Redis key、MinIO bucket、
-后台任务集合、OpenAPI 输出。
+路由（120 条）、权限码、HTTP 状态码与业务 JSON、数据库结构、Redis key、
+MinIO bucket、后台任务集合、OpenAPI 输出，以及全部生产代码（`internal/` 中
+除下述测试夹具外的文件、`main.go`）。
+
+**唯一例外（实施时经裁决新增）**：为做到全库不再出现 `/api/health` 这一幽灵端点字样，
+两个测试文件中的**合成示例路径**被改名为 `/api/probe-health`：
+
+| 文件 | 变更 |
+| --- | --- |
+| `internal/app/app_test.go` | 示例 `Descriptor.Path`、快照断言与请求路径 |
+| `internal/routecatalog/catalog_test.go` | 示例 `Descriptor.Path`、断言与重复路由错误信息 |
+
+这些字符串是测试夹具数据，不代表真实端点；改名后不改变任何断言语义
+（`routecatalog` 与 `app` 两个包测试全部通过）。
 
 ### 关于 ADR 的取舍
 

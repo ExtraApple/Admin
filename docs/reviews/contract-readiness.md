@@ -50,7 +50,7 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 批次 1  移除未生效的依赖端口              C1 + C1b + C3 + C4      ✅ 已完成 remove-unwired-ports
 批次 2  依赖接线护栏                      C2                      ✅ 已完成 add-dependency-wiring-guardrail
 批次 3  消息长度上限接入配置              C7                      ✅ 已完成 wire-message-length-limits
-批次 4  文档事实性修正                    C6a                     ✅ 范围已定
+批次 4  文档事实性修正                    C6a                     ✅ 已完成 fix-stale-docs-and-specs
 批次 5  公告调度与消息图片清理            C5                      ⛔ 阻塞于设计
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
@@ -62,7 +62,7 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 | 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 | ✅ 39/39 完成，待归档 |
 | 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ✅ 45/45 完成，待归档 |
 | 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ✅ 48/48 完成，待归档 |
-| 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ⬜ 未开始 |
+| 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ✅ 55/55 完成，待归档 |
 
 四个均已通过 `openspec validate`。
 
@@ -84,6 +84,25 @@ required 漏装配、缺注解、注解拼写错误、类型别名、位置参�
 默认值 100 / 20000 不变。差异与证据见
 [wire-audit.md](wire-audit.md) 的「批次 3 实施记录」，运维说明见
 [runbooks/messaging.md](../runbooks/messaging.md) 的「消息长度上限」一节。
+
+**批次 4 实施结果**：5 份 delta 规格与 4 份文档修正全部完成 ——
+`/api/health` 幽灵端点（X1）改为 `/ping`，字典模块 4 条未记录路由补齐 Scenario，
+`identity:11` 措辞澄清（X6），`auth:180` 的登出 TTL 表述对齐实现，
+`docs/module-navigation.md` 的验证命令路径、`TODO.md` 的失真条目与
+`docs/project-improvement-roadmap.md` 的阶段 9/10 定位一并修正。
+
+**两处实施期裁决**：
+
+1. `/api/health` 在测试夹具中的**合成示例路径**改名为 `/api/probe-health` ——
+   否则全库检索永远有残留，读者仍可能误以为存在该端点（proposal 的「不受影响」
+   已同步记录这一唯一例外）。
+2. 任务原要求补「查询字典类型详情」Scenario，但核对 `internal/dictionary/http.go:48-56`
+   的 9 条路由后确认**不存在 `GET /api/admin/dict-types/:id`** ——
+   该 Scenario 本身会构成新的幽灵端点，故改为「查询字典类型只有列表入口」的显式声明。
+
+**仍押后**：C6b（剩余 10 个规格 / 578 条 SHALL 的逐条核对）；
+`docs/runbooks/login-security.md` 的锁定档位描述（批次 4 design 记录的待评估项，
+本轮未新增核对，是否修订待定）。
 
 **4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
 本文件是计划记录，不创建 change；change 由各批次自行维护。
@@ -245,6 +264,12 @@ C6b  剩余 10 个规格 / 578 SHALL 的逐条核对（边界未定）
 - **历史**：曾存在，在 `fca2fa5` 之前的版本中被 `/ping` + `/api/ready` 取代，但规格与文档未同步。
 - **影响模块**：route-catalog、modular-layered-architecture、（ADR 与 runbook）
 - **判定**：⚠️ 冲突（规格 vs 代码）
+- **处置（批次 4，`fix-stale-docs-and-specs`）**：裁定为**规格描述错误**而非实现缺失 ——
+  `/ping` 已承担存活语义，补 `/api/health` 会产生两个语义重复的端点。
+  两份 delta 规格改为 `/ping`（归档时生效）；`docs/adr/0007:91` 改为 `/ping` 并注明
+  该路由从未以 `/api/health` 注册；`docs/runbooks/messaging.md` 同步改为 `/ping`。
+  两个测试夹具中的同名示例路径改名为 `/api/probe-health`，使全库不再出现该字样。
+  复核方式：全库检索 `api/health`，残留仅剩本审计记录与批次 4 工件的说明性文字。
 
 ### X2 · `/docs/openapi.json` 的失败契约有实现、无测试
 
@@ -293,6 +318,10 @@ C6b  剩余 10 个规格 / 578 SHALL 的逐条核对（边界未定）
 - **建议**：补规格时将 `:11` 的"对外响应"改为"通知渠道 Contract 响应"。
 - **影响模块**：identity、user-management
 - **判定**：⚠️ 规格措辞问题（非实现缺陷）
+- **处置（批次 4，`fix-stale-docs-and-specs`）**：`identity` delta 把「对外响应」改为
+  「通知渠道 Contract 响应」，并新增两个 Scenario：
+  「通知渠道 Contract 不返回多余字段」与「HTTP 资料响应与本 Contract 相互独立」。
+  已对照 `internal/app/messaging.go:318-326` 与 `internal/identity/dto.go:33-43` 确认边界一致。
 
 ### X7 · 审计元数据的白名单 + 拒绝 map 是值得复制的加固模式
 

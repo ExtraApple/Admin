@@ -88,7 +88,7 @@ Consumer 版本游标高于 Consumer DLQ 重放事件的聚合版本时，旧事
 
 WebSocket Consumer 在事件发生时解析当前动态受众，为每个当前可见用户写入独立的 24 小时 Redis Stream 恢复事件，再通过 Redis Pub/Sub 提醒在线 Gateway。Gateway 返回事件前仍以当前 MySQL 可见性为准；成员后续变化由收件箱查询与该复查处理，不补发旧事件。
 
-死信 Outbox 查询与重放仅通过超级管理员的 `GET /api/admin/message-outboxes` 和 `POST /api/admin/message-outboxes/:id/replay` 完成；重放接口受 `admin.messages.outbox.replay` 保护并写入审计。`GET /api/health` 继续只报告进程存活；公开 `GET /api/ready` 始终以 HTTP 200 返回 `{status, components.rabbitmq.status, components.rabbitmq.outbox_pending, components.rabbitmq.last_error_code}`，RabbitMQ 不可用时总体和组件状态为 `degraded`，且不泄露基础设施细节。待处置 Consumer DLQ 是运行告警而非接流量故障，不改变 `/api/ready` 的 HTTP 状态或 `status`；仅受保护的死信管理查询和监控指标暴露待处置总数、按 Consumer/稳定失败码计数和最旧 `pending` 年龄。
+死信 Outbox 查询与重放仅通过超级管理员的 `GET /api/admin/message-outboxes` 和 `POST /api/admin/message-outboxes/:id/replay` 完成；重放接口受 `admin.messages.outbox.replay` 保护并写入审计。`GET /ping` 继续只报告进程存活（该技术路由在更早的文档中曾被写作 `GET /api/health`，实际从未注册过该路径）；公开 `GET /api/ready` 始终以 HTTP 200 返回 `{status, components.rabbitmq.status, components.rabbitmq.outbox_pending, components.rabbitmq.last_error_code}`，RabbitMQ 不可用时总体和组件状态为 `degraded`，且不泄露基础设施细节。待处置 Consumer DLQ 是运行告警而非接流量故障，不改变 `/api/ready` 的 HTTP 状态或 `status`；仅受保护的死信管理查询和监控指标暴露待处置总数、按 Consumer/稳定失败码计数和最旧 `pending` 年龄。
 
 Consumer DLQ 在经历五次失败后必须由人工处置，因此任一 `(Consumer, 稳定失败码)` 的 `pending` 投影从零变为非零即触发一次立即运维告警。告警只含 Consumer、稳定失败码、待处置计数和最旧 `pending` 年龄；不含事件 ID、事件载荷、用户标识或消息内容。
 

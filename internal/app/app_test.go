@@ -33,7 +33,7 @@ func TestNewAssemblesPlatformRoutesSeedAndBackgroundJobs(t *testing.T) {
 	jobStarted := make(chan struct{})
 	jobStopped := make(chan struct{})
 	descriptor := routecatalog.Descriptor{
-		Method: http.MethodGet, Path: "/api/health", Access: routecatalog.Public,
+		Method: http.MethodGet, Path: "/api/probe-health", Access: routecatalog.Public,
 		Handler: func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) },
 		Name:    "Health", Group: "system", DefaultAuditCategory: "health",
 		OpenAPI: routecatalog.Operation{
@@ -64,7 +64,7 @@ func TestNewAssemblesPlatformRoutesSeedAndBackgroundJobs(t *testing.T) {
 	}
 	select {
 	case snapshot := <-seededRoutes:
-		if len(snapshot) != 121 || snapshot[0].Path != "/api/dicts/:type_code/items" || snapshot[9].Path != "/api/admin/organizations" || snapshot[16].Path != "/api/admin/menus" || snapshot[25].Path != "/api/admin/api-groups" || snapshot[27].Path != "/api/admin/apis" || snapshot[65].Path != "/api/health" || snapshot[66].Path != "/api/admin/roles" || snapshot[86].Path != "/api/captcha" || snapshot[105].Path != "/api/admin/users/:id/kick" || snapshot[106].Path != "/api/admin/files" || snapshot[114].Path != "/api/admin/files-browse" || snapshot[115].Path != "/api/admin/audit-logs" || snapshot[119].Path != "/api/admin/data-access-logs" || snapshot[120].Path != "/api/ready" {
+		if len(snapshot) != 121 || snapshot[0].Path != "/api/dicts/:type_code/items" || snapshot[9].Path != "/api/admin/organizations" || snapshot[16].Path != "/api/admin/menus" || snapshot[25].Path != "/api/admin/api-groups" || snapshot[27].Path != "/api/admin/apis" || snapshot[65].Path != "/api/probe-health" || snapshot[66].Path != "/api/admin/roles" || snapshot[86].Path != "/api/captcha" || snapshot[105].Path != "/api/admin/users/:id/kick" || snapshot[106].Path != "/api/admin/files" || snapshot[114].Path != "/api/admin/files-browse" || snapshot[115].Path != "/api/admin/audit-logs" || snapshot[119].Path != "/api/admin/data-access-logs" || snapshot[120].Path != "/api/ready" {
 			t.Fatalf("Seed Route Catalog Snapshot has %d routes; want Dictionary, Organization, Navigation, API Metadata, health, Authorization, Identity, Files, Audit, then readiness", len(snapshot))
 		}
 	default:
@@ -79,7 +79,7 @@ func TestNewAssemblesPlatformRoutesSeedAndBackgroundJobs(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/probe-health", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("App HTTP status = %d body %s", response.Code, response.Body.String())
 	}

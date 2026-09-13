@@ -41,7 +41,7 @@ App 启用 RabbitMQ 配置后由组合根声明 Topic Exchange、Quorum Queue、
 
 ## 健康与就绪
 
-- `GET /api/health` 只表示进程存活。
+- `GET /ping` 只表示进程存活。
 - `GET /api/ready` 只返回应用状态、RabbitMQ 受控状态、Outbox pending 数量和 `last_error_code`。
 - Consumer DLQ pending 数量、最旧年龄和告警状态不加入 `/api/ready`，通过注入的 `MessagingMetrics.RecordConsumerDLQPending` 交给部署监控。
 - `admin.messages.outbox.replay` 只允许超级管理员重放死信 Outbox。

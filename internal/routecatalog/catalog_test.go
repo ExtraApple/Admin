@@ -21,7 +21,7 @@ func TestNewBuildsStableNormalizedSnapshot(t *testing.T) {
 	catalog, err := routecatalog.New([]routecatalog.Descriptor{
 		{
 			Method:               " get ",
-			Path:                 "api/health/",
+			Path:                 "api/probe-health/",
 			Access:               routecatalog.Public,
 			Handler:              handler,
 			Name:                 "Health",
@@ -48,7 +48,7 @@ func TestNewBuildsStableNormalizedSnapshot(t *testing.T) {
 	if len(first) != 1 {
 		t.Fatalf("snapshot length = %d, want 1", len(first))
 	}
-	if first[0].Method != "GET" || first[0].Path != "/api/health" || first[0].Access != routecatalog.Public || first[0].Handler == nil {
+	if first[0].Method != "GET" || first[0].Path != "/api/probe-health" || first[0].Access != routecatalog.Public || first[0].Handler == nil {
 		t.Fatalf("normalized descriptor changed: %#v", first[0])
 	}
 	if first[0].Name != "Health" || first[0].Group != "system" || first[0].DefaultAuditCategory != "health" || first[0].OpenAPI.Responses[200].Description != "healthy" {
@@ -113,11 +113,11 @@ func TestNewRejectsNormalizedDuplicateRoutes(t *testing.T) {
 	first := validDescriptor()
 	second := validDescriptor()
 	second.Method = " get "
-	second.Path = "api/health/"
+	second.Path = "api/probe-health/"
 	second.Name = "Duplicate Health"
 
 	_, err := routecatalog.New([]routecatalog.Descriptor{first, second})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") || !strings.Contains(err.Error(), "GET /api/health") {
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") || !strings.Contains(err.Error(), "GET /api/probe-health") {
 		t.Fatalf("catalog error = %v, want normalized duplicate route", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestNewRejectsNormalizedDuplicateRoutes(t *testing.T) {
 func validDescriptor() routecatalog.Descriptor {
 	return routecatalog.Descriptor{
 		Method:               "GET",
-		Path:                 "/api/health",
+		Path:                 "/api/probe-health",
 		Access:               routecatalog.Public,
 		Handler:              func(*gin.Context) {},
 		Name:                 "Health",

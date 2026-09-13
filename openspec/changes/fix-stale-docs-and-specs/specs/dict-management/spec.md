@@ -7,10 +7,12 @@
 - **WHEN** 管理员请求 `GET /api/admin/dict-types`
 - **THEN** 系统分页返回字典类型列表
 
-#### Scenario: 查询字典类型详情
-- **WHEN** 管理员请求 `GET /api/admin/dict-types/:id`
-- **THEN** 系统返回该字典类型的详情
-- **AND** 类型不存在时系统拒绝请求
+#### Scenario: 查询字典类型只有列表入口
+
+- **WHEN** 管理员需要查询字典类型
+- **THEN** 系统只提供 `GET /api/admin/dict-types` 列表端点
+- **AND** 系统 SHALL NOT 提供 `GET /api/admin/dict-types/:id` 对象级详情端点
+- **AND** 单条记录的字段由列表响应中的对应元素给出
 
 #### Scenario: 创建字典类型
 - **WHEN** 管理员请求 `POST /api/admin/dict-types`
