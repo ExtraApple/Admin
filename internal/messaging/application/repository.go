@@ -21,6 +21,7 @@ var (
 type Repository interface {
 	CategoryStore
 	MessageStore
+	AnnouncementCleanupStore
 	InboxStore
 	OutboxStore
 	ConsumerStore
@@ -48,6 +49,20 @@ type MessageStore interface {
 	ListMessages(context.Context, MessageListQuery) ([]domain.Message, int64, error)
 	ChangeMessage(context.Context, MessageChange) (domain.Message, error)
 	ListAudienceRules(context.Context, uint) ([]domain.AudienceRule, error)
+}
+
+// AnnouncementCleanupStore is the background-maintenance facet. It does not
+// change the management list's organization scope, ordering or total.
+type AnnouncementCleanupStore interface {
+	AnnouncementCleanupUpperID(context.Context) (uint, error)
+	FindDueAnnouncements(context.Context, DueAnnouncementQuery) ([]domain.Message, error)
+}
+
+type DueAnnouncementQuery struct {
+	Now              time.Time
+	AfterID, UpperID uint
+	Limit            int
+	Expiring         bool
 }
 
 // MessagePersistence creates one message copy and all relations that must be

@@ -11,12 +11,15 @@ import (
 )
 
 var (
-	ErrFileNotFound  = errors.New("file not found")
-	ErrStateConflict = errors.New("file state conflict")
+	ErrFileNotFound                    = errors.New("file not found")
+	ErrStateConflict                   = errors.New("file state conflict")
+	ErrMessageImageCleanupHashConflict = errors.New("message image cleanup path conflict")
+	ErrStoragePermissionDenied         = errors.New("file object storage permission denied")
 )
 
 type ObjectStorage interface {
 	Put(context.Context, ObjectInput) error
+	Stat(context.Context, string, string) (Object, error)
 	Open(context.Context, string, string) (io.ReadCloser, error)
 	Delete(context.Context, string, string) error
 	List(context.Context, string, ListOptions) ([]Object, error)
@@ -82,7 +85,43 @@ type MessageImageRepository interface {
 	CreateMessageImage(context.Context, *domain.File) error
 	FindMessageImage(context.Context, uint) (domain.File, error)
 	BindMessageImages(context.Context, MessageImageBindRequest) error
-	DeleteExpiredMessageImages(context.Context, time.Time, int) ([]domain.File, error)
+	MessageImageCleanupUpperID(context.Context, bool) (uint, error)
+	FindMessageImageCleanupCandidates(context.Context, time.Time, CleanupCursor, int) ([]domain.File, error)
+	FindMessageImageCleanupRetries(context.Context, time.Time, CleanupCursor, int) ([]MessageImageCleanupJob, error)
+	RegisterMessageImageCleanup(context.Context, uint, time.Time, time.Time) (MessageImageCleanupJob, bool, error)
+	ReserveMessageImageCleanupRetry(context.Context, MessageImageCleanupJob, time.Time, time.Time) (MessageImageCleanupJob, bool, error)
+	FailMessageImageCleanup(context.Context, MessageImageCleanupJob, string) (bool, error)
+	CompleteMessageImageCleanup(context.Context, MessageImageCleanupJob) (bool, error)
+	MessageImageCleanupLocationConflicts(context.Context, MessageImageCleanupJob, []string) (bool, error)
+	DeadLetterExhaustedMessageImageCleanup(context.Context, MessageImageCleanupJob, time.Time) (bool, error)
+}
+
+// CleanupCursor bounds one scan cycle independently of new records.
+type CleanupCursor struct {
+	AfterID uint
+	UpperID uint
+}
+
+type MessageImageCleanupJob struct {
+	ID, FileID                        uint
+	Bucket, ObjectName, ObjectKeyHash string
+	Status                            string
+	RetryCount                        uint
+	NextRetryAt                       *time.Time
+	LastErrorCode                     string
+}
+
+// CleanupResult contains at most the requested batch size of item outcomes.
+// Application callers count an attempted item exactly once by its status.
+type CleanupResult struct {
+	Processed, Succeeded, Skipped, Failed int
+	Items                                 []CleanupItemResult
+}
+
+type CleanupItemResult struct {
+	FileID, CleanupJobID       uint
+	RetryAttempt               uint
+	Status, Stage, FailureCode string
 }
 
 type MessageImageBindRequest struct {

@@ -108,6 +108,7 @@ type SMTPConfig struct {
 }
 
 type MessagingConfig struct {
+	CleanupBatchSize int `yaml:"cleanup_batch_size"`
 	MaxAudienceUsers int `yaml:"max_audience_users"`
 	// MaxTitleRunes caps the Unicode length of a message title. The composition
 	// root converts it into the Messaging domain ContentLimits, so the domain
@@ -258,6 +259,9 @@ func applyMessagingDefaults(result *Config) {
 	if result.RabbitMQ.DLQRetentionDays == 0 {
 		result.RabbitMQ.DLQRetentionDays = 7
 	}
+	if result.Messaging.CleanupBatchSize == 0 {
+		result.Messaging.CleanupBatchSize = 100
+	}
 	if result.Messaging.MaxAudienceUsers == 0 {
 		result.Messaging.MaxAudienceUsers = 100000
 	}
@@ -287,6 +291,9 @@ func validateMessaging(result Config) error {
 	}
 	if result.Messaging.MaxTitleRunes < 1 || result.Messaging.MaxTitleRunes > 1000 {
 		return errors.New("messaging.max_title_runes must be between 1 and 1000")
+	}
+	if result.Messaging.CleanupBatchSize < 1 || result.Messaging.CleanupBatchSize > 1000 {
+		return errors.New("messaging.cleanup_batch_size must be between 1 and 1000")
 	}
 	if result.Messaging.MaxBodyRunes < 1 || result.Messaging.MaxBodyRunes > 100000 {
 		return errors.New("messaging.max_body_runes must be between 1 and 100000")

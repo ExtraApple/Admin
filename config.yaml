@@ -44,6 +44,7 @@ rabbitmq:
   dlq_retention_days: 7
 
 messaging:
+  cleanup_batch_size: 100
   max_audience_users: 100000
   max_title_runes: 100
   max_body_runes: 20000

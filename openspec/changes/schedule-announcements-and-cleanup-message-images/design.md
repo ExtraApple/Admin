@@ -170,6 +170,8 @@ App 复用 `RuntimeLogger` 的 Info/Warn，扩充有限白名单，不引入 Err
 
 现有 `downgradeValidatedManagedFilesOutsideV1Policy` SQL 没有purpose过滤，会匹配message_image的JPEG/PNG/WebP。将其限于managed_file和兼容旧NULL/空用途，作为本次启动兼容必要修正；合法消息图片迁移后保持原validated。已有legacy_unverified不自动升级，不能推测历史状态来源。
 
+实施阶段已在真实MySQL复现：旧purpose=NULL会在AutoMigrate设置NOT NULL时先失败，后续用途过滤无法运行。用户确认在AutoMigrate前检查files表及purpose列是否存在，仅将SQL NULL回填为managed_file；保留空字符串，不升级验证状态、不访问对象存储。回填失败中止启动，历史NULL回归作为2.4验收的一部分。
+
 ## Risks / Trade-offs
 
 - [每类100条、fixed-delay和超时导致积压] → 跨轮游标提供持续运行期间推进机会，日志区分失败与无数据，不承诺一小时内完成；最多可配置1000。

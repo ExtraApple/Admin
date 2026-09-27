@@ -36,6 +36,14 @@ func (s *Store) Delete(ctx context.Context, bucket, name string) error {
 	}
 	return normalize(s.provider.Delete(ctx, bucket, name))
 }
+
+func (s *Store) Stat(ctx context.Context, bucket, name string) (application.Object, error) {
+	if s == nil || s.provider == nil {
+		return application.Object{}, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
+	}
+	info, err := s.provider.Stat(ctx, bucket, name)
+	return application.Object{Name: info.Name, ContentType: info.ContentType, Size: info.Size, LastModified: info.LastModified}, normalize(err)
+}
 func (s *Store) List(ctx context.Context, bucket string, options application.ListOptions) ([]application.Object, error) {
 	if s == nil || s.provider == nil {
 		return nil, uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
@@ -65,6 +73,9 @@ func normalize(err error) error {
 	}
 	if errors.Is(err, platformstorage.ErrObjectNotFound) {
 		return uploadsecurity.NewError(uploadsecurity.CodeStorageObjectNotFound, err)
+	}
+	if errors.Is(err, platformstorage.ErrPermissionDenied) {
+		return uploadsecurity.NewError(uploadsecurity.CodeStorageUnavailable, errors.Join(application.ErrStoragePermissionDenied, err))
 	}
 	return uploadsecurity.NewError(uploadsecurity.CodeStorageUnavailable, err)
 }

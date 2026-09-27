@@ -39,6 +39,18 @@ App 启用 RabbitMQ 配置后由组合根声明 Topic Exchange、Quorum Queue、
 - 清洗后 HTML 的 128 KiB 上限与上面两项无关，**不可通过配置调整**；
   超限时返回 `MSG_HTML_TOO_LARGE`。
 
+## 周期维护与上线门禁
+
+迁移成功后，单进程 `messaging-cleanup` 立即处理到期存量；每轮结束后等待一小时再执行，不按整点触发，也不保证一小时内清空积压。同一进程不重叠。每轮以同一个 UTC 时间判断资格，15 分钟父超时内依次执行受众快照和终态 Consumer 死信清理（各最多 30 秒、各 500 条）、未绑定到期消息图片清理、公告发布、公告过期（后三项各最多 5 分钟）。父取消跳过尚未启动的任务；单项失败不阻断后续任务。原有清理在未配置 RabbitMQ 时也运行，不删除 pending Consumer 死信或 pending Outbox。
+
+`messaging.cleanup_batch_size` 默认 100；缺失或 0 使用默认值，允许 1–1000，非法值在配置加载时拒绝。后三项各自使用独立单轮额度，图片首次登记与到期重试共享图片额度；进程内 ID 游标跨轮推进并在扫描上界回绕，重启后重置。RabbitMQ 启动时未配置仅跳过自动发布，不查询其积压数；图片清理和公告过期照常运行，过期事件可能停留在 pending Outbox。已配置但断连仍转换公告并写入 Outbox；配置变更需要重启。
+
+**部署前核对**：`message-images/<UUID>.<png|jpg|webp>` 所在受支持 bucket 为本应用独占命名空间、无外部覆盖或同名复用；目标存储不启用版本化和 Object Lock。盘点历史原始 bucket、当前热／冷 bucket、到期图片和公告。当前关闭轮转或冷 bucket 为空不证明历史副本不存在；旧位置遗漏或对象归属不可信时先人工隔离处置，不启动自动清理部署。停止旧版本实例并排空在途 Copy／反向 Move 后再切换，不允许旧轮转与新清理混跑。上线后核对运行日志中的轮次／子任务计数、失败码及 Outbox 状态；运行日志不是外部告警投递。
+
+Files 在短数据库事务中先登记 `message_image_cleanup_jobs`，提交后才删除冻结原始位置和当前启用轮转时受支持的热／冷位置；所有位置成功或确认为 NoSuchKey 后，同事务物理删除 File Record 与队列。存储或终结失败保留定位；每小时到期后重试，初次删除不计入最多 24 次重试。`dead` 不自动清除、不过期；由具有受控数据库和存储权限的运维人员确认所有副本清除后，在同一事务中删除 File Record 与队列，不能只删队列或擅自重置重试次数。保留原始错误之外的受控故障记录；不通过不受保护的 HTTP 接口操作。
+
+**回滚**：先停止所有新实例并保留队列及 File Record，不删除队列表；已删除对象无法通过数据库 DDL 恢复。旧版本不认识 pending／dead 队列的读取、绑定和轮转保护，不能带这些记录直接运行旧版本。先人工完成队列处置，或保持停机并部署前向修复。
+
 ## 健康与就绪
 
 - `GET /ping` 只表示进程存活。
@@ -69,6 +81,12 @@ Recorder 写入 Consumer DLQ 投影失败时，消息保持未 ACK，由 Broker 
 6. 处置结束后确认告警队列为零、投影记录存在且 RabbitMQ Consumer 已重新 ACK。应用 HTTP 审计不得伪造该运维动作。
 
 管理界面的 Get、Requeue 和 Purge 权限必须独立授予；生产环境禁止向普通管理员开放告警队列正文读取。
+
+## 死信 Outbox 处置
+
+超级管理员且具备 `admin.messages.outbox.replay` 权限时，使用 `GET /api/admin/message-outboxes` 查询，使用 `POST /api/admin/message-outboxes/:id/replay` 重放原 dead 记录。重放保留原事件 ID 与聚合版本，不创建第二次公告发布事件。
+
+Outbox 第五次发布失败进入 dead；网络恢复不会自动复活 dead，且该记录可阻挡同副本的更高版本事件。公告 published 状态不因投递失败回滚，自动公告维护不会重新发布它。此入口与 Consumer DLQ 重放不同。
 
 ## Consumer DLQ 投影处置
 

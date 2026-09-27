@@ -2,4 +2,4 @@
 .env
 logs/*.log
 /study/
-
+.gocache/

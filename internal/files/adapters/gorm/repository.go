@@ -3,9 +3,11 @@ package gormadapter
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"admin/internal/files"
 
@@ -69,7 +71,7 @@ func (r *Repository) CreateMessageImage(ctx context.Context, file *domain.File) 
 
 func (r *Repository) FindMessageImage(ctx context.Context, id uint) (domain.File, error) {
 	var record files.File
-	if err := r.connection(ctx).Where("purpose = ?", "message_image").First(&record, id).Error; err != nil {
+	if err := r.connection(ctx).Where("purpose = ?", "message_image").Where("NOT EXISTS (SELECT 1 FROM message_image_cleanup_jobs AS job WHERE job.file_id = files.id)").First(&record, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return domain.File{}, application.ErrFileNotFound
 		}
@@ -94,43 +96,41 @@ func (r *Repository) BindMessageImages(ctx context.Context, request application.
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
-	now := request.Now.UTC()
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	query := r.connection(ctx).Model(&files.File{}).Where("id IN ? AND purpose = ? AND uploader_id = ? AND (logical_message_id IS NULL OR logical_message_id = '') AND binding_expires_at > ?", ids, "message_image", request.ActorID, now)
-	result := query.Updates(map[string]any{"logical_message_id": request.MessageLogicalID})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != int64(len(ids)) {
-		return application.ErrStateConflict
-	}
-	return nil
+	slices.Sort(ids)
+	return platformdatabase.NewTransactionRunner(r.db).Run(ctx, func(tx context.Context) error {
+		db := r.connection(tx)
+		for _, id := range ids {
+			var file files.File
+			if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).First(&file, id).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return application.ErrFileNotFound
+				}
+				return err
+			}
+			now := db.NowFunc().UTC()
+			if file.Purpose != "message_image" || file.UploaderID != request.ActorID || file.LogicalMessageID != "" || file.BindingExpiresAt == nil || !now.Before(*file.BindingExpiresAt) {
+				return application.ErrStateConflict
+			}
+			var job files.MessageImageCleanupJob
+			err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("file_id = ?", id).First(&job).Error
+			if err == nil {
+				return application.ErrStateConflict
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		result := db.Model(&files.File{}).Where("id IN ?", ids).Update("logical_message_id", request.MessageLogicalID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != int64(len(ids)) {
+			return application.ErrStateConflict
+		}
+		return nil
+	})
 }
 
-func (r *Repository) DeleteExpiredMessageImages(ctx context.Context, now time.Time, limit int) ([]domain.File, error) {
-	if limit < 1 {
-		return []domain.File{}, nil
-	}
-	var records []files.File
-	if err := r.connection(ctx).Where("purpose = ? AND (logical_message_id IS NULL OR logical_message_id = '') AND binding_expires_at IS NOT NULL AND binding_expires_at <= ?", "message_image", now.UTC()).Limit(limit).Find(&records).Error; err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return []domain.File{}, nil
-	}
-	ids := make([]uint, len(records))
-	result := make([]domain.File, len(records))
-	for index, record := range records {
-		ids[index] = record.ID
-		result[index] = toDomain(record)
-	}
-	if err := r.connection(ctx).Unscoped().Delete(&files.File{}, ids).Error; err != nil {
-		return nil, err
-	}
-	return result, nil
-}
 func (r *Repository) UpdateName(ctx context.Context, id uint, name string) error {
 	return r.connection(ctx).Model(&files.File{}).Where("id = ?", id).Update("name", name).Error
 }
@@ -142,7 +142,9 @@ func (r *Repository) UpdateValidation(ctx context.Context, id uint, update appli
 }
 func (r *Repository) FindRotationCandidates(ctx context.Context, cutoff time.Time, bucket string, limit int) ([]domain.File, error) {
 	var records []files.File
-	if err := r.connection(ctx).Where("created_at < ? AND bucket = ?", cutoff, bucket).Limit(limit).Find(&records).Error; err != nil {
+	if err := r.connection(ctx).Where("created_at < ? AND bucket = ?", cutoff, bucket).
+		Where("purpose IS NULL OR purpose <> ? OR (logical_message_id IS NOT NULL AND logical_message_id <> '')", "message_image").
+		Where("NOT EXISTS (SELECT 1 FROM message_image_cleanup_jobs AS job WHERE job.file_id = files.id)").Limit(limit).Find(&records).Error; err != nil {
 		return nil, err
 	}
 	result := make([]domain.File, len(records))

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -79,11 +80,14 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 		Hub:      hub,
 		Recovery: messagingredis.NewRefreshReplayStore(resources.Redis),
 	})
+	cleanupJob := BackgroundJob{Name: "messaging-cleanup", Run: func(ctx context.Context) {
+		runMessagingCleanup(ctx, files.service, service, repository, runtimeLogger, workerID, config.Messaging.CleanupBatchSize, configured, filesapplication.RotationConfig{Enabled: config.FileRotation.Enabled, Days: config.FileRotation.Days, HotBucket: config.FileRotation.HotBucket, ColdBucket: config.FileRotation.ColdBucket, BatchSize: config.FileRotation.BatchSize})
+	}}
 	composition := messagingComposition{
 		service: service, tickets: ticketService, gateway: gateway, refresh: hub, readiness: readiness,
 		jobs: []BackgroundJob{{Name: "messaging-refresh-subscriber", Run: func(ctx context.Context) {
 			runMessagingRefreshSubscriber(ctx, messagingredis.NewRefreshSubscriber(resources.Redis), hub, runtimeLogger)
-		}}},
+		}}, cleanupJob},
 	}
 	if !configured {
 		return composition
@@ -118,7 +122,6 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 	composition.jobs = append(composition.jobs,
 		BackgroundJob{Name: "messaging-outbox", Run: func(ctx context.Context) { runMessagingOutbox(ctx, outbox, runtimeLogger, brokerState) }},
 		BackgroundJob{Name: "messaging-consumer", Run: func(ctx context.Context) { runMessagingConsumer(ctx, competing, runtimeLogger, brokerState) }},
-		BackgroundJob{Name: "messaging-cleanup", Run: func(ctx context.Context) { runMessagingCleanup(ctx, repository, runtimeLogger) }},
 	)
 	for attempt := 1; attempt <= len(retryDelays); attempt++ {
 		recorderConsumer := messagingrabbitmq.NewConsumerDeadLetterConsumer(messagingrabbitmq.ConsumerDeadLetterConsumerConfig{
@@ -213,20 +216,189 @@ func runMessagingRefreshSubscriber(ctx context.Context, subscriber *messagingred
 	}
 }
 
-func runMessagingCleanup(ctx context.Context, repository *messaginggorm.Repository, logger messagingapplication.RuntimeLogger) {
-	cleanup := func() {
-		now := time.Now().UTC()
-		if _, err := repository.CleanupAudienceDeliveries(ctx, now, 500); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging_snapshot_cleanup_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "cleanup"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "snapshot_cleanup_failed"})
-		}
-		if _, err := repository.CleanupFinalConsumerDeadLetters(ctx, now.Add(-30*24*time.Hour), 500); err != nil && ctx.Err() == nil {
-			logger.Warn("messaging_dead_letter_cleanup_deferred", messagingapplication.RuntimeLogField{Key: "stage", Value: "cleanup"}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "dead_letter_cleanup_failed"})
-		}
+type messagingCleanupItem struct {
+	fileID, cleanupJobID, messageCopyID, retryAttempt uint
+	stage, failureCode                                string
+}
+
+type messagingCleanupTaskResult struct {
+	processed, succeeded, skipped, failed int
+	status                                string
+	timedOut                              bool
+	items                                 []messagingCleanupItem
+}
+
+func runMessagingCleanup(ctx context.Context, filesService *filesapplication.Service, service *messagingapplication.Service, repository *messaginggorm.Repository, logger messagingapplication.RuntimeLogger, workerID string, batchSize int, brokerConfigured bool, rotation filesapplication.RotationConfig) {
+	if batchSize < 1 {
+		batchSize = 100
 	}
-	cleanup()
+	imageScan := &filesapplication.MessageImageCleanupScan{}
+	publishScan := &messagingapplication.AnnouncementScan{}
+	expireScan := &messagingapplication.AnnouncementScan{}
+	runMessagingCleanupRound(ctx, filesService, service, repository, logger, workerID, batchSize, brokerConfigured, rotation, imageScan, publishScan, expireScan)
 	for waitMessagingInterval(ctx, time.Hour) {
-		cleanup()
+		runMessagingCleanupRound(ctx, filesService, service, repository, logger, workerID, batchSize, brokerConfigured, rotation, imageScan, publishScan, expireScan)
 	}
+}
+
+func runMessagingCleanupRound(ctx context.Context, filesService *filesapplication.Service, service *messagingapplication.Service, repository *messaginggorm.Repository, logger messagingapplication.RuntimeLogger, workerID string, batchSize int, brokerConfigured bool, rotation filesapplication.RotationConfig, imageScan *filesapplication.MessageImageCleanupScan, publishScan, expireScan *messagingapplication.AnnouncementScan) {
+	now := time.Now().UTC()
+	runID := uuid.NewString()
+	started := time.Now()
+	roundResult := messagingCleanupTaskResult{}
+	roundStatus := "succeeded"
+	roundTimedOut := false
+	logger.Info("messaging_cleanup_started", messagingapplication.RuntimeLogField{Key: "run_id", Value: runID}, messagingapplication.RuntimeLogField{Key: "worker_id", Value: workerID}, messagingapplication.RuntimeLogField{Key: "run_at", Value: now.Format(time.RFC3339Nano)}, messagingapplication.RuntimeLogField{Key: "batch_size", Value: batchSize})
+	parent, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	runTask := func(task string, timeout time.Duration, execute func(context.Context) messagingCleanupTaskResult) {
+		if parent.Err() != nil {
+			logger.Info("messaging_cleanup_task_skipped", append(cleanupTaskFields(runID, workerID, task, messagingCleanupTaskResult{status: "skipped"}), messagingapplication.RuntimeLogField{Key: "duration_ms", Value: int64(0)})...)
+			return
+		}
+		logger.Info("messaging_cleanup_task_started", messagingapplication.RuntimeLogField{Key: "run_id", Value: runID}, messagingapplication.RuntimeLogField{Key: "worker_id", Value: workerID}, messagingapplication.RuntimeLogField{Key: "task", Value: task})
+		taskStarted := time.Now()
+		child, stop := context.WithTimeout(parent, timeout)
+		result := execute(child)
+		childErr := child.Err()
+		stop()
+		if errors.Is(childErr, context.DeadlineExceeded) {
+			result.timedOut = true
+			result.status = "timed_out"
+			roundTimedOut = true
+			roundStatus = "timed_out"
+		} else {
+			if result.status == "" {
+				if result.failed > 0 {
+					result.status = "failed"
+				} else {
+					result.status = "succeeded"
+				}
+			}
+			if result.status == "timed_out" {
+				result.timedOut = true
+				roundTimedOut = true
+				roundStatus = "timed_out"
+			} else if result.status == "failed" || result.failed > 0 {
+				if roundStatus == "succeeded" {
+					roundStatus = "failed"
+				}
+			}
+		}
+		roundResult.processed += result.processed
+		roundResult.succeeded += result.succeeded
+		roundResult.skipped += result.skipped
+		roundResult.failed += result.failed
+		for _, item := range result.items {
+			fields := []messagingapplication.RuntimeLogField{{Key: "run_id", Value: runID}, {Key: "worker_id", Value: workerID}, {Key: "task", Value: task}, {Key: "stage", Value: item.stage}, {Key: "failure_code", Value: item.failureCode}}
+			if item.fileID != 0 {
+				fields = append(fields, messagingapplication.RuntimeLogField{Key: "file_id", Value: item.fileID})
+			}
+			if item.cleanupJobID != 0 {
+				fields = append(fields, messagingapplication.RuntimeLogField{Key: "cleanup_job_id", Value: item.cleanupJobID})
+			}
+			if item.messageCopyID != 0 {
+				fields = append(fields, messagingapplication.RuntimeLogField{Key: "message_copy_id", Value: item.messageCopyID})
+			}
+			if item.retryAttempt != 0 {
+				fields = append(fields, messagingapplication.RuntimeLogField{Key: "retry_attempt", Value: item.retryAttempt})
+			}
+			logger.Warn("messaging_cleanup_item_failed", fields...)
+			if item.stage == "dead" {
+				logger.Warn("messaging_cleanup_dead_lettered", fields...)
+			}
+		}
+		logger.Info("messaging_cleanup_task_finished", append(cleanupTaskFields(runID, workerID, task, result), messagingapplication.RuntimeLogField{Key: "duration_ms", Value: time.Since(taskStarted).Milliseconds()})...)
+	}
+	legacyResult := func(taskCtx context.Context, cleanup func(context.Context) (int64, error)) messagingCleanupTaskResult {
+		processed, err := cleanup(taskCtx)
+		result := messagingCleanupTaskResult{processed: int(processed), succeeded: int(processed)}
+		if err != nil {
+			result.processed = 0
+			result.succeeded = 0
+			result.status = "failed"
+		}
+		return result
+	}
+	runTask("cleanup_audience_deliveries", 30*time.Second, func(taskCtx context.Context) messagingCleanupTaskResult {
+		if repository == nil {
+			return messagingCleanupTaskResult{status: "failed"}
+		}
+		return legacyResult(taskCtx, func(cleanupCtx context.Context) (int64, error) {
+			return repository.CleanupAudienceDeliveries(cleanupCtx, now, 500)
+		})
+	})
+	runTask("cleanup_consumer_dead_letters", 30*time.Second, func(taskCtx context.Context) messagingCleanupTaskResult {
+		if repository == nil {
+			return messagingCleanupTaskResult{status: "failed"}
+		}
+		return legacyResult(taskCtx, func(cleanupCtx context.Context) (int64, error) {
+			return repository.CleanupFinalConsumerDeadLetters(cleanupCtx, now.Add(-30*24*time.Hour), 500)
+		})
+	})
+	runTask("cleanup_message_images", 5*time.Minute, func(taskCtx context.Context) messagingCleanupTaskResult {
+		if filesService == nil {
+			return messagingCleanupTaskResult{status: "failed"}
+		}
+		result, err := filesService.CleanupMessageImages(taskCtx, now, batchSize, imageScan, rotation)
+		mapped := messagingCleanupTaskResult{processed: result.Processed, succeeded: result.Succeeded, skipped: result.Skipped, failed: result.Failed}
+		for _, item := range result.Items {
+			if item.FailureCode != "" {
+				mapped.items = append(mapped.items, messagingCleanupItem{fileID: item.FileID, cleanupJobID: item.CleanupJobID, retryAttempt: item.RetryAttempt, stage: item.Stage, failureCode: item.FailureCode})
+			}
+		}
+		if err != nil {
+			mapped.status = "failed"
+		}
+		return mapped
+	})
+	if brokerConfigured {
+		runTask("publish_due_announcements", 5*time.Minute, func(taskCtx context.Context) messagingCleanupTaskResult {
+			if service == nil {
+				return messagingCleanupTaskResult{status: "failed"}
+			}
+			result, err := service.PublishDueAnnouncements(taskCtx, now, batchSize, publishScan)
+			mapped := messagingCleanupTaskResult{processed: result.Processed, succeeded: result.Succeeded, skipped: result.Skipped, failed: result.Failed}
+			for _, item := range result.Items {
+				if item.Status == "failed" {
+					mapped.items = append(mapped.items, messagingCleanupItem{messageCopyID: item.MessageCopyID, stage: "transition", failureCode: item.FailureCode})
+				}
+			}
+			if err != nil {
+				mapped.status = "failed"
+			}
+			return mapped
+		})
+	} else if parent.Err() != nil {
+		runTask("publish_due_announcements", 5*time.Minute, func(context.Context) messagingCleanupTaskResult { return messagingCleanupTaskResult{} })
+	} else {
+		logger.Info("messaging_cleanup_task_skipped", append(cleanupTaskFields(runID, workerID, "publish_due_announcements", messagingCleanupTaskResult{status: "skipped"}), messagingapplication.RuntimeLogField{Key: "duration_ms", Value: int64(0)}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: "rabbitmq_not_configured"})...)
+	}
+	runTask("expire_due_announcements", 5*time.Minute, func(taskCtx context.Context) messagingCleanupTaskResult {
+		if service == nil {
+			return messagingCleanupTaskResult{status: "failed"}
+		}
+		result, err := service.ExpireDueAnnouncements(taskCtx, now, batchSize, expireScan)
+		mapped := messagingCleanupTaskResult{processed: result.Processed, succeeded: result.Succeeded, skipped: result.Skipped, failed: result.Failed}
+		for _, item := range result.Items {
+			if item.Status == "failed" {
+				mapped.items = append(mapped.items, messagingCleanupItem{messageCopyID: item.MessageCopyID, stage: "transition", failureCode: item.FailureCode})
+			}
+		}
+		if err != nil {
+			mapped.status = "failed"
+		}
+		return mapped
+	})
+	if parent.Err() != nil && errors.Is(parent.Err(), context.DeadlineExceeded) {
+		roundTimedOut = true
+		roundStatus = "timed_out"
+	}
+	logger.Info("messaging_cleanup_finished", append(cleanupTaskFields(runID, workerID, "messaging-cleanup", messagingCleanupTaskResult{processed: roundResult.processed, succeeded: roundResult.succeeded, skipped: roundResult.skipped, failed: roundResult.failed, status: roundStatus, timedOut: roundTimedOut}), messagingapplication.RuntimeLogField{Key: "duration_ms", Value: time.Since(started).Milliseconds()})...)
+}
+
+func cleanupTaskFields(runID, workerID, task string, result messagingCleanupTaskResult) []messagingapplication.RuntimeLogField {
+	return []messagingapplication.RuntimeLogField{{Key: "run_id", Value: runID}, {Key: "worker_id", Value: workerID}, {Key: "task", Value: task}, {Key: "status", Value: result.status}, {Key: "processed", Value: result.processed}, {Key: "succeeded", Value: result.succeeded}, {Key: "skipped", Value: result.skipped}, {Key: "failed", Value: result.failed}, {Key: "timed_out", Value: result.timedOut}}
 }
 
 func waitMessagingInterval(ctx context.Context, interval time.Duration) bool {
@@ -281,7 +453,7 @@ func (runtime messagingRuntimeLogger) log(level zapcore.Level, message string, f
 
 func messagingRuntimeLogKeyAllowed(key string) bool {
 	switch key {
-	case "consumer", "event_id", "failure_code", "stage", "retry_attempt", "worker_id", "outbox_id", "dead_lettered", "state", "audience_observed_count", "projection_id", "replay_cycle", "result", "pending_count", "oldest_pending_age":
+	case "consumer", "event_id", "failure_code", "stage", "retry_attempt", "worker_id", "outbox_id", "dead_lettered", "state", "audience_observed_count", "projection_id", "replay_cycle", "result", "pending_count", "oldest_pending_age", "run_id", "task", "status", "processed", "succeeded", "skipped", "failed", "duration_ms", "timed_out", "file_id", "cleanup_job_id", "message_copy_id", "batch_size", "run_at":
 		return true
 	default:
 		return false

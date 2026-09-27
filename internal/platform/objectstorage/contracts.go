@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	ErrObjectNotFound = errors.New("object storage object not found")
-	ErrUnavailable    = errors.New("object storage unavailable")
+	ErrObjectNotFound   = errors.New("object storage object not found")
+	ErrUnavailable      = errors.New("object storage unavailable")
+	ErrPermissionDenied = errors.New("object storage permission denied")
 )
 
 // Store is the provider-neutral object-storage contract exposed by the

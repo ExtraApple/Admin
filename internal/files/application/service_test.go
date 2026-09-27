@@ -135,6 +135,14 @@ type memoryStorage struct {
 func newMemoryStorage() *memoryStorage      { return &memoryStorage{objects: make(map[string][]byte)} }
 func storageKey(bucket, name string) string { return bucket + "/" + name }
 
+func (storage *memoryStorage) Stat(_ context.Context, bucket, name string) (Object, error) {
+	content, ok := storage.objects[storageKey(bucket, name)]
+	if !ok {
+		return Object{}, uploadsecurity.NewError(uploadsecurity.CodeStorageObjectNotFound, nil)
+	}
+	return Object{Name: name, Size: int64(len(content))}, nil
+}
+
 func (storage *memoryStorage) Put(_ context.Context, input ObjectInput) error {
 	if storage.putErr != nil {
 		return storage.putErr

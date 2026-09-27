@@ -95,5 +95,8 @@ func normalizePlatformError(err error) error {
 	if errors.As(err, &response) && response.Code == minio.NoSuchKey {
 		return errors.Join(ErrObjectNotFound, err)
 	}
+	if errors.As(err, &response) && response.Code == "AccessDenied" {
+		return errors.Join(ErrPermissionDenied, ErrUnavailable, err)
+	}
 	return errors.Join(ErrUnavailable, err)
 }

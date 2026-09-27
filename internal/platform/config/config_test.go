@@ -452,6 +452,28 @@ func TestLoadAcceptsMessagingContentLimitsAtTheirBounds(t *testing.T) {
 	}
 }
 
+func TestLoadCleanupBatchSizeDefaultsAndBounds(t *testing.T) {
+	for name, test := range map[string]struct {
+		value string
+		want  int
+		valid bool
+	}{
+		"omitted": {want: 100, valid: true}, "zero": {value: "cleanup_batch_size: 0", want: 100, valid: true},
+		"lower": {value: "cleanup_batch_size: 1", want: 1, valid: true}, "upper": {value: "cleanup_batch_size: 1000", want: 1000, valid: true},
+		"negative": {value: "cleanup_batch_size: -1", valid: false}, "above upper": {value: "cleanup_batch_size: 1001", valid: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := platformconfig.Load(writeMessagingConfig(t, test.value))
+			if test.valid && (err != nil || got.Messaging.CleanupBatchSize != test.want) {
+				t.Fatalf("config=%+v err=%v", got.Messaging, err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("invalid cleanup batch size accepted")
+			}
+		})
+	}
+}
+
 // writeMessagingConfig writes a configuration that is valid apart from the
 // supplied messaging block, so a load failure can only come from the content
 // limits rather than from an unrelated missing section.

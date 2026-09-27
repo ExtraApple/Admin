@@ -38,4 +38,22 @@ type File struct {
 
 func (File) TableName() string { return "files" }
 
-func Models() []any { return []any{File{}} }
+// MessageImageCleanupJob retains the immutable object location until cleanup
+// succeeds. It is physically deleted together with its File Record.
+type MessageImageCleanupJob struct {
+	ID            uint       `gorm:"primaryKey;index:idx_message_image_cleanup_due,priority:3"`
+	FileID        uint       `gorm:"not null;uniqueIndex:ux_message_image_cleanup_file"`
+	Bucket        string     `gorm:"type:varchar(100);not null"`
+	ObjectName    string     `gorm:"type:varchar(500);not null"`
+	ObjectKeyHash string     `gorm:"type:char(64);not null;uniqueIndex:ux_message_image_cleanup_path"`
+	Status        string     `gorm:"type:varchar(16);not null;default:pending;index:idx_message_image_cleanup_due,priority:1"`
+	RetryCount    uint       `gorm:"not null;default:0"`
+	NextRetryAt   *time.Time `gorm:"index:idx_message_image_cleanup_due,priority:2"`
+	LastErrorCode string     `gorm:"type:varchar(100)"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (MessageImageCleanupJob) TableName() string { return "message_image_cleanup_jobs" }
+
+func Models() []any { return []any{File{}, MessageImageCleanupJob{}} }

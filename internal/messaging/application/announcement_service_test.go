@@ -45,9 +45,9 @@ func TestAnnouncementServiceCreatesDraftUntilExplicitPublish(t *testing.T) {
 		t.Fatalf("scheduled outboxes = %#v, %v", outboxes, err)
 	}
 
-	publishedCount, err := service.PublishDueAnnouncements(context.Background(), scheduledAt)
-	if err != nil || publishedCount != 1 {
-		t.Fatalf("PublishDueAnnouncements() = %d, %v", publishedCount, err)
+	publishedCount, err := service.PublishDueAnnouncements(context.Background(), scheduledAt, 100, &application.AnnouncementScan{})
+	if err != nil || publishedCount.Succeeded != 1 {
+		t.Fatalf("PublishDueAnnouncements() = %+v, %v", publishedCount, err)
 	}
 	if err := db.Order("id asc").Find(&outboxes).Error; err != nil || len(outboxes) != 1 || outboxes[0].EventName != domain.EventNameMessagePublished {
 		t.Fatalf("published outboxes = %#v, %v", outboxes, err)
@@ -130,9 +130,9 @@ func TestAnnouncementServicePublishesScheduledAndExpiresDueCopies(t *testing.T) 
 	if err != nil || scheduledMessage.Status != domain.MessageStatusScheduled || scheduledMessage.PublishAt == nil || !scheduledMessage.PublishAt.Equal(scheduledAt) {
 		t.Fatalf("PublishAnnouncement scheduled = %#v, %v", scheduledMessage, err)
 	}
-	publishedCount, err := service.PublishDueAnnouncements(context.Background(), scheduledAt)
-	if err != nil || publishedCount != 1 {
-		t.Fatalf("PublishDueAnnouncements() = %d, %v", publishedCount, err)
+	publishedCount, err := service.PublishDueAnnouncements(context.Background(), scheduledAt, 100, &application.AnnouncementScan{})
+	if err != nil || publishedCount.Succeeded != 1 {
+		t.Fatalf("PublishDueAnnouncements() = %+v, %v", publishedCount, err)
 	}
 	published, err := repository.FindMessage(context.Background(), scheduled[0].ID)
 	if err != nil || published.Status != domain.MessageStatusPublished {
@@ -152,9 +152,9 @@ func TestAnnouncementServicePublishesScheduledAndExpiresDueCopies(t *testing.T) 
 	if err != nil || announcement[0].Status != domain.MessageStatusPublished {
 		t.Fatalf("PublishAnnouncement expiring = %#v, %v", announcement[0], err)
 	}
-	expiredCount, err := service.ExpireDueAnnouncements(context.Background(), expiresAt)
-	if err != nil || expiredCount != 1 {
-		t.Fatalf("ExpireDueAnnouncements() = %d, %v", expiredCount, err)
+	expiredCount, err := service.ExpireDueAnnouncements(context.Background(), expiresAt, 100, &application.AnnouncementScan{})
+	if err != nil || expiredCount.Succeeded != 1 {
+		t.Fatalf("ExpireDueAnnouncements() = %+v, %v", expiredCount, err)
 	}
 	expired, err := repository.FindMessage(context.Background(), announcement[0].ID)
 	if err != nil || expired.Status != domain.MessageStatusExpired {
@@ -171,4 +171,187 @@ func newAnnouncementService(repository *messaginggorm.Repository, db *gorm.DB, n
 		Transactions:  platformdatabase.NewTransactionRunner(db),
 		Clock:         application.ClockFunc(func() time.Time { return now }),
 	})
+}
+
+func TestAnnouncementMaintenanceExpiresMissedWindowWithoutPublishing(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(messaginggorm.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	r := messaginggorm.NewRepository(db)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	publishAt, expiresAt := now.Add(-time.Hour), now
+	message := messaginggorm.Message{LogicalID: "missed-window", OrganizationID: 10, SenderID: 7, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusScheduled, Title: "Notice", BodyHTML: "<p>Body</p>", PublishAt: &publishAt, ExpiresAt: &expiresAt, AggregateVersion: 1}
+	if err := db.Create(&message).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := newAnnouncementService(r, db, now)
+	if count, err := s.PublishDueAnnouncements(context.Background(), now, 100, &application.AnnouncementScan{}); err != nil || count.Processed != 0 {
+		t.Fatalf("missed window published: %+v %v", count, err)
+	}
+	if count, err := s.ExpireDueAnnouncements(context.Background(), now, 100, &application.AnnouncementScan{}); err != nil || count.Succeeded != 1 {
+		t.Fatalf("missed window expiry: %+v %v", count, err)
+	}
+	got, err := r.FindMessage(context.Background(), message.ID)
+	if err != nil || got.Status != domain.MessageStatusExpired || got.AggregateVersion != 2 {
+		t.Fatalf("expired copy: %+v %v", got, err)
+	}
+	var events []messaginggorm.MessageOutbox
+	if err := db.Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].EventName != domain.EventNameMessageExpired {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+func TestAnnouncementMaintenanceIsolatesOutboxFailurePerCopy(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(messaginggorm.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	r := messaginggorm.NewRepository(db)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	for _, org := range []uint{10, 20} {
+		message := messaginggorm.Message{LogicalID: "notice", OrganizationID: org, SenderID: 7, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusScheduled, Title: "Notice", BodyHTML: "<p>Body</p>", PublishAt: &now, AggregateVersion: 1}
+		if err := db.Create(&message).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec("CREATE TRIGGER fail_first_outbox BEFORE INSERT ON message_outboxes WHEN NEW.message_copy_id = 1 BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	s := newAnnouncementService(r, db, now)
+	result, err := s.PublishDueAnnouncements(context.Background(), now, 100, &application.AnnouncementScan{})
+	if err != nil || result.Processed != 2 || result.Failed != 1 || result.Succeeded != 1 {
+		t.Fatalf("isolation result: %+v %v", result, err)
+	}
+	first, err := r.FindMessage(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.FindMessage(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != domain.MessageStatusScheduled || first.AggregateVersion != 1 || second.Status != domain.MessageStatusPublished || second.AggregateVersion != 2 {
+		t.Fatalf("copy isolation failed: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestAnnouncementMaintenanceCASConflictSkipsAndAdvancesScan(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(messaginggorm.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	r := messaginggorm.NewRepository(db)
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	for range 2 {
+		message := messaginggorm.Message{LogicalID: "notice", OrganizationID: 10, SenderID: 7, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusScheduled, Title: "Notice", BodyHTML: "<p>Body</p>", PublishAt: &now, AggregateVersion: 1}
+		if err := db.Create(&message).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec("CREATE TRIGGER conflict_first_copy BEFORE UPDATE ON messages WHEN OLD.id = 1 BEGIN SELECT RAISE(IGNORE); END").Error; err != nil {
+		t.Fatal(err)
+	}
+	s := newAnnouncementService(r, db, now)
+	scan := application.AnnouncementScan{}
+	result, err := s.PublishDueAnnouncements(context.Background(), now, 1, &scan)
+	if err != nil || result.Processed != 1 || result.Skipped != 1 || result.Succeeded != 0 || scan.AfterID != 1 {
+		t.Fatalf("CAS outcome: %+v scan=%+v err=%v", result, scan, err)
+	}
+	result, err = s.PublishDueAnnouncements(context.Background(), now, 1, &scan)
+	if err != nil || result.Succeeded != 1 || result.Items[0].MessageCopyID != 2 {
+		t.Fatalf("later copy starved: %+v %v", result, err)
+	}
+	first, err := r.FindMessage(context.Background(), 1)
+	if err != nil || first.Status != domain.MessageStatusScheduled {
+		t.Fatalf("conflict treated as published: %+v %v", first, err)
+	}
+}
+
+func TestAnnouncementMaintenanceTimeBoundariesAndManualExpiryRejection(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(messaginggorm.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	r := messaginggorm.NewRepository(db)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	future, past := now.Add(time.Second), now.Add(-time.Hour)
+	messages := []messaginggorm.Message{
+		{PublishAt: &now, ExpiresAt: &future},
+		{PublishAt: &future},
+		{PublishAt: &past, ExpiresAt: &now},
+	}
+	for i := range messages {
+		m := &messages[i]
+		m.LogicalID = "boundary"
+		m.OrganizationID = 10
+		m.SenderID = 7
+		m.Kind = domain.MessageKindAnnouncement
+		m.Status = domain.MessageStatusScheduled
+		m.Title = "Notice"
+		m.BodyHTML = "<p>Body</p>"
+		m.AggregateVersion = 1
+		if err := db.Create(m).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newAnnouncementService(r, db, now)
+	if _, err := s.PublishAnnouncement(ctx, application.PublishAnnouncementRequest{ActorID: 7, MessageID: messages[2].ID}); err != application.ErrMessageImmutable {
+		t.Fatalf("manual expired publish: %v", err)
+	}
+	result, err := s.PublishDueAnnouncements(ctx, now, 100, &application.AnnouncementScan{})
+	if err != nil || result.Succeeded != 1 || result.Items[0].MessageCopyID != messages[0].ID {
+		t.Fatalf("publish boundary: %+v %v", result, err)
+	}
+	result, err = s.ExpireDueAnnouncements(ctx, now, 100, &application.AnnouncementScan{})
+	if err != nil || result.Succeeded != 1 || result.Items[0].MessageCopyID != messages[2].ID {
+		t.Fatalf("expiry boundary: %+v %v", result, err)
+	}
+}
+
+func TestAnnouncementMaintenanceDoesNotRepublishDeadOutbox(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(messaginggorm.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	r := messaginggorm.NewRepository(db)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
+	m := messaginggorm.Message{LogicalID: "dead-announcement", OrganizationID: 10, SenderID: 7, Kind: domain.MessageKindAnnouncement, Status: domain.MessageStatusScheduled, Title: "Notice", BodyHTML: "<p>Body</p>", PublishAt: &now, AggregateVersion: 1}
+	if err := db.Create(&m).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := newAnnouncementService(r, db, now)
+	if result, err := s.PublishDueAnnouncements(ctx, now, 10, &application.AnnouncementScan{}); err != nil || result.Succeeded != 1 {
+		t.Fatalf("publish: %+v %v", result, err)
+	}
+	worker := application.NewOutboxWorker(application.OutboxWorkerConfig{Store: r, Publisher: &outboxPublisherFake{err: context.DeadlineExceeded}, WorkerID: "probe", Clock: application.ClockFunc(func() time.Time { return now })})
+	for range 5 {
+		if _, err := worker.RunOnce(ctx, 1); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Minute)
+	}
+	dead, total, err := r.ListOutboxes(ctx, application.OutboxListQuery{Statuses: []domain.OutboxStatus{domain.OutboxStatusDead}, Limit: 10})
+	if err != nil || total != 1 || len(dead) != 1 {
+		t.Fatalf("dead Outbox: %+v %d %v", dead, total, err)
+	}
+	if result, err := s.PublishDueAnnouncements(ctx, now, 10, &application.AnnouncementScan{}); err != nil || result.Processed != 0 {
+		t.Fatalf("republished dead event: %+v %v", result, err)
+	}
+	copy, err := r.FindMessage(ctx, m.ID)
+	if err != nil || copy.Status != domain.MessageStatusPublished || copy.AggregateVersion != 2 {
+		t.Fatalf("delivery rolled back business state: %+v %v", copy, err)
+	}
+	if ok, err := r.ReplayOutbox(ctx, dead[0].ID); err != nil || !ok {
+		t.Fatalf("replay: %v %v", ok, err)
+	}
+	pending, total, err := r.ListOutboxes(ctx, application.OutboxListQuery{Statuses: []domain.OutboxStatus{domain.OutboxStatusPending}, Limit: 10})
+	if err != nil || total != 1 || pending[0].Event.EventID != dead[0].Event.EventID || pending[0].Event.AggregateVersion != 2 {
+		t.Fatalf("replay replaced original event: %+v %v", pending, err)
+	}
 }

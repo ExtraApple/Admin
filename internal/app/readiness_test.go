@@ -65,6 +65,26 @@ func TestMessagingRuntimeLoggerAllowListsControlledFields(t *testing.T) {
 	}
 }
 
+func TestMessagingCleanupRuntimeLoggerEmitsSafeSummary(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	runtime := messagingRuntimeLogger{logger: zap.New(core)}
+	runtime.Info("messaging_cleanup_task_finished",
+		messagingapplication.RuntimeLogField{Key: "run_id", Value: "run-1"},
+		messagingapplication.RuntimeLogField{Key: "worker_id", Value: "messaging-1"},
+		messagingapplication.RuntimeLogField{Key: "task", Value: "message_image_cleanup"},
+		messagingapplication.RuntimeLogField{Key: "processed", Value: 2},
+		messagingapplication.RuntimeLogField{Key: "duration_ms", Value: int64(17)},
+		messagingapplication.RuntimeLogField{Key: "object_name", Value: "message-images/private.png"},
+	)
+	fields := logs.All()[0].ContextMap()
+	if fields["run_id"] != "run-1" || fields["task"] != "message_image_cleanup" || fields["processed"] != int64(2) || fields["duration_ms"] != int64(17) {
+		t.Fatalf("cleanup fields dropped: %#v", fields)
+	}
+	if _, exists := fields["object_name"]; exists {
+		t.Fatalf("object name leaked: %#v", fields)
+	}
+}
+
 func TestMessagingReadinessTreatsDisabledBrokerAsReadyWithoutOutboxErrorLeak(t *testing.T) {
 	readiness := newMessagingReadiness(false, nil, readinessOutboxFake{err: errors.New("database connection details")})
 	response := readiness.Snapshot(context.Background())

@@ -182,28 +182,6 @@ func (s *Service) OpenMessageImage(ctx context.Context, request MessageImageOpen
 	return MessageImageContent{Reader: reader, ContentType: file.ContentType, Size: file.Size}, nil
 }
 
-func (s *Service) CleanupExpiredMessageImages(ctx context.Context, now time.Time, limit int) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if s == nil || s.deps.MessageImages == nil {
-		return uploadsecurity.NewError(uploadsecurity.CodeInternalError, nil)
-	}
-	if now.IsZero() {
-		now = s.deps.Clock.Now().UTC()
-	}
-	files, err := s.deps.MessageImages.DeleteExpiredMessageImages(ctx, now, limit)
-	if err != nil {
-		return uploadsecurity.NewError(uploadsecurity.CodePersistenceFailed, err)
-	}
-	for _, file := range files {
-		if err := s.deps.Storage.Delete(ctx, file.Bucket, file.ObjectName); err != nil {
-			return classifyStorageError(err)
-		}
-	}
-	return nil
-}
-
 func isMessageImageMIME(value string) bool {
 	canonicalType, ok := uploadsecurity.LookupTypeByMIME(value)
 	return ok && isMessageImageCanonicalType(canonicalType)

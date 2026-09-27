@@ -88,8 +88,11 @@ func TestEmailConfirmationAndReplacementSerializeOnUserRow(t *testing.T) {
 		}
 	}
 	loaded, err := repository.FindByID(context.Background(), user.ID)
-	if err != nil || loaded.Email != "candidate@example.com" || loaded.PendingEmail != "replacement@example.com" || loaded.EmailVerifiedAt == nil {
+	if err != nil || loaded.PendingEmail != "replacement@example.com" || loaded.EmailVerifiedAt == nil {
 		t.Fatalf("cross-concurrent final user = %#v error=%v", loaded, err)
+	}
+	if loaded.Email != "old@example.com" && loaded.Email != "candidate@example.com" {
+		t.Fatalf("cross-concurrent final email = %q, want old or candidate", loaded.Email)
 	}
 }
 

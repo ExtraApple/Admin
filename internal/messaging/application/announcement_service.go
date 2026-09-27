@@ -96,63 +96,111 @@ func (service *Service) CreateAnnouncement(ctx context.Context, request CreateAn
 	return copies, nil
 }
 
-func (service *Service) PublishDueAnnouncements(ctx context.Context, now time.Time) (int, error) {
-	return service.transitionDueAnnouncements(ctx, now, domain.MessageStatusScheduled, domain.MessageStatusPublished, domain.EventNameMessagePublished, true)
+type AnnouncementScan struct{ AfterID, UpperID uint }
+
+type AnnouncementItemResult struct {
+	MessageCopyID       uint
+	Status, FailureCode string
 }
 
-func (service *Service) ExpireDueAnnouncements(ctx context.Context, now time.Time) (int, error) {
-	return service.transitionDueAnnouncements(ctx, now, domain.MessageStatusPublished, domain.MessageStatusExpired, domain.EventNameMessageExpired, false)
+type AnnouncementMaintenanceResult struct {
+	Processed, Succeeded, Skipped, Failed int
+	Items                                 []AnnouncementItemResult
 }
 
-func (service *Service) transitionDueAnnouncements(ctx context.Context, now time.Time, from, to domain.MessageStatus, eventName domain.EventName, byPublishTime bool) (int, error) {
-	if service == nil || service.messages == nil || service.organizations == nil || service.transactions == nil {
-		return 0, ErrMessagingDependency
+func (service *Service) PublishDueAnnouncements(ctx context.Context, now time.Time, limit int, scan *AnnouncementScan) (AnnouncementMaintenanceResult, error) {
+	return service.transitionDueAnnouncements(ctx, now, limit, scan, false)
+}
+
+func (service *Service) ExpireDueAnnouncements(ctx context.Context, now time.Time, limit int, scan *AnnouncementScan) (AnnouncementMaintenanceResult, error) {
+	return service.transitionDueAnnouncements(ctx, now, limit, scan, true)
+}
+
+func (service *Service) transitionDueAnnouncements(ctx context.Context, now time.Time, limit int, scan *AnnouncementScan, expiring bool) (AnnouncementMaintenanceResult, error) {
+	result := AnnouncementMaintenanceResult{}
+	if service == nil || service.messages == nil || service.transactions == nil {
+		return result, ErrMessagingDependency
 	}
-	if now.IsZero() {
-		now = service.clock.Now()
-	}
-	now = now.UTC()
-	allOrganizations, ok := service.organizations.(AllOrganizationAudienceReader)
+	store, ok := service.messages.(AnnouncementCleanupStore)
 	if !ok {
-		return 0, ErrMessagingDependency
+		return result, ErrMessagingDependency
 	}
-	organizationIDs, err := allOrganizations.AllOrganizationIDs(ctx)
+	if scan == nil || limit < 1 || limit > 1000 || now.IsZero() {
+		return result, ErrStateConflict
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if scan.UpperID == 0 {
+		upper, err := store.AnnouncementCleanupUpperID(ctx)
+		if err != nil {
+			return result, err
+		}
+		scan.UpperID = upper
+	}
+	candidates, err := store.FindDueAnnouncements(ctx, DueAnnouncementQuery{Now: now, AfterID: scan.AfterID, UpperID: scan.UpperID, Limit: limit, Expiring: expiring})
 	if err != nil {
-		return 0, err
+		return result, err
 	}
-	query := MessageListQuery{OrganizationIDs: organizationIDs, Kinds: []domain.MessageKind{domain.MessageKindAnnouncement}, Statuses: []domain.MessageStatus{from}}
-	if byPublishTime {
-		query.PublishAtOnOrBefore = &now
-	} else {
-		query.ExpiresAtOnOrBefore = &now
+	to, eventName := domain.MessageStatusPublished, domain.EventNameMessagePublished
+	if expiring {
+		to, eventName = domain.MessageStatusExpired, domain.EventNameMessageExpired
 	}
-	messages, _, err := service.messages.ListMessages(ctx, query)
-	if err != nil {
-		return 0, err
-	}
-	if len(messages) == 0 {
-		return 0, nil
-	}
-	changed := 0
-	err = service.transactions.Run(ctx, func(tx context.Context) error {
-		for _, message := range messages {
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		eventID := uuid.NewString()
+		err := service.transactions.Run(ctx, func(tx context.Context) error {
+			message, err := service.messages.FindMessage(tx, candidate.ID)
+			if err != nil {
+				return err
+			}
+			if !announcementDue(message, now, expiring) {
+				return ErrStateConflict
+			}
 			if _, err := domain.TransitionMessage(message.Kind, message.Status, to); err != nil {
 				return err
 			}
 			message.Status = to
 			message.AggregateVersion++
-			event := domain.MessageEvent{EventID: uuid.NewString(), EventName: eventName, EventVersion: 1, MessageCopyID: message.ID, OrganizationID: message.OrganizationID, OccurredAt: now, AggregateVersion: message.AggregateVersion}
-			if _, err := service.messages.ChangeMessage(tx, MessageChange{Message: message, Event: event}); err != nil {
-				return err
-			}
-			changed++
+			event := domain.MessageEvent{EventID: eventID, EventName: eventName, EventVersion: 1, MessageCopyID: message.ID, OrganizationID: message.OrganizationID, OccurredAt: now.UTC(), AggregateVersion: message.AggregateVersion}
+			_, err = service.messages.ChangeMessage(tx, MessageChange{Message: message, Event: event})
+			return err
+		})
+		item := AnnouncementItemResult{MessageCopyID: candidate.ID, Status: "succeeded"}
+		switch {
+		case errors.Is(err, ErrStateConflict), errors.Is(err, ErrNotFound):
+			item.Status = "skipped"
+			item.FailureCode = "announcement_state_conflict"
+			result.Skipped++
+		case err != nil:
+			item.Status = "failed"
+			item.FailureCode = "announcement_persistence_failed"
+			result.Failed++
+		default:
+			result.Succeeded++
 		}
-		return nil
-	})
-	if err != nil {
-		return 0, err
+		result.Processed++
+		result.Items = append(result.Items, item)
+		scan.AfterID = candidate.ID
 	}
-	return changed, nil
+	if len(candidates) < limit || scan.AfterID >= scan.UpperID {
+		*scan = AnnouncementScan{}
+	}
+	return result, ctx.Err()
+}
+
+func announcementDue(message domain.Message, now time.Time, expiring bool) bool {
+	if message.Kind != domain.MessageKindAnnouncement {
+		return false
+	}
+	publishDue := message.PublishAt != nil && !message.PublishAt.After(now)
+	expired := message.ExpiresAt != nil && !message.ExpiresAt.After(now)
+	if expiring {
+		return expired && (message.Status == domain.MessageStatusPublished || (message.Status == domain.MessageStatusScheduled && publishDue))
+	}
+	return message.Status == domain.MessageStatusScheduled && publishDue && !expired
 }
 
 func copyUTC(value *time.Time) *time.Time {

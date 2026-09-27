@@ -41,11 +41,17 @@ logger:
 
 Messaging 的 Application 层使用供应商无关的 `RuntimeLogger` Contract；`internal/app` 只在组合根将受控字段适配到 Zap。Outbox、事件 Consumer、RabbitMQ Consumer、DLQ Recorder 和 Consumer DLQ Replay 记录稳定事件名、阶段、事件或投影引用、失败分类和受控重试次数。
 
-允许的运行字段仅包括 `consumer`、`event_id`、`failure_code`、`stage`、`retry_attempt`、`worker_id`、`outbox_id`、`dead_lettered`、`state`、`audience_observed_count`、`projection_id`、`replay_cycle`、`result` 和 `pending_count`。原始 Broker、数据库、Redis、MinIO、解析器和 SMTP 错误不得作为日志字段或消息写入。
+既有 Messaging 消费与投递日志的字段包括 `consumer`、`event_id`、`failure_code`、`stage`、`retry_attempt`、`worker_id`、`outbox_id`、`dead_lettered`、`state`、`audience_observed_count`、`projection_id`、`replay_cycle`、`result` 和 `pending_count`；周期维护另使用下文列出的受控字段。原始 Broker、数据库、Redis、MinIO、解析器和 SMTP 错误不得作为日志字段或消息写入。
 
 Consumer DLQ 投影提交后，只有同一 `(consumer, failure_code)` 从零变为非零的 `pending` 才调用无返回值 `MessagingMetrics.RecordConsumerDLQPending`。该 Adapter 是 best-effort；异常只记录 `messaging_consumer_dlq_metrics_failed`，不阻塞投影提交、RabbitMQ ACK 或触发 AMQP 重试。
 
 RabbitMQ 不可用时 `/api/ready` 只报告受控组件状态和 `last_error_code`；Consumer DLQ 数量、最旧年龄和处置动作不写入就绪响应。Outbox 死信和 Consumer DLQ 只能通过受保护的管理员入口或受限运维队列处置。
+
+## 消息周期维护日志
+
+`messaging-cleanup` 每轮复用 Messaging `worker_id` 并生成独立 `run_id`；`messaging_cleanup_started`、`messaging_cleanup_finished`、`messaging_cleanup_task_started`、`messaging_cleanup_task_finished`、`messaging_cleanup_item_failed`、`messaging_cleanup_task_skipped`、`messaging_cleanup_dead_lettered` 为固定事件名。通过二者关联子任务及逐项失败，不为成功对象逐条输出。失败及 dead 转移记录 Warn，但未接通外部告警投递。原有两项清理与图片清理、公告发布／过期在同一轮中报告；Broker 启动未配置时发布项记录 `rabbitmq_not_configured`，计数全为零。
+
+App 白名单只编码受控字段：`run_id`、`worker_id`、`task`、`stage`、`status`、`failure_code`、`processed`、`succeeded`、`skipped`、`failed`、`duration_ms`、`timed_out`、`file_id`、`cleanup_job_id`、`message_copy_id`、`retry_attempt`、`batch_size` 和 `run_at`，及已有 Messaging 字段。`run_at` 为 UTC RFC3339Nano 字符串，`duration_ms` 为整数毫秒；处理过的项满足 `processed=succeeded+skipped+failed`。任务可能因查询错误在零处理量时失败，因父取消／配置而跳过，或在超时后保留已完成计数。NoSuchKey 且数据库终结成功计 succeeded，CAS 冲突计 skipped。运行码区分登记、持久化、存储权限、超时、取消和 `message_image_cleanup_scope_untrusted` 等受控失败；不记录 bucket、object_name、主机/IP、消息正文、原始 SDK／数据库／Broker 错误或凭据，完整对象定位只在受控数据库记录中。
 
 ## 排查入口
 

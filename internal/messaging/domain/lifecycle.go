@@ -49,7 +49,7 @@ func CanTransitionMessage(kind MessageKind, from, to MessageStatus) bool {
 		case MessageStatusDraft:
 			return to == MessageStatusScheduled || to == MessageStatusPublished
 		case MessageStatusScheduled:
-			return to == MessageStatusPublished
+			return to == MessageStatusPublished || to == MessageStatusExpired
 		case MessageStatusPublished:
 			return to == MessageStatusExpired || to == MessageStatusRevoked
 		default:

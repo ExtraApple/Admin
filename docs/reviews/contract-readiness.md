@@ -51,21 +51,25 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 批次 2  依赖接线护栏                      C2                      ✅ 已完成 add-dependency-wiring-guardrail
 批次 3  消息长度上限接入配置              C7                      ✅ 已完成 wire-message-length-limits
 批次 4  文档事实性修正                    C6a                     ✅ 已完成 fix-stale-docs-and-specs
-批次 5  公告调度与消息图片清理            C5                      ⛔ 阻塞于设计
+批次 5  公告调度与消息图片清理            C5                      🔧 实施中 schedule-announcements-and-cleanup-message-images
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
 
-**Change 工件已创建（2026-09-22，批次 1 ～ 批次 3 已实施）**：
+**C5 设计讨论**：访谈历史见 [C5 公告调度与消息图片清理 · 设计讨论记录](c5-design-discussion.md)；该记录不是现行设计。六项集中裁决以 `openspec/changes/schedule-announcements-and-cleanup-message-images/design.md` D1 为准：未绑定图片排除轮转，跨桶删除要求专属命名空间，坏记录使用跨轮 ID 游标，错过窗口的公告直接过期，数据库互斥只持短事务行锁，未配置 RabbitMQ 只跳过发布。队列首次删除、24 次重试和 dead 保留，以及历史空用途迁移的实施偏差也记录在该 design；不改写原讨论。
 
-| 批次 | Change 名 | 工件 | 任务数 | 实施状态 |
-| --- | --- | --- | --- | --- |
-| 1 | `remove-unwired-ports` | proposal · design · specs · tasks | 39 | ✅ 39/39 完成，待归档 |
-| 2 | `add-dependency-wiring-guardrail` | proposal · design · specs · tasks | 45 | ✅ 45/45 完成，待归档 |
-| 3 | `wire-message-length-limits` | proposal · design · specs · tasks | 48 | ✅ 48/48 完成，待归档 |
-| 4 | `fix-stale-docs-and-specs` | proposal · design · specs · tasks | 55 | ✅ 55/55 完成，待归档 |
+**C5 实施状态**：正在接入 `messaging-cleanup`、Files 持久化图片清理队列和受控运行日志；任务与实测结果以本 change 的 `tasks.md` 为准。独立 MySQL／MinIO 门禁、实际后台运行和跨桶部署信任前提必须分别核对，不能以 SQLite 回归或代码检查替代。对象删除不可撤销；旧轮转实例与新清理不得混跑，回滚不能只撤 DDL。
 
-四个均已通过 `openspec validate`。
+**Change 工件状态（2026-09-13 更新）**：批次 1～4 已按顺序归档，且 delta specs 已同步到 `openspec/specs/`。
 
+| 批次 | Change 名 | 工件状态 | 实施状态 |
+| --- | --- | --- | --- |
+| 1 | `remove-unwired-ports` | ✅ 已归档 | ✅ 39/39 完成 |
+| 2 | `add-dependency-wiring-guardrail` | ✅ 已归档 | ✅ 45/45 完成 |
+| 3 | `wire-message-length-limits` | ✅ 已归档 | ✅ 48/48 完成 |
+| 4 | `fix-stale-docs-and-specs` | ✅ 已归档 | ✅ 55/55 完成 |
+
+归档后主规格校验：`openspec validate --specs` → **16 passed / 0 failed**。
+ 
 **批次 1 实施结果**：代码删除、ADR 与验证全部完成；
 决策记录见 `docs/adr/0008-authorization-and-audit-ports-on-demand.md`，
 行为契约由新增规格 `file-access-contract` 承载，
@@ -100,12 +104,12 @@ required 漏装配、缺注解、注解拼写错误、类型别名、位置参�
    的 9 条路由后确认**不存在 `GET /api/admin/dict-types/:id`** ——
    该 Scenario 本身会构成新的幽灵端点，故改为「查询字典类型只有列表入口」的显式声明。
 
-**仍押后**：C6b（剩余 10 个规格 / 578 条 SHALL 的逐条核对）；
-`docs/runbooks/login-security.md` 的锁定档位描述（批次 4 design 记录的待评估项，
-本轮未新增核对，是否修订待定）。
+**当前仍押后**：C6b（剩余规格逐条核对）；C5 已进入实施但尚未验收或归档。
+另有两个已确认但尚未闭环的契约／文档项：
 
-**4 个 change 覆盖除 C5 / C6b 外的全部已确认内容。**
-本文件是计划记录，不创建 change；change 由各批次自行维护。
+- X2：`/docs/openapi.json` 失败路径仍缺少回归测试；
+- `docs/runbooks/login-security.md` 的锁定档位描述尚未重新核对，是否修订待定。
+***
 
 #### 为何 C1+C1b+C3+C4 合并为批次 1
 

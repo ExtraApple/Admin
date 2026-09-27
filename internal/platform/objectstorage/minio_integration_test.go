@@ -40,7 +40,11 @@ func TestMinIOIntegrationObjectLifecycle(t *testing.T) {
 	if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
 		t.Fatalf("create MinIO integration bucket: %v", err)
 	}
+	bucketRemoved := false
 	t.Cleanup(func() {
+		if bucketRemoved {
+			return
+		}
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
 		for object := range client.ListObjects(cleanupContext, bucket, minio.ListObjectsOptions{Recursive: true}) {
@@ -98,5 +102,17 @@ func TestMinIOIntegrationObjectLifecycle(t *testing.T) {
 	}
 	if _, err := store.Stat(ctx, bucket, name); !errors.Is(err, platformstorage.ErrObjectNotFound) {
 		t.Fatalf("stat deleted object error = %v, want ErrObjectNotFound", err)
+	}
+	if _, err := store.Stat(ctx, bucket+"-missing", name); err == nil || errors.Is(err, platformstorage.ErrObjectNotFound) {
+		t.Fatalf("missing bucket must not count as absent object: %v", err)
+	}
+	// The SDK already cached this bucket's region during Put/Stat. A missing
+	// bucket must remain distinguishable even without a region lookup.
+	if err := client.RemoveBucket(ctx, bucket); err != nil {
+		t.Fatalf("remove empty bucket for missing-bucket check: %v", err)
+	}
+	bucketRemoved = true
+	if _, err := store.Stat(ctx, bucket, name); err == nil || errors.Is(err, platformstorage.ErrObjectNotFound) {
+		t.Fatalf("previously accessed missing bucket must not count as absent object: %v", err)
 	}
 }

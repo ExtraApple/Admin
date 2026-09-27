@@ -34,6 +34,12 @@ var migrationModels = func() []any {
 }()
 
 func Migrate(db *gorm.DB) error {
+	// Normalize legacy NULLs before AutoMigrate restores the NOT NULL constraint.
+	if db.Migrator().HasTable(&filesmodule.File{}) && db.Migrator().HasColumn(&filesmodule.File{}, "purpose") {
+		if err := db.Table("files").Where("purpose IS NULL").Update("purpose", "managed_file").Error; err != nil {
+			return fmt.Errorf("backfill legacy file purpose: %w", err)
+		}
+	}
 	if err := db.AutoMigrate(migrationModels...); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
@@ -88,6 +94,7 @@ func downgradeValidatedManagedFilesOutsideV1Policy(db *gorm.DB) error {
 	}
 	if err := db.Unscoped().
 		Model(&filesmodule.File{}).
+		Where("purpose = ? OR purpose IS NULL OR purpose = ''", "managed_file").
 		Where(
 			"validation_status = ? AND (content_type IS NULL OR content_type NOT IN ?)",
 			filesmodule.FileValidationStatusValidated,
