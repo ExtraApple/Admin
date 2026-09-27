@@ -45,7 +45,7 @@ App 启用 RabbitMQ 配置后由组合根声明 Topic Exchange、Quorum Queue、
 
 `messaging.cleanup_batch_size` 默认 100；缺失或 0 使用默认值，允许 1–1000，非法值在配置加载时拒绝。后三项各自使用独立单轮额度，图片首次登记与到期重试共享图片额度；进程内 ID 游标跨轮推进并在扫描上界回绕，重启后重置。RabbitMQ 启动时未配置仅跳过自动发布，不查询其积压数；图片清理和公告过期照常运行，过期事件可能停留在 pending Outbox。已配置但断连仍转换公告并写入 Outbox；配置变更需要重启。
 
-**部署前核对**：`message-images/<UUID>.<png|jpg|webp>` 所在受支持 bucket 为本应用独占命名空间、无外部覆盖或同名复用；目标存储不启用版本化和 Object Lock。盘点历史原始 bucket、当前热／冷 bucket、到期图片和公告。当前关闭轮转或冷 bucket 为空不证明历史副本不存在；旧位置遗漏或对象归属不可信时先人工隔离处置，不启动自动清理部署。停止旧版本实例并排空在途 Copy／反向 Move 后再切换，不允许旧轮转与新清理混跑。上线后核对运行日志中的轮次／子任务计数、失败码及 Outbox 状态；运行日志不是外部告警投递。
+**部署前核对**：生产 MySQL 必须为 **8.0.16 或更高版本**，因为 `message_image_cleanup_jobs.retry_count` 的 `CHECK (retry_count BETWEEN 0 AND 24)` 依赖 MySQL 对 CHECK 的实际执行。低版本不得启用本变更；迁移发现超范围历史 retry_count 必须失败并人工处置，不自动转 dead。门禁应核对服务端版本和非法值被拒绝，而不能用 SQLite 或 `mysql:latest` 标签替代。`message-images/<UUID>.<png|jpg|webp>` 所在受支持 bucket 为本应用独占命名空间、无外部覆盖或同名复用；目标存储不启用版本化和 Object Lock。盘点历史原始 bucket、当前热／冷 bucket、到期图片和公告。当前关闭轮转或冷 bucket 为空不证明历史副本不存在；旧位置遗漏或对象归属不可信时先人工隔离处置，不启动自动清理部署。停止旧版本实例并排空在途 Copy／反向 Move 后再切换，不允许旧轮转与新清理混跑。上线后核对运行日志中的轮次／子任务计数、失败码及 Outbox 状态；运行日志不是外部告警投递。
 
 Files 在短数据库事务中先登记 `message_image_cleanup_jobs`，提交后才删除冻结原始位置和当前启用轮转时受支持的热／冷位置；所有位置成功或确认为 NoSuchKey 后，同事务物理删除 File Record 与队列。存储或终结失败保留定位；每小时到期后重试，初次删除不计入最多 24 次重试。`dead` 不自动清除、不过期；由具有受控数据库和存储权限的运维人员确认所有副本清除后，在同一事务中删除 File Record 与队列，不能只删队列或擅自重置重试次数。保留原始错误之外的受控故障记录；不通过不受保护的 HTTP 接口操作。
 

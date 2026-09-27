@@ -99,12 +99,12 @@
 | bucket / object_name | varchar(100) / varchar(500)，不小于现有文件字段；冻结、不可截断 |
 | object_key_hash | SHA-256 十六进制64字符，唯一索引；按 `bucket + NUL + object_name` 字节计算，不是内容摘要 |
 | status | pending / dead |
-| retry_count | 默认0，后续被预留的重试次数，范围0–24 |
+- retry_count | 默认0，后续被预留的重试次数，数据库 CHECK 约束范围0–24；MySQL 服务端必须为8.0.16+，低版本不得启用本变更 |
 | next_retry_at | 非空时调度资格；dead为空 |
 | last_error_code | 稳定运行码，不保存原始错误 |
 | created_at / updated_at | UTC 时间；不嵌入软删除字段 |
 
-增加 `(status,next_retry_at,id)` 查询索引，完整路径以字节比较验证 hash 冲突。同 hash 同路径且同 file_id 复用原记录；hash 路径不一致或同路径映射不同 File Record 均拒绝登记，不覆盖、不重置 dead，留 File Record 并告警。
+增加 `(status,next_retry_at,id)` 查询索引和 `CHECK (retry_count BETWEEN 0 AND 24)` 约束。完整路径以字节比较验证 hash 冲突。同 hash 同路径且同 file_id 复用原记录；hash 路径不一致或同路径映射不同 File Record 均拒绝登记，不覆盖、不重置 dead，留 File Record 并告警。迁移创建约束时若已有非法 retry_count，迁移必须失败并保留原队列与 File Record。
 
 Files application 定义清理输入、游标、计数和有限逐条结果（至多 N），由 App 转成既有 RuntimeLogger；不把 Messaging 日志接口导入 Files。扩展现有 Files-owned MessageImageRepository 契约以包含候选、登记、预留重试、条件终结，复用事务 runner，不额外造通用任务框架。
 
@@ -130,7 +130,7 @@ Files application 定义清理输入、游标、计数和有限逐条结果（�
 - 任一有效删除尝试成功：按稳定队列ID与完整文件身份条件终结；即使另一个实例刚记录失败，也不重建任务。
 - 失败更新若发现行已成功删除，按并发结束 skipped，不能 UPSERT 恢复旧任务。
 
-成功/失败结果只在数据库结果明确后计数；父context取消时不为记录错误额外开启无取消后台事务。已预留记录在下轮按上述协议恢复。dead 不自动重入、不过期；人工在受控数据库与存储权限下确认对象清除后，同事务删除 File Record 和队列，不只删队列。无新运维命令。
+成功/失败结果只在数据库结果明确后计数；父context取消时不为记录错误额外开启无取消后台事务。已预留记录在下轮按上述协议恢复。dead 不自动重入、不过期；人工在受控数据库与存储权限下确认对象清除后，同事务删除 File Record 和队列，不只删队列。对于 retry_count>24 的历史异常，人工处置必须保留 File Record、队列和完整定位：只有可信外部证据证明第24次存储尚未执行时，才允许修为0–23；无法证明时修为24，下一轮只转dead、不访问对象存储。不得新增任务历史表、processing状态、租约、人工HTTP接口或专用命令。
 
 ### D9. 轮转资格与受信删除范围
 
@@ -166,11 +166,9 @@ App 复用 `RuntimeLogger` 的 Info/Warn，扩充有限白名单，不引入 Err
 
 ### D12. 模型迁移不改变消息图片验证结果
 
-新表通过 `internal/files.Models()` 加入 `internal/app/migrate.go`，成功后才启动任务；迁移不扫存储、不删数据、不预登记全量历史图片。hash使用固定长度索引，file_id唯一，显式物理删除避免软删除占住唯一键。
+新表通过 `internal/files.Models()` 加入 `internal/app/migrate.go`，成功后才启动任务；迁移不扫存储、不删数据、不预登记全量历史图片。hash使用固定长度索引，file_id唯一，显式物理删除避免软删除占住唯一键。`retry_count` CHECK 约束必须在 MySQL 8.0.16+ 上实际执行。
 
-现有 `downgradeValidatedManagedFilesOutsideV1Policy` SQL 没有purpose过滤，会匹配message_image的JPEG/PNG/WebP。将其限于managed_file和兼容旧NULL/空用途，作为本次启动兼容必要修正；合法消息图片迁移后保持原validated。已有legacy_unverified不自动升级，不能推测历史状态来源。
-
-实施阶段已在真实MySQL复现：旧purpose=NULL会在AutoMigrate设置NOT NULL时先失败，后续用途过滤无法运行。用户确认在AutoMigrate前检查files表及purpose列是否存在，仅将SQL NULL回填为managed_file；保留空字符串，不升级验证状态、不访问对象存储。回填失败中止启动，历史NULL回归作为2.4验收的一部分。
+应用迁移在 MySQL 方言上先检查服务端版本；低于8.0.16、MariaDB、无法识别或无法确认版本时拒绝启动。SQLite 等测试方言跳过版本门禁，但仍须验证 CHECK 拒绝非法计数。已有非法历史计数不得被迁移自动归一化，约束失败即阻断部署并保留原数据。
 
 ## Risks / Trade-offs
 

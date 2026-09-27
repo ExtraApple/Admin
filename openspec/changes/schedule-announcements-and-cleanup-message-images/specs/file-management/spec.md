@@ -131,7 +131,7 @@
 
 ### Requirement: 消息图片持久化清理队列
 
-Files SHALL 拥有 `message_image_cleanup_jobs` 队列，包含稳定ID、唯一file_id、冻结的完整bucket/object_name、唯一SHA-256路径键、pending/dead状态、retry_count、next_retry_at、last_error_code及创建更新时间。路径键 SHALL 按bucket、NUL分隔符和object_name原始字节生成，不使用文件内容摘要；原始错误 SHALL NOT 持久化。
+Files SHALL 拥有 `message_image_cleanup_jobs` 队列，包含稳定ID、唯一file_id、冻结的完整bucket/object_name、唯一SHA-256路径键、pending/dead状态、retry_count、next_retry_at、last_error_code及创建更新时间。`retry_count` SHALL 由数据库 CHECK 约束限制在0–24；路径键 SHALL 按bucket、NUL分隔符和object_name原始字节生成，不使用文件内容摘要；原始错误 SHALL NOT 持久化。
 
 每个对象 SHALL 逐条在短数据库事务中锁定并重查用途、未绑定和到期资格，提交队列后才调用存储。系统 SHALL NOT 在事务重试回调内执行存储操作，不增加File Record清理状态字段、processing状态或租约。
 
@@ -175,6 +175,12 @@ Files SHALL 拥有 `message_image_cleanup_jobs` 队列，包含稳定ID、唯一
 - **WHEN** 第24次重试失败或第24次预留崩溃后到达下次资格时间
 - **THEN** 系统 SHALL 标记dead、清空下一重试时间并输出Warn重点事件
 - **AND** 系统 SHALL NOT 执行第25次自动存储尝试
+
+#### Scenario: 非法历史重试计数
+- **WHEN** 迁移发现 `retry_count` 不在0–24范围，或MySQL服务端版本低于8.0.16、为MariaDB或无法确认 CHECK 实际执行
+- **THEN** 迁移 SHALL 失败并保留原 File Record、清理队列和完整对象定位
+- **AND** 系统 SHALL NOT 自动把非法计数归一化为dead、删除队列或访问对象存储
+- **AND** 部署 SHALL 先人工处置；只有可信外部证据证明第24次存储尚未执行时，才允许将异常计数修为0–23，否则 SHALL 修为24并在下一轮只转dead、不访问对象存储
 
 #### Scenario: 成功与迟到失败交错
 - **WHEN** 成功实例已条件终结队列，另一个实例随后提交失败结果
