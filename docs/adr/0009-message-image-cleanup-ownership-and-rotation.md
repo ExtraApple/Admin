@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受（目标行为见 `openspec/changes/schedule-announcements-and-cleanup-message-images/`；部署仍受独占存储前提约束）。
+已接受（现行契约见 `openspec/specs/file-management/`、`openspec/specs/internal-messaging/` 与 `openspec/specs/logging/`；变更设计见 `openspec/changes/archive/2026-09-29-schedule-announcements-and-cleanup-message-images/`；部署仍受独占存储前提约束）。
 
 ## 背景
 

@@ -109,6 +109,116 @@ func TestMySQLMessageImageCleanupMigration(t *testing.T) {
 	}
 }
 
+func TestMySQLCleanupRetryCountConstraintAndVersionGate(t *testing.T) {
+	dsn := os.Getenv("ADMIN_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Fatal("ADMIN_TEST_MYSQL_DSN is required")
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Migrate(db); err != nil {
+		t.Fatalf("MySQL %s migration rejected supported server: %v", version, err)
+	}
+	fileID := uint(time.Now().UnixNano() % 1000000000)
+	for _, retryCount := range []uint{0, 24} {
+		job := files.MessageImageCleanupJob{FileID: fileID + retryCount, Bucket: "probe", ObjectName: fmt.Sprintf("message-images/retry-%d.png", retryCount), ObjectKeyHash: fmt.Sprintf("%064x", fileID+retryCount), Status: "pending", RetryCount: retryCount}
+		if err := db.Create(&job).Error; err != nil {
+			t.Fatalf("MySQL %s rejected retry_count=%d: %v", version, retryCount, err)
+		}
+		t.Cleanup(func() {
+			if err := db.Delete(&files.MessageImageCleanupJob{}, job.ID).Error; err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	if err := db.Exec("INSERT INTO message_image_cleanup_jobs (file_id, bucket, object_name, object_key_hash, status, retry_count) VALUES (?, ?, ?, ?, ?, ?)", fileID+25, "probe", "message-images/retry-invalid.png", strings.Repeat("d", 64), "pending", 25).Error; err == nil {
+		t.Fatalf("MySQL %s accepted retry_count=25", version)
+	}
+}
+
+func TestMySQLMigrateRejectsLegacyOutOfRangeCleanupRetryCount(t *testing.T) {
+	config, err := mysqldriver.ParseDSN(os.Getenv("ADMIN_TEST_MYSQL_DSN"))
+	if err != nil || config.DBName == "" {
+		t.Fatal("ADMIN_TEST_MYSQL_DSN must identify a test database")
+	}
+	admin, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminSQL, err := admin.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminSQL.Close()
+	name := fmt.Sprintf("c5_retry_invalid_%d", time.Now().UnixNano())
+	if err := admin.Exec("CREATE DATABASE " + name).Error; err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := admin.Exec("DROP DATABASE " + name).Error; err != nil {
+			t.Error(err)
+		}
+	}()
+	config.DBName = name
+	db, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	if err := db.AutoMigrate(&files.File{}); err != nil {
+		t.Fatal(err)
+	}
+	file := files.File{Bucket: "probe", ObjectName: "message-images/legacy-invalid.png", Purpose: "message_image"}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("CREATE TABLE message_image_cleanup_jobs (id bigint unsigned NOT NULL AUTO_INCREMENT, file_id bigint unsigned NOT NULL, bucket varchar(100) NOT NULL, object_name varchar(500) NOT NULL, object_key_hash char(64) NOT NULL, status varchar(16) NOT NULL, retry_count bigint unsigned NOT NULL, next_retry_at datetime(3) NULL, last_error_code varchar(100) NULL, created_at datetime(3) NULL, updated_at datetime(3) NULL, PRIMARY KEY (id), UNIQUE KEY ux_file_id (file_id), UNIQUE KEY ux_path (object_key_hash))").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO message_image_cleanup_jobs (file_id, bucket, object_name, object_key_hash, status, retry_count) VALUES (?, ?, ?, ?, ?, ?)", file.ID, file.Bucket, file.ObjectName, strings.Repeat("e", 64), "pending", 25).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Migrate(db); err == nil {
+		t.Fatal("migration accepted legacy retry_count=25")
+	}
+	var retained files.MessageImageCleanupJob
+	if err := db.Where("file_id = ?", file.ID).First(&retained).Error; err != nil {
+		t.Fatal(err)
+	}
+	if retained.RetryCount != 25 || retained.Bucket != file.Bucket || retained.ObjectName != file.ObjectName {
+		t.Fatalf("migration changed invalid cleanup location: %+v", retained)
+	}
+	var retainedFile files.File
+	if err := db.First(&retainedFile, file.ID).Error; err != nil || retainedFile.Bucket != file.Bucket || retainedFile.ObjectName != file.ObjectName {
+		t.Fatalf("migration changed the File Record: %+v, %v", retainedFile, err)
+	}
+	// Without proof the last storage attempt was not made, an operator repairs to 24; migration never does.
+	if err := db.Table("message_image_cleanup_jobs").Where("file_id = ?", file.ID).Update("retry_count", 24).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Migrate(db); err != nil {
+		t.Fatalf("migration cannot resume after operator repair: %v", err)
+	}
+	if err := db.Where("file_id = ?", file.ID).First(&retained).Error; err != nil || retained.RetryCount != 24 || retained.Bucket != file.Bucket || retained.ObjectName != file.ObjectName {
+		t.Fatalf("migration changed repaired cleanup location: %+v, %v", retained, err)
+	}
+}
+
 func TestMySQLMigrateLegacyNullFilePurpose(t *testing.T) {
 	config, err := mysqldriver.ParseDSN(os.Getenv("ADMIN_TEST_MYSQL_DSN"))
 	if err != nil || config.DBName == "" {

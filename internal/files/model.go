@@ -47,7 +47,7 @@ type MessageImageCleanupJob struct {
 	ObjectName    string     `gorm:"type:varchar(500);not null"`
 	ObjectKeyHash string     `gorm:"type:char(64);not null;uniqueIndex:ux_message_image_cleanup_path"`
 	Status        string     `gorm:"type:varchar(16);not null;default:pending;index:idx_message_image_cleanup_due,priority:1"`
-	RetryCount    uint       `gorm:"not null;default:0"`
+	RetryCount    uint       `gorm:"not null;default:0;check:ck_message_image_cleanup_retry_count,retry_count BETWEEN 0 AND 24"`
 	NextRetryAt   *time.Time `gorm:"index:idx_message_image_cleanup_due,priority:2"`
 	LastErrorCode string     `gorm:"type:varchar(100)"`
 	CreatedAt     time.Time

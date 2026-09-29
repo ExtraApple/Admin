@@ -51,15 +51,15 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 批次 2  依赖接线护栏                      C2                      ✅ 已完成 add-dependency-wiring-guardrail
 批次 3  消息长度上限接入配置              C7                      ✅ 已完成 wire-message-length-limits
 批次 4  文档事实性修正                    C6a                     ✅ 已完成 fix-stale-docs-and-specs
-批次 5  公告调度与消息图片清理            C5                      🔧 实施中 schedule-announcements-and-cleanup-message-images
+批次 5  公告调度与消息图片清理            C5                      ✅ 已完成 schedule-announcements-and-cleanup-message-images
 押后    规格逐条核对                      C6b                     ❌ 边界未定，需继续调研
 ```
 
-**C5 设计讨论**：访谈历史见 [C5 公告调度与消息图片清理 · 设计讨论记录](c5-design-discussion.md)；该记录不是现行设计。六项集中裁决以 `openspec/changes/schedule-announcements-and-cleanup-message-images/design.md` D1 为准：未绑定图片排除轮转，跨桶删除要求专属命名空间，坏记录使用跨轮 ID 游标，错过窗口的公告直接过期，数据库互斥只持短事务行锁，未配置 RabbitMQ 只跳过发布。队列首次删除、24 次重试和 dead 保留，以及历史空用途迁移的实施偏差也记录在该 design；不改写原讨论。
+**C5 设计讨论**：访谈历史见 [C5 公告调度与消息图片清理 · 设计讨论记录](c5-design-discussion.md)；该记录不是现行设计。六项集中裁决以 `openspec/changes/archive/2026-09-29-schedule-announcements-and-cleanup-message-images/design.md` D1 为准：未绑定图片排除轮转，跨桶删除要求专属命名空间，坏记录使用跨轮 ID 游标，错过窗口的公告直接过期，数据库互斥只持短事务行锁，未配置 RabbitMQ 只跳过发布。队列首次删除、24 次重试和 dead 保留，以及历史空用途迁移的实施偏差也记录在该 design；不改写原讨论。
 
-**C5 实施状态**：正在接入 `messaging-cleanup`、Files 持久化图片清理队列和受控运行日志；任务与实测结果以本 change 的 `tasks.md` 为准。独立 MySQL／MinIO 门禁、实际后台运行和跨桶部署信任前提必须分别核对，不能以 SQLite 回归或代码检查替代。对象删除不可撤销；旧轮转实例与新清理不得混跑，回滚不能只撤 DDL。
+**C5 实施状态**：代码、测试及 49 项 change tasks 已完成，delta specs 已同步到 `openspec/specs/`，change 已归档；实测结果见归档目录的 `tasks.md`。2026-09-29 在独立 MySQL 9.4.0 探针上执行 `app.Migrate`：`retry_count=0/24` 可写，`25` 被 CHECK（Error 3819）拒绝；旧队列值 `25` 使添加 CHECK 的迁移失败，原 File Record 与队列完整定位保留，人工保守修为 `24` 后重跑迁移成功。低版本及 MariaDB 拒绝路径以版本解析单元测试核对，未在这些服务器上启动真实数据库。既有独立 MySQL／MinIO 门禁和后台运行验收见 tasks；生产上线仍须分别核对跨桶归属、非版本化和历史位置等部署信任前提，不能以探针代替。对象删除不可撤销；旧轮转实例与新清理不得混跑，回滚不能只撤 DDL。
 
-**Change 工件状态（2026-09-13 更新）**：批次 1～4 已按顺序归档，且 delta specs 已同步到 `openspec/specs/`。
+**Change 工件状态（2026-09-29 更新）**：批次 1～5 均已归档，delta specs 已同步到 `openspec/specs/`。
 
 | 批次 | Change 名 | 工件状态 | 实施状态 |
 | --- | --- | --- | --- |
@@ -67,6 +67,7 @@ Redis 键只有 `identity/adapters/redis/store.go` 一个适配器；
 | 2 | `add-dependency-wiring-guardrail` | ✅ 已归档 | ✅ 45/45 完成 |
 | 3 | `wire-message-length-limits` | ✅ 已归档 | ✅ 48/48 完成 |
 | 4 | `fix-stale-docs-and-specs` | ✅ 已归档 | ✅ 55/55 完成 |
+| 5 | `schedule-announcements-and-cleanup-message-images` | ✅ 已归档 | ✅ 49/49 完成 |
 
 归档后主规格校验：`openspec validate --specs` → **16 passed / 0 failed**。
  
@@ -104,7 +105,7 @@ required 漏装配、缺注解、注解拼写错误、类型别名、位置参�
    的 9 条路由后确认**不存在 `GET /api/admin/dict-types/:id`** ——
    该 Scenario 本身会构成新的幽灵端点，故改为「查询字典类型只有列表入口」的显式声明。
 
-**当前仍押后**：C6b（剩余规格逐条核对）；C5 已进入实施但尚未验收或归档。
+**当前仍押后**：C6b（剩余规格逐条核对）；C5 已实施、同步规格并归档。
 另有两个已确认但尚未闭环的契约／文档项：
 
 - X2：`/docs/openapi.json` 失败路径仍缺少回归测试；

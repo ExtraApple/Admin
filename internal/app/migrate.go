@@ -11,6 +11,8 @@ import (
 	"admin/internal/navigation"
 	"admin/internal/organization"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -33,7 +35,46 @@ var migrationModels = func() []any {
 	return models
 }()
 
+const minimumSupportedMySQLVersion = "8.0.16"
+
+func validateMySQLServerVersion(version string) error {
+	value := strings.ToLower(strings.TrimSpace(version))
+	if value == "" || strings.Contains(value, "mariadb") {
+		return fmt.Errorf("unsupported or unknown MySQL server version %q", version)
+	}
+	parts := strings.SplitN(strings.SplitN(value, "-", 2)[0], ".", 4)
+	if len(parts) < 3 {
+		return fmt.Errorf("unable to parse MySQL server version %q", version)
+	}
+	parsed := make([]int, 3)
+	for index := range parsed {
+		value, err := strconv.Atoi(parts[index])
+		if err != nil {
+			return fmt.Errorf("unable to parse MySQL server version %q: %w", version, err)
+		}
+		parsed[index] = value
+	}
+	if parsed[0] < 8 || (parsed[0] == 8 && (parsed[1] < 0 || (parsed[1] == 0 && parsed[2] < 16))) {
+		return fmt.Errorf("MySQL server version %q is below minimum %s", version, minimumSupportedMySQLVersion)
+	}
+	return nil
+}
+
+func validateMySQLMigrationServer(db *gorm.DB) error {
+	if db == nil || strings.ToLower(db.Dialector.Name()) != "mysql" {
+		return nil
+	}
+	var version string
+	if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err != nil {
+		return fmt.Errorf("read MySQL server version: %w", err)
+	}
+	return validateMySQLServerVersion(version)
+}
+
 func Migrate(db *gorm.DB) error {
+	if err := validateMySQLMigrationServer(db); err != nil {
+		return fmt.Errorf("validate MySQL migration server: %w", err)
+	}
 	// Normalize legacy NULLs before AutoMigrate restores the NOT NULL constraint.
 	if db.Migrator().HasTable(&filesmodule.File{}) && db.Migrator().HasColumn(&filesmodule.File{}, "purpose") {
 		if err := db.Table("files").Where("purpose IS NULL").Update("purpose", "managed_file").Error; err != nil {

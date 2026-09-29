@@ -1,6 +1,9 @@
 package app_test
 
 import (
+	"fmt"
+	"strings"
+
 	apigorm "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/app"
 	"admin/internal/audit"
@@ -91,6 +94,45 @@ func TestMigrateCreatesRecoverableMessageImageCleanupQueue(t *testing.T) {
 	duplicate := files.MessageImageCleanupJob{FileID: 72, Bucket: job.Bucket, ObjectName: job.ObjectName, ObjectKeyHash: job.ObjectKeyHash}
 	if err := db.Create(&duplicate).Error; err == nil {
 		t.Fatal("application migration permits duplicate cleanup location")
+	}
+}
+
+func TestMigrateConstrainsMessageImageCleanupRetryCount(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := app.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, retryCount := range []uint{0, 24} {
+		job := files.MessageImageCleanupJob{FileID: retryCount + 1, Bucket: "files", ObjectName: fmt.Sprintf("message-images/%d.png", retryCount), ObjectKeyHash: fmt.Sprintf("%064x", retryCount+1), Status: "pending", RetryCount: retryCount}
+		if err := db.Create(&job).Error; err != nil {
+			t.Fatalf("retry_count %d should satisfy the database constraint: %v", retryCount, err)
+		}
+	}
+	for _, retryCount := range []int{-1, 25} {
+		err := db.Exec("INSERT INTO message_image_cleanup_jobs (file_id, bucket, object_name, object_key_hash, status, retry_count) VALUES (?, ?, ?, ?, ?, ?)", uint(retryCount+10), "files", "message-images/invalid.png", fmt.Sprintf("%064x", retryCount+10), "pending", retryCount).Error
+		if err == nil {
+			t.Fatalf("retry_count %d bypassed the database constraint", retryCount)
+		}
+	}
+}
+
+func TestMigrateRejectsLegacyOutOfRangeCleanupRetryCount(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.Exec("CREATE TABLE message_image_cleanup_jobs (id integer primary key, file_id integer not null, bucket text not null, object_name text not null, object_key_hash text not null, status text not null, retry_count integer not null, next_retry_at datetime, last_error_code text, created_at datetime, updated_at datetime)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO message_image_cleanup_jobs (file_id, bucket, object_name, object_key_hash, status, retry_count) VALUES (?, ?, ?, ?, ?, ?)", 7, "files", "message-images/legacy.png", strings.Repeat("a", 64), "pending", 25).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Migrate(db); err == nil {
+		t.Fatal("migration accepted a legacy retry_count above 24")
+	}
+	var retryCount int
+	if err := db.Table("message_image_cleanup_jobs").Select("retry_count").Where("file_id = ?", 7).Scan(&retryCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if retryCount != 25 {
+		t.Fatalf("migration changed invalid legacy retry_count to %d", retryCount)
 	}
 }
 
