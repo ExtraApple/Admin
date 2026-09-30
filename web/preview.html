@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Admin · 管理端界面预览</title>
+  <style>
+    :root {
+      --canvas: #f4f8f9; --surface: #fff; --ink: #233844; --accent: #245e68;
+      --line: #dce7e9; --warning: #a9593f; --muted: #637780; --tint: #eaf3f3;
+      --body: "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+      --display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+      --mono: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--canvas); }
+    body { margin: 0; color: var(--ink); font: 14px/1.6 var(--body); }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 3px solid #388892; outline-offset: 3px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font: 600 clamp(29px, 3vw, 39px)/1.3 var(--display); letter-spacing: -.04em; margin-bottom: 10px; }
+    h2 { font-size: 21px; letter-spacing: -.025em; }
+    h3 { font-size: 16px; margin-bottom: 8px; }
+    .app-shell { min-height: 100vh; display: grid; grid-template-columns: 228px minmax(0, 1fr); }
+    .sidebar { background: var(--surface); border-right: 1px solid var(--line); padding: 30px 17px 20px; display: flex; flex-direction: column; }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 12px; font-size: 18px; font-weight: 700; letter-spacing: -.04em; }
+    .brand-mark { width: 31px; height: 31px; display: grid; align-content: center; gap: 4px; padding: 7px; background: var(--accent); border-radius: 8px; transform: rotate(-7deg); }
+    .brand-mark span { display: block; height: 2px; background: white; border-radius: 2px; }
+    .brand-mark span:nth-child(2) { width: 72%; }
+    .brand-mark span:nth-child(3) { width: 48%; }
+    .brand small { color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: .08em; margin-left: auto; }
+    .nav-group { margin: 62px 0 12px 13px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .12em; }
+    .nav-button { border: 0; background: transparent; color: var(--ink); display: flex; align-items: center; width: 100%; gap: 12px; padding: 11px 14px; margin-bottom: 4px; border-radius: 8px; text-align: left; font-weight: 600; }
+    .nav-button:hover, .nav-button[aria-current="page"] { background: var(--tint); color: var(--accent); }
+    .nav-icon { width: 17px; height: 17px; flex: none; stroke: currentColor; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .sidebar-foot { margin-top: auto; padding: 18px 12px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .sidebar-foot strong { display: block; color: var(--ink); font-size: 12px; }
+    .workspace { min-width: 0; }
+    .topbar { height: 74px; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 clamp(22px, 4vw, 58px); }
+    .breadcrumb { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .breadcrumb strong { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { display: flex; align-items: center; gap: 19px; white-space: nowrap; }
+    .identity { border-left: 1px solid var(--line); padding-left: 18px; display: flex; align-items: center; gap: 9px; font-size: 12px; }
+    .avatar { display: inline-grid; place-items: center; width: 31px; height: 31px; flex: none; border-radius: 50%; background: var(--tint); color: var(--accent); font-weight: 700; }
+    .content { max-width: 1390px; margin: 0 auto; padding: clamp(30px, 4vw, 56px) clamp(22px, 4vw, 58px) 72px; }
+    .eyebrow { display: block; margin-bottom: 9px; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
+    .intro { color: var(--muted); margin-bottom: 31px; max-width: 72ch; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 23px; }
+    .page-head .intro { margin-bottom: 0; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(27, 65, 75, .025); }
+    .panel { padding: 25px 28px; }
+    .button, .outline-button, .text-button { border-radius: 7px; font-weight: 700; padding: 9px 15px; }
+    .button { border: 1px solid var(--accent); color: white; background: var(--accent); }
+    .button:hover { background: #174a54; }
+    .outline-button { border: 1px solid #b6d2d5; color: var(--accent); background: white; }
+    .outline-button:hover { background: var(--tint); }
+    .text-button { border: 0; color: var(--accent); background: transparent; padding-left: 0; padding-right: 0; }
+    .text-button:hover { text-decoration: underline; text-underline-offset: 4px; }
+    .danger { color: #9c4a31; }
+    .status { display: inline-block; border: 1px solid #b6d8d2; border-radius: 100px; background: #eff8f5; color: #246257; padding: 3px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .status.off { border-color: #e4c9bd; background: #fcf4f0; color: #945038; }
+    .hint, .mini { color: var(--muted); font-size: 12px; }
+    .mini { font-family: var(--mono); }
+    .back { display: inline-block; margin-bottom: 19px; }
+    .row-title { display: block; font-weight: 700; color: var(--ink); }
+    .row-sub { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 13px 20px; border-bottom: 1px solid var(--line); background: var(--canvas); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+    td { border-bottom: 1px solid var(--line); padding: 14px 20px; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .role-table { min-width: 690px; }
+    .role-table tbody tr:hover, .user-table tbody tr:hover { background: #fafcfc; }
+    .list-link { border: 0; padding: 0; background: transparent; text-align: left; color: var(--accent); font-weight: 700; }
+    .list-link:hover { text-decoration: underline; text-underline-offset: 4px; }
+    .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap; padding: 21px 24px; }
+    .controls { display: flex; gap: 9px; flex-wrap: wrap; }
+    input[type="search"], input[type="text"], input[type="password"], input[type="email"], select { border: 1px solid #bacdd1; background: white; color: var(--ink); border-radius: 7px; min-height: 43px; padding: 0 12px; }
+    input::placeholder { color: #75868c; }
+    .controls input { width: 245px; }
+    .controls select { min-width: 123px; }
+    .pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 17px 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .pagination button { border: 1px solid var(--line); background: white; border-radius: 6px; padding: 5px 10px; }
+    .detail-hero { position: relative; padding: 29px 31px 30px; border-left: 4px solid var(--accent); }
+    .detail-hero .hero-line { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+    .detail-hero h1 { margin: 4px 0 7px; }
+    .detail-hero p { color: var(--muted); margin: 0; }
+    .detail-hero .mini { display: block; margin-top: 6px; }
+    .profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 17px; }
+    .profile-card { display: flex; flex-direction: column; min-height: 310px; padding: 23px 23px 20px; }
+    .profile-card h2 { font-size: 17px; margin: 0 0 6px; }
+    .profile-card .hint { margin: 0 0 14px; }
+    .profile-card ul, .member-list { padding: 0; margin: 0; list-style: none; }
+    .profile-card li { border-top: 1px solid var(--line); padding: 10px 0; font-size: 13px; }
+    .profile-card li:first-child { border-top: 0; }
+    .profile-card code { display: block; font: 11px/1.6 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+    .profile-card .card-action { margin-top: auto; padding-top: 17px; }
+    .warning-note { padding: 11px 13px; border-left: 3px solid var(--warning); background: #fcf4f0; color: #82432f; font-size: 12px; border-radius: 0 6px 6px 0; margin-top: 14px; }
+    .scope-name { font: 600 22px/1.4 var(--display); color: var(--accent); margin: 3px 0 13px; }
+    .user-table { min-width: 880px; font-size: 15px; }
+    .user-table td { height: 68px; padding: 10px 20px; }
+    .user-table .row-sub { font-size: 13px; }
+    .user-cards { display: none; }
+    .action-menu { position: relative; width: max-content; }
+    .action-menu summary { cursor: pointer; color: var(--accent); font-weight: 700; list-style: none; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; }
+    .action-menu summary::-webkit-details-marker { display: none; }
+    .action-items { position: fixed; left: 0; top: 0; z-index: 3; min-width: 140px; padding: 5px; background: white; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(27, 65, 75, .13); }
+    .action-items button { display: block; width: 100%; border: 0; padding: 9px 10px; background: transparent; text-align: left; border-radius: 5px; color: var(--ink); }
+    .action-items button:hover { background: var(--tint); }
+    .empty { padding: 50px 22px; text-align: center; color: var(--muted); }
+    .empty strong { display: block; color: var(--ink); font-size: 16px; }
+    .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 17px; }
+    .info-grid .card { padding: 23px 25px; }
+    .info-grid ul { padding-left: 18px; margin: 10px 0 0; }
+    .info-grid li { margin: 5px 0; }
+    .detail-actions { margin-top: 17px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .edit-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 17px; align-items: start; }
+    .edit-layout .card { padding: 24px 27px; }
+    .edit-list { display: grid; gap: 9px; margin-top: 18px; }
+    .check-row { display: flex; align-items: flex-start; gap: 11px; border: 1px solid var(--line); border-radius: 7px; padding: 11px 13px; cursor: pointer; }
+    .check-row:hover { background: var(--canvas); }
+    .check-row input { accent-color: var(--accent); width: 17px; height: 17px; margin: 2px 0 0; flex: none; }
+    .check-row small { display: block; color: var(--muted); font: 11px/1.6 var(--mono); }
+    .check-row[aria-disabled="true"] { cursor: default; color: var(--muted); background: var(--canvas); }
+    .edit-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+    .scope-options { display: grid; gap: 10px; }
+    .scope-options label { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+    .scope-options input { accent-color: var(--accent); }
+    .branch { margin: 7px 0 7px 18px; padding-left: 16px; border-left: 1px solid var(--line); }
+    .branch-item { margin: 7px 0; }
+    .branch-item label { display: flex; gap: 8px; align-items: center; }
+    .branch-item input { accent-color: var(--accent); }
+    .branch-item .hint { display: inline; }
+    .org-layout { display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); gap: 18px; align-items: start; }
+    .tree-panel { padding: 21px 12px 24px; }
+    .tree-panel h2 { padding: 0 14px; font-size: 15px; }
+    .tree-node { display: block; width: 100%; padding: 10px 12px; border: 0; border-left: 3px solid transparent; border-radius: 3px 7px 7px 3px; background: transparent; color: var(--ink); text-align: left; }
+    .tree-node:hover { background: var(--canvas); }
+    .tree-node[aria-current="true"] { border-left-color: var(--accent); background: var(--tint); color: var(--accent); font-weight: 700; }
+    .tree-node .row-sub { margin-top: 0; }
+    .org-detail { padding: 26px 30px; }
+    .org-mobile-back { display: none; }
+    .org-detail .muted-line { border-top: 1px solid var(--line); margin: 19px 0; }
+    .org-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+    .org-details dt { color: var(--muted); font-size: 12px; }
+    .org-details dd { margin: 3px 0 0; font-weight: 600; }
+    .member-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding: 13px 0; }
+    .member-list li:first-child { border-top: 0; }
+    .member-left { display: flex; align-items: center; gap: 10px; }
+    .field { display: grid; gap: 7px; margin: 16px 0; }
+    .field label { font-weight: 700; font-size: 13px; }
+    .field input, .field select { width: 100%; }
+    .auth-screen { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(390px, 43%); }
+    .auth-aside { background: var(--accent); color: white; padding: clamp(35px, 6vw, 88px); display: flex; flex-direction: column; justify-content: space-between; }
+    .auth-aside .brand { padding: 0; }
+    .auth-aside .brand-mark { background: white; }
+    .auth-aside .brand-mark span { background: var(--accent); }
+    .auth-aside h1 { max-width: 8em; font-size: clamp(34px, 4.4vw, 58px); line-height: 1.4; margin-bottom: 16px; }
+    .auth-aside p { max-width: 34ch; color: #d7e8e8; }
+    .auth-aside footer { font-size: 12px; color: #d7e8e8; }
+    .auth-main { display: grid; align-items: center; background: white; padding: 45px clamp(30px, 6vw, 95px); }
+    .auth-content { width: min(100%, 400px); margin: auto; }
+    .auth-content h2 { font: 600 28px/1.35 var(--display); margin-bottom: 9px; }
+    .auth-content > p { color: var(--muted); }
+    .auth-content .field { margin: 16px 0; }
+    .auth-content .field input { height: 46px; }
+    .captcha-row { display: grid; grid-template-columns: minmax(0, 1fr) 122px auto; gap: 8px; }
+    .captcha-image { display: grid; place-items: center; min-height: 46px; border: 1px solid var(--line); border-radius: 6px; background: repeating-linear-gradient(155deg, #e9f1f1, #e9f1f1 9px, #f8fbfa 9px, #f8fbfa 18px); color: var(--accent); font: italic 700 21px var(--mono); letter-spacing: .1em; text-decoration: line-through; text-decoration-color: #7a9fa3; }
+    .auth-content .button { width: 100%; margin-top: 13px; padding: 12px; }
+    .auth-hint { margin-top: 15px; font-size: 12px; color: var(--muted); }
+    .auth-message { border-radius: 6px; padding: 11px 13px; margin: 13px 0; background: #fcf4f0; color: #82432f; font-size: 13px; }
+    .auth-demo { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 17px; }
+    .auth-demo .demo-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+    .auth-demo button { background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; color: var(--accent); font-size: 12px; }
+    .preview-note { display: block; color: var(--muted); font-size: 12px; margin-top: 26px; }
+    .toast { position: fixed; bottom: 22px; right: 22px; z-index: 9; max-width: min(440px, calc(100vw - 44px)); border-radius: 8px; padding: 12px 18px; background: var(--ink); color: white; box-shadow: 0 12px 30px rgba(20, 40, 45, .16); }
+    dialog { width: min(450px, calc(100% - 36px)); border: 1px solid var(--line); border-radius: 12px; padding: 27px; color: var(--ink); box-shadow: 0 20px 80px rgba(20, 40, 45, .22); }
+    dialog::backdrop { background: rgba(20, 40, 45, .45); }
+    dialog h2 { margin-bottom: 11px; }
+    dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 21px; }
+    @media (max-width: 1100px) {
+      .profile-grid { grid-template-columns: 1fr 1fr; }
+      .profile-card:last-child { grid-column: 1 / -1; min-height: 0; }
+    }
+    @media (max-width: 850px) {
+      .app-shell { display: block; }
+      .sidebar { padding: 14px 20px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .sidebar .brand { padding: 0; }
+      .sidebar nav { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+      .nav-button { width: auto; margin: 0; padding: 8px 11px; }
+      .nav-group, .sidebar-foot { display: none; }
+      .topbar { height: 55px; padding: 0 20px; }
+      .identity { display: none; }
+      .content { padding: 30px 20px 58px; }
+      .org-layout { grid-template-columns: 220px minmax(0, 1fr); }
+      .user-table-wrap { display: none; }
+      .user-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 13px 16px; }
+      .user-card { padding: 17px; border: 1px solid var(--line); border-radius: 9px; }
+      .user-card-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+      .user-card p { margin: 10px 0 0; font-size: 14px; }
+      .user-card .action-menu { margin-top: 11px; }
+      .auth-screen { grid-template-columns: 1fr; }
+      .auth-aside { min-height: 224px; gap: 25px; padding: 27px 26px; }
+      .auth-aside h1 { font-size: 31px; margin: 0; }
+      .auth-aside footer { display: none; }
+      .auth-main { min-height: 500px; padding: 35px 26px; }
+    }
+    @media (max-width: 650px) {
+      .profile-grid, .info-grid, .edit-layout, .org-layout { grid-template-columns: 1fr; }
+      .profile-card, .profile-card:last-child { min-height: 0; grid-column: auto; }
+      .page-head { align-items: flex-start; flex-direction: column; }
+      .detail-hero, .org-detail, .panel { padding: 21px; }
+      .user-cards { grid-template-columns: 1fr; }
+      .org-layout:not(.show-detail) .org-detail, .org-layout:not(.show-detail) .org-mobile-back { display: none; }
+      .org-layout.show-detail .tree-panel { display: none; }
+      .org-mobile-back { display: block; justify-self: start; }
+      .top-actions { gap: 8px; }
+      .breadcrumb { font-size: 11px; }
+      .table-toolbar { padding: 18px; }
+      .controls, .controls input, .controls select { width: 100%; }
+      .captcha-row { grid-template-columns: minmax(0, 1fr) 105px auto; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .nav-button, .button, .outline-button, .tree-node { transition: background-color .16s ease; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell" id="appView">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>Admin <small>管理工作台</small></div>
+      <div class="nav-group">管理范围</div>
+      <nav aria-label="主要导航">
+        <button class="nav-button" type="button" data-view="roles"><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2 6 2.5V9c0 4-2.3 6.8-6 9-3.7-2.2-6-5-6-9V4.5L10 2Z"/><path d="m7.2 10 1.8 1.8 3.8-4"/></svg>角色管理</button>
+        <button class="nav-button" type="button" data-view="users"><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="6" r="2.5"/><path d="M2.5 15c0-2.4 2-4 4.5-4s4.5 1.6 4.5 4M14 5h4m-4 4h4m-4 4h4"/></svg>用户管理</button>
+        <button class="nav-button" type="button" data-view="organization"><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2" width="6" height="5" rx="1"/><rect x="2" y="13" width="6" height="5" rx="1"/><rect x="12" y="13" width="6" height="5" rx="1"/><path d="M10 7v3M5 13v-3h10v3"/></svg>组织管理</button>
+      </nav>
+      <div class="sidebar-foot"><strong>设计预览</strong>示例数据只保存在本页，刷新即恢复。<br>不读取或修改服务器数据。</div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div class="breadcrumb" id="breadcrumb"></div><div class="top-actions"><button type="button" class="text-button" data-view="login">登录与注册预览</button><div class="identity"><span class="avatar" aria-hidden="true">预</span>界面预览</div></div></header>
+      <main class="content">
+        <section id="rolesView" hidden>
+          <span class="eyebrow">ACCESS · 授权对象</span><h1>角色管理</h1><p class="intro">从角色进入详情，分别核对权限、已分配菜单与数据范围。</p>
+          <div class="card"><div class="table-toolbar"><strong>示例角色 · 3 项</strong><span class="hint">正式页面为分页列表；这里仅演示布局</span></div><div class="table-wrap"><table class="role-table"><thead><tr><th scope="col">角色</th><th scope="col">角色编码</th><th scope="col">状态</th><th scope="col">数据范围</th></tr></thead><tbody id="roleRows"></tbody></table></div></div>
+        </section>
+        <section id="roleDetailView" hidden>
+          <button class="text-button back" type="button" data-view="roles">← 返回角色列表</button>
+          <div class="card detail-hero"><span class="eyebrow">ROLE · 授权剖面</span><div class="hero-line"><div><h1 id="roleName"></h1><p id="roleDescription"></p><span class="mini" id="roleCode"></span></div><span class="status">已启用</span></div></div>
+          <div class="profile-grid">
+            <section class="card profile-card"><h2>可用操作</h2><p class="hint">授权操作和稳定权限码</p><ul id="permissionList"></ul><div class="card-action"><button class="outline-button" type="button" data-role-edit="permissions">编辑权限</button></div></section>
+            <section class="card profile-card"><h2>已分配菜单</h2><p class="hint">分配不等于每位用户最终可见</p><ul id="menuList"></ul><div id="menuWarning" class="warning-note" hidden></div><div class="card-action"><button class="outline-button" type="button" data-role-edit="menus">编辑菜单</button></div></section>
+            <section class="card profile-card"><h2>数据范围</h2><p class="hint">限制组织数据的可见边界</p><div id="scopeName" class="scope-name"></div><p id="scopeDetail" class="hint"></p><div class="card-action"><button class="outline-button" type="button" data-role-edit="scope">编辑数据范围</button></div></section>
+          </div><p id="protectedRole" class="warning-note" hidden></p>
+        </section>
+        <section id="roleEditView" hidden>
+          <button class="text-button back" type="button" data-view="roleDetail">← 返回角色详情</button><span class="eyebrow">ROLE · 独立编辑</span><h1 id="roleEditTitle"></h1><p class="intro" id="roleEditIntro"></p>
+          <p id="saveError" class="auth-message" role="alert" hidden>更改未保存。请检查连接后重试；当前选择已保留。</p>
+          <div class="edit-layout"><div class="card" id="roleEditForm"></div><aside class="card"><h3>保存范围</h3><p class="hint">本页只修改当前一项授权。保存前会展示变化摘要；关联用户的旧会话将在后续请求失效。</p><p class="hint">示例操作仅修改本页内存数据；不会提交到服务器。</p><button type="button" class="text-button" id="previewSaveError">预览保存失败提示</button></aside></div>
+        </section>
+        <section id="usersView" hidden>
+          <span class="eyebrow">PEOPLE · 人员与角色</span><h1>用户管理</h1><p class="intro">核对用户状态、真实角色和组织归属。正式列表只统计当前操作者可管理范围内的结果。</p>
+          <div class="card"><div class="table-toolbar"><strong id="userCount"></strong><div class="controls"><input type="search" id="userSearch" placeholder="搜索姓名或用户名" aria-label="搜索姓名或用户名"><select id="statusFilter" aria-label="按状态筛选"><option value="all">全部状态</option><option value="active">已启用</option><option value="disabled">已停用</option></select></div></div>
+            <div class="table-wrap user-table-wrap"><table class="user-table"><thead><tr><th scope="col">用户</th><th scope="col">角色</th><th scope="col">组织归属</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody id="userRows"></tbody></table></div>
+            <div class="user-cards" id="userCards"></div><div class="empty" id="emptyUsers" hidden><strong>没有符合条件的示例用户</strong>换个姓名或状态试试。</div>
+            <div class="pagination"><span>预览仅筛选当前 5 位示例用户；正式页面使用服务端筛选与分页。</span><span>第 1 页</span></div>
+          </div>
+        </section>
+        <section id="userDetailView" hidden>
+          <button class="text-button back" type="button" data-view="users">← 返回用户列表</button><div class="card detail-hero"><span class="eyebrow">USER · 用户资料</span><div class="hero-line"><div><h1 id="userName"></h1><p id="userMeta"></p></div><span id="userStatus" class="status"></span></div></div>
+          <div class="info-grid"><section class="card"><h2>已分配角色</h2><ul id="userRoles"></ul><button class="text-button" type="button" data-user-edit="roles">编辑角色</button></section><section class="card"><h2>组织归属</h2><ul id="userOrgs"></ul><button class="text-button" type="button" data-user-edit="orgs">编辑组织归属</button></section></div>
+          <div class="detail-actions"><button class="outline-button" type="button" data-user-action="toggle"></button><button class="outline-button" type="button" data-user-action="kick">强制下线</button><button class="text-button danger" type="button" data-user-action="delete">删除用户</button></div><p id="userProtected" class="warning-note" hidden></p>
+        </section>
+        <section id="userEditView" hidden>
+          <button class="text-button back" type="button" data-view="userDetail">← 返回用户详情</button><span class="eyebrow">USER · 逐人修改</span><h1 id="userEditTitle"></h1><p class="intro">仅修改这位示例用户的归属；正式实现需要后端提供用户定向写入能力，不能使用整组覆盖接口。</p>
+          <div class="edit-layout"><div class="card" id="userEditForm"></div><aside class="card"><h3>变更影响</h3><p class="hint">角色和组织分别保存；变更后该用户现有会话可能失效。预览只改本页示例数据。</p></aside></div>
+        </section>
+        <section id="organizationView" hidden>
+          <span class="eyebrow">ORGANIZATION · 单位与成员</span><h1>组织管理</h1><p class="intro">从层级中定位组织单位，查看资料与成员；浅色祖先只用于补全路径，不可管理。</p>
+          <div class="org-layout" id="orgLayout"><nav class="card tree-panel" aria-label="示例组织树"><h2>组织单位</h2><div id="orgTree"></div></nav><button class="text-button org-mobile-back" type="button" id="backOrgTree">← 返回组织树</button><article class="card org-detail" id="orgDetail"></article></div>
+        </section>
+        <section id="orgMoveView" hidden>
+          <button class="text-button back" type="button" data-view="organization">← 返回组织管理</button><span class="eyebrow">ORGANIZATION · 层级调整</span><h1>修改上级组织单位</h1><p class="intro">提交前核对旧路径与新路径；不能移到自身或自己的下级。</p>
+          <div class="card panel" style="max-width:680px"><p id="oldOrgPath"></p><div class="field"><label for="orgMoveTarget">新的上级组织单位</label><select id="orgMoveTarget"></select></div><p id="newOrgPath" class="hint"></p><div class="edit-footer"><button class="outline-button" type="button" data-view="organization">取消</button><button class="button" type="button" id="saveOrgMove">确认调整</button></div></div>
+        </section>
+        <span class="preview-note">设计预览 · 示例数据与状态 · 不连接后端 · 刷新后恢复</span>
+      </main>
+    </div>
+  </div>
+  <div class="auth-screen" id="authView" hidden>
+    <aside class="auth-aside"><div class="brand"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>Admin</div><div><h1>把访问交给<br>合适的人。</h1><p>在一个工作台中核对用户、角色、组织与可操作范围。</p></div><footer>界面预览 · 表单不会提交到服务器</footer></aside>
+    <main class="auth-main"><div class="auth-content">
+      <section id="loginView" hidden><span class="eyebrow">欢迎回来</span><h2>登录管理工作台</h2><p>输入用户信息与一次性图片验证码。</p>
+        <div class="field"><label for="loginUsername">用户名</label><input id="loginUsername" type="text" autocomplete="off" placeholder="请输入用户名"></div>
+        <div class="field"><label for="loginPassword">密码</label><input id="loginPassword" type="password" autocomplete="off" placeholder="请输入密码"></div>
+        <div class="field"><label for="loginCaptcha">图片验证码</label><div class="captcha-row"><input id="loginCaptcha" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 位数字"><span class="captcha-image" id="captchaImage" role="img" aria-label="示意图片验证码"></span><button type="button" class="text-button" id="refreshCaptcha" aria-label="更换验证码">换一张</button></div></div>
+        <p id="loginMessage" class="auth-message" role="alert" hidden></p><button class="button" type="button" id="previewLogin">预览登录成功</button><div class="auth-hint">此按钮不验证或提交上方内容；不要输入真实密码。</div><button class="text-button" type="button" data-view="register">没有用户身份？公开注册</button>
+        <div class="auth-demo"><strong class="hint">预览其他登录状态</strong><div class="demo-actions"><button type="button" data-auth-state="captcha">验证码错误</button><button type="button" data-auth-state="credentials">凭据错误</button><button type="button" data-auth-state="locked">暂时锁定</button><button type="button" data-view="noAccess">无管理菜单</button><button type="button" data-auth-state="expired">会话失效</button></div></div>
+      </section>
+      <section id="registerView" hidden><span class="eyebrow">新用户 · 公开注册</span><h2>创建普通用户身份</h2><p>注册后还需管理员分配角色，才能使用管理功能。</p>
+        <div class="field"><label for="registerName">用户名</label><input id="registerName" type="text" autocomplete="off" placeholder="设置用户名"></div>
+        <div class="field"><label for="registerEmail">邮箱</label><input id="registerEmail" type="email" autocomplete="off" placeholder="填写邮箱"></div>
+        <div class="field"><label for="registerPassword">密码</label><input id="registerPassword" type="password" autocomplete="off" placeholder="至少 6 位，含 3 类字符"></div>
+        <div class="field"><label for="registerCaptcha">图片验证码</label><div class="captcha-row"><input id="registerCaptcha" type="text" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 位数字"><span class="captcha-image" id="registerCaptchaImage" role="img" aria-label="示意图片验证码"></span><button class="text-button" type="button" data-refresh-captcha aria-label="更换注册验证码">换一张</button></div></div>
+        <button class="button" type="button" id="previewRegister">预览注册完成</button><p class="auth-hint">仅演示页面跳转；不会创建用户或发送验证码。</p><button class="text-button" type="button" data-view="login">返回登录</button>
+      </section>
+      <section id="noAccessView" hidden><span class="eyebrow">访问范围</span><h2>当前没有可用的管理功能</h2><p>请联系管理员核对角色授权。这里不表示有待处理的审核流程；获得授权后请重新登录。</p><div class="card panel"><strong>仍可使用</strong><p class="hint" style="margin:8px 0 0">可查看个人资料，或退出后重新登录。当前仅展示示例资料。</p><button class="text-button" type="button" data-view="profile">查看示例个人资料</button></div><button class="outline-button" type="button" data-view="login" style="margin-top:19px">退出并返回登录预览</button></section>
+      <section id="profileView" hidden><span class="eyebrow">个人资料 · 示例</span><h2>个人资料</h2><div class="card panel"><strong>示例用户</strong><p class="hint" style="margin:8px 0 0">member@example.test · 当前无可用管理功能</p></div><button class="text-button" type="button" data-view="noAccess">← 返回访问说明</button><br><button class="outline-button" type="button" data-view="login" style="margin-top:16px">退出并返回登录预览</button></section>
+      <p class="preview-note">独立视觉样稿 · 不连接后端 · 不接受真实登录信息</p>
+    </div></main>
+  </div>
+  <dialog id="confirmDialog" aria-labelledby="confirmTitle"><h2 id="confirmTitle"></h2><p id="confirmText"></p><p class="hint">仅改变此页的示例数据；刷新页面即可恢复。</p><div class="dialog-actions"><button type="button" class="outline-button" id="confirmCancel">取消</button><button type="button" class="button" id="confirmYes">确认</button></div></dialog>
+  <dialog id="memberDialog" aria-labelledby="memberDialogTitle"><h2 id="memberDialogTitle">加入组织成员</h2><div class="field"><label for="memberCandidate">选择示例用户</label><select id="memberCandidate"></select></div><p class="hint">每次只加入一位用户，不覆盖现有成员。</p><div class="dialog-actions"><button class="outline-button" type="button" id="memberCancel">取消</button><button class="button" type="button" id="memberAdd">加入成员</button></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script>
+    const permissions = [
+      { code: 'admin.users.get', name: '查看用户' }, { code: 'admin.users.id.put', name: '修改用户资料' },
+      { code: 'admin.roles.get', name: '查看角色' }, { code: 'admin.organizations.get', name: '查看组织' },
+      { code: 'admin.audit-logs.get', name: '查看审计记录' }
+    ];
+    const menus = [
+      { key: 'users', name: '用户管理', code: 'admin.users.get' },
+      { key: 'roles', name: '角色管理', code: 'admin.roles.get' },
+      { key: 'organization', name: '组织管理', code: 'admin.organizations.get' },
+      { key: 'audit', name: '审计记录', code: 'admin.audit-logs.get' }
+    ];
+    const scopeLabels = { all: '全部组织', self: '仅本人', org: '本组织', org_and_children: '本组织及下级', custom: '指定组织单位' };
+    const roles = {
+      operator: { name: '运营管理员', code: 'operator', description: '负责日常用户资料和组织结构维护。', permissions: ['admin.users.get', 'admin.users.id.put', 'admin.roles.get', 'admin.organizations.get'], menus: ['users', 'roles', 'organization', 'audit'], scope: 'org_and_children', scopeIds: [] },
+      auditor: { name: '审计员', code: 'auditor', description: '查看关键记录，不修改用户与角色。', permissions: ['admin.audit-logs.get', 'admin.roles.get'], menus: ['audit', 'roles'], scope: 'custom', scopeIds: ['compliance'] },
+      admin: { name: '超级管理员', code: 'admin', description: '拥有管理兜底能力；角色本身受系统保护。', permissions: permissions.map(item => item.code), menus: menus.map(item => item.key), scope: 'all', scopeIds: [] }
+    };
+    const units = [
+      { id: 'root', parent: null, name: '远川集团', code: 'YUANCHUAN', status: '已启用', navigationOnly: true },
+      { id: 'product', parent: 'root', name: '产品运营', code: 'PRODUCT', status: '已启用' },
+      { id: 'east', parent: 'product', name: '华东运营', code: 'EAST', status: '已启用' },
+      { id: 'compliance', parent: 'root', name: '风险与合规', code: 'COMPLIANCE', status: '已启用' },
+      { id: 'platform', parent: 'root', name: '平台管理', code: 'PLATFORM', status: '已启用' }
+    ];
+    const users = [
+      { id: 1, name: '林雅', username: 'linya', email: 'linya@example.test', roles: ['operator', 'auditor'], orgs: ['product'], status: 'active' },
+      { id: 2, name: '周岑', username: 'zhoucen', email: 'zhoucen@example.test', roles: ['auditor'], orgs: ['compliance'], status: 'active' },
+      { id: 3, name: '陈沐', username: 'chenmu', email: 'chenmu@example.test', roles: ['operator'], orgs: ['east', 'product'], status: 'active' },
+      { id: 4, name: '许澄', username: 'xucheng', email: 'xucheng@example.test', roles: ['auditor'], orgs: ['compliance'], status: 'disabled' },
+      { id: 5, name: '宋知', username: 'songzhi', email: 'songzhi@example.test', roles: ['admin'], orgs: ['platform'], status: 'active', protected: true }
+    ];
+    const $ = id => document.getElementById(id);
+    let view = 'roles', selectedRole = 'operator', selectedUser = 1, selectedOrg = 'product';
+    let editKind = 'permissions', userEditKind = 'roles', orgMobileDetail = false, pending = null, lockTimer = null, toastTimer = null, captchaIndex = 0;
+    const captchaSamples = ['482916', '713405', '628194'];
+    const unitName = id => units.find(unit => unit.id === id)?.name || '未知组织单位';
+    const userName = user => user.name + ' · ' + user.username;
+    const hasAdminRole = user => user.protected || user.roles.includes('admin');
+    const unitPath = id => {
+      const parts = [];
+      while (id) { const unit = units.find(item => item.id === id); if (!unit) break; parts.unshift(unit.name); id = unit.parent; }
+      return parts.join(' / ');
+    };
+    function toast(message) {
+      clearTimeout(toastTimer); $('toast').textContent = message; $('toast').hidden = false;
+      toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3500);
+    }
+    function confirmAction(title, text, action) {
+      $('confirmTitle').textContent = title; $('confirmText').textContent = text;
+      pending = action; $('confirmDialog').showModal();
+    }
+    $('confirmCancel').addEventListener('click', () => { pending = null; $('confirmDialog').close(); });
+    $('confirmDialog').addEventListener('close', () => { pending = null; });
+    $('confirmYes').addEventListener('click', () => { const action = pending; pending = null; $('confirmDialog').close(); if (action) action(); });
+    function show(viewName) {
+      view = viewName;
+      const auth = ['login', 'register', 'noAccess', 'profile'].includes(view);
+      if (view !== 'login') { clearInterval(lockTimer); lockTimer = null; }
+      else $('loginMessage').hidden = true;
+      if (view !== 'login') $('loginPassword').value = '';
+      if (view !== 'register') $('registerPassword').value = '';
+      $('appView').hidden = auth; $('authView').hidden = !auth;
+      const sections = { roles: 'rolesView', roleDetail: 'roleDetailView', roleEdit: 'roleEditView', users: 'usersView', userDetail: 'userDetailView', userEdit: 'userEditView', organization: 'organizationView', orgMove: 'orgMoveView', login: 'loginView', register: 'registerView', noAccess: 'noAccessView', profile: 'profileView' };
+      Object.entries(sections).forEach(([key, id]) => { $(id).hidden = key !== view; });
+      const nav = view.startsWith('role') ? 'roles' : view.startsWith('user') ? 'users' : 'organization';
+      document.querySelectorAll('.nav-button').forEach(button => button.setAttribute('aria-current', button.dataset.view === nav ? 'page' : 'false'));
+      const names = { roles: '角色管理', roleDetail: roles[selectedRole].name, roleEdit: '编辑' + (editKind === 'scope' ? '数据范围' : editKind === 'menus' ? '菜单' : '权限'), users: '用户管理', userDetail: users.find(user => user.id === selectedUser)?.name || '用户详情', userEdit: '编辑用户归属', organization: '组织管理', orgMove: '修改上级' };
+      $('breadcrumb').replaceChildren();
+      const root = document.createElement('span'); root.textContent = '管理范围';
+      const separator = document.createElement('span'); separator.textContent = '/'; separator.setAttribute('aria-hidden', 'true');
+      const current = document.createElement('strong'); current.textContent = names[view] || '';
+      $('breadcrumb').append(root, separator, current);
+      if (view === 'roles') renderRoleList();
+      if (view === 'roleDetail') renderRoleDetail();
+      if (view === 'roleEdit') { renderRoleEdit(); $('saveError').hidden = true; }
+      if (view === 'users') renderUsers();
+      if (view === 'userDetail') renderUserDetail();
+      if (view === 'userEdit') renderUserEdit();
+      if (view === 'organization') renderOrganization();
+      if (view === 'orgMove') renderOrgMove();
+      if (view === 'organization') $('orgLayout').classList.toggle('show-detail', orgMobileDetail);
+      if (view === 'login' || view === 'register') refreshCaptcha();
+      window.scrollTo(0, 0);
+    }
+    function renderRoleList() {
+      $('roleRows').innerHTML = Object.entries(roles).map(([key, role]) => `<tr><td><button type="button" class="list-link" data-open-role="${key}">${role.name}</button><span class="row-sub">${role.description}</span></td><td class="mini">${role.code}</td><td><span class="status">已启用</span></td><td>${scopeLabels[role.scope]}</td></tr>`).join('');
+    }
+    function renderRoleDetail() {
+      const role = roles[selectedRole], protectedRole = selectedRole === 'admin';
+      $('roleName').textContent = role.name; $('roleDescription').textContent = role.description; $('roleCode').textContent = '角色编码 / ' + role.code;
+      $('permissionList').innerHTML = role.permissions.map(code => { const item = permissions.find(p => p.code === code); return `<li>${item.name}<code>${code}</code></li>`; }).join('') || '<li>尚未分配权限</li>';
+      $('menuList').innerHTML = role.menus.map(key => { const menu = menus.find(m => m.key === key); const missing = !protectedRole && !role.permissions.includes(menu.code); return `<li>${menu.name}${missing ? '<span class="row-sub danger">当前角色缺少所需权限码</span>' : ''}</li>`; }).join('') || '<li>尚未分配菜单</li>';
+      const gaps = role.menus.filter(key => !role.permissions.includes(menus.find(item => item.key === key).code));
+      $('menuWarning').hidden = protectedRole || gaps.length === 0;
+      $('menuWarning').textContent = `当前角色有 ${gaps.length} 项菜单缺少所需权限码；用户仍可能通过其他角色获得权限，不能据此计算其实际可见菜单。`;
+      $('scopeName').textContent = scopeLabels[role.scope];
+      $('scopeDetail').textContent = role.scope === 'custom' ? '明确选择：' + role.scopeIds.map(unitName).join('、') + '；选中上级不包含下级。' : role.scope === 'org_and_children' ? '以用户所属组织为起点，包含下级组织。' : '数据范围由角色配置决定。';
+      $('protectedRole').hidden = !protectedRole;
+      $('protectedRole').textContent = protectedRole ? '超级管理员角色受系统保护，不可修改权限、菜单或数据范围。' : '';
+      document.querySelectorAll('[data-role-edit]').forEach(button => { button.disabled = protectedRole; button.title = protectedRole ? '超级管理员角色受保护' : ''; });
+    }
+    function treeMarkup(parent, selectable) {
+      return units.filter(unit => unit.parent === parent).map(unit => `<div class="branch-item">${selectable ? `<label><input type="checkbox" value="${unit.id}" ${unit.navigationOnly ? 'disabled' : ''}><span>${unit.name}${unit.navigationOnly ? ' <span class="hint">仅供定位</span>' : ''}</span></label>` : `<button type="button" class="tree-node" data-org="${unit.id}" aria-current="${unit.id === selectedOrg}">${unit.name}${unit.navigationOnly ? '<span class="row-sub">仅供定位</span>' : ''}</button>`}${units.some(child => child.parent === unit.id) ? `<div class="branch">${treeMarkup(unit.id, selectable)}</div>` : ''}</div>`).join('');
+    }
+    function renderRoleEdit() {
+      const role = roles[selectedRole];
+      if (selectedRole === 'admin') { show('roleDetail'); return; }
+      const meta = { permissions: ['编辑权限', '为角色选择可执行的操作；权限码是授权依据。'], menus: ['编辑已分配菜单', '分配菜单不自动授予对应权限。'], scope: ['编辑数据范围', '自定义范围仅包含明确勾选的组织单位。'] };
+      $('roleEditTitle').textContent = role.name + ' · ' + meta[editKind][0]; $('roleEditIntro').textContent = meta[editKind][1];
+      if (editKind === 'scope') {
+        $('roleEditForm').innerHTML = `<h2>选择数据范围</h2><div class="scope-options">${Object.entries(scopeLabels).map(([value, label]) => `<label><input type="radio" name="scope" value="${value}" ${role.scope === value ? 'checked' : ''}>${label}</label>`).join('')}</div><div id="customUnits" ${role.scope !== 'custom' ? 'hidden' : ''}><p class="hint" style="margin:19px 0 10px">独立勾选：选中上级不自动包含下级；仅供定位的祖先不可选。</p>${treeMarkup(null, true)}<p class="hint" id="chosenUnits"></p></div>${editFooter()}`;
+        $('roleEditForm').querySelectorAll('#customUnits input').forEach(input => { input.checked = role.scopeIds.includes(input.value); });
+        updateChosenUnits();
+      } else {
+        const items = editKind === 'menus' ? menus.map(item => ({ value: item.key, label: item.name, sub: item.code })) : permissions.map(item => ({ value: item.code, label: item.name, sub: item.code }));
+        $('roleEditForm').innerHTML = `<h2>${meta[editKind][0]}</h2><div class="edit-list">${items.map(item => `<label class="check-row"><input type="checkbox" value="${item.value}" ${role[editKind].includes(item.value) ? 'checked' : ''}><span>${item.label}<small>${item.sub}</small></span></label>`).join('')}</div>${editFooter()}`;
+      }
+    }
+    function editFooter() { return '<div class="edit-footer"><button type="button" class="outline-button" data-view="roleDetail">取消</button><button type="button" class="button" id="saveRoleEdit">保存更改</button></div>'; }
+    function updateChosenUnits() { const chosen = [...$('customUnits').querySelectorAll('input:checked')].map(input => unitName(input.value)); $('chosenUnits').textContent = chosen.length ? '已选：' + chosen.join('、') : '尚未选择组织单位'; }
+    function saveRoleEdit() {
+      const role = roles[selectedRole];
+      const selected = [...$('roleEditForm').querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value);
+      const scope = $('roleEditForm').querySelector('input[name="scope"]:checked')?.value;
+      if (editKind === 'scope' && scope === 'custom' && selected.length === 0) { toast('请选择至少一个组织单位。'); return; }
+      const before = editKind === 'scope' ? `${scopeLabels[role.scope]}${role.scope === 'custom' ? '（' + role.scopeIds.map(unitName).join('、') + '）' : ''}` : `${role[editKind].length} 项`;
+      const after = editKind === 'scope' ? `${scopeLabels[scope]}${scope === 'custom' ? '（' + selected.map(unitName).join('、') + '）' : ''}` : `${selected.length} 项`;
+      confirmAction('确认保存' + (editKind === 'scope' ? '数据范围' : editKind === 'menus' ? '菜单' : '权限') + '？', `本次变化：${before} → ${after}。关联用户的旧会话将在后续请求失效。`, () => {
+        if (editKind === 'scope') { role.scope = scope; role.scopeIds = scope === 'custom' ? selected : []; } else role[editKind] = selected;
+        show('roleDetail'); toast('已更新示例角色；未连接服务器。');
+      });
+    }
+    function actionMenu(user) {
+      if (hasAdminRole(user)) return '<span class="hint">受保护</span>';
+      return `<details class="action-menu"><summary aria-label="${user.name}的快捷操作">操作</summary><div class="action-items"><button type="button" data-user-action="toggle" data-user="${user.id}">${user.status === 'active' ? '停用用户' : '启用用户'}</button><button type="button" data-user-action="kick" data-user="${user.id}">强制下线</button></div></details>`;
+    }
+    function renderUsers() {
+      const keyword = $('userSearch').value.trim().toLocaleLowerCase(), status = $('statusFilter').value;
+      const filtered = users.filter(user => (status === 'all' || user.status === status) && (user.name + ' ' + user.username).toLocaleLowerCase().includes(keyword));
+      $('userCount').textContent = `筛选结果 · ${filtered.length} 位示例用户`;
+      $('userRows').innerHTML = filtered.map(user => `<tr><td><button type="button" class="list-link" data-open-user="${user.id}">${user.name}</button><span class="row-sub">${user.username}</span></td><td>${user.roles.map(key => roles[key].name).join(' · ')}</td><td>${user.orgs.map(unitName).join(' · ')}</td><td><span class="status ${user.status === 'disabled' ? 'off' : ''}">${user.status === 'active' ? '已启用' : '已停用'}</span></td><td>${actionMenu(user)}</td></tr>`).join('');
+      $('userCards').innerHTML = filtered.map(user => `<article class="user-card"><div class="user-card-head"><div><button type="button" class="list-link" data-open-user="${user.id}">${user.name}</button><span class="row-sub">${user.username}</span></div><span class="status ${user.status === 'disabled' ? 'off' : ''}">${user.status === 'active' ? '已启用' : '已停用'}</span></div><p>角色 · ${user.roles.map(key => roles[key].name).join('、')}</p><p>组织 · ${user.orgs.map(unitName).join('、') || '尚未分配'}</p>${actionMenu(user)}</article>`).join('');
+      $('emptyUsers').hidden = filtered.length !== 0;
+    }
+    function renderUserDetail() {
+      const user = users.find(item => item.id === selectedUser);
+      if (!user) { show('users'); return; }
+      $('userName').textContent = user.name; $('userMeta').textContent = `${user.username} · ${user.email}`;
+      $('userStatus').textContent = user.status === 'active' ? '已启用' : '已停用'; $('userStatus').className = 'status' + (user.status === 'disabled' ? ' off' : '');
+      $('userRoles').innerHTML = user.roles.map(key => `<li>${roles[key].name}</li>`).join('') || '<li>未分配角色</li>';
+      $('userOrgs').innerHTML = user.orgs.map(unitName).map(name => `<li>${name}</li>`).join('') || '<li>未分配组织单位</li>';
+      $('userProtected').hidden = !hasAdminRole(user);
+      $('userProtected').textContent = hasAdminRole(user) ? '当前用户具有超级管理员角色，管理端不能修改其归属、状态或删除该用户。' : '';
+      document.querySelectorAll('#userDetailView [data-user-edit], #userDetailView [data-user-action]').forEach(button => {
+        button.disabled = hasAdminRole(user); button.title = hasAdminRole(user) ? '受保护用户不可通过管理端修改' : '';
+        if (button.dataset.userAction === 'toggle') button.textContent = user.status === 'active' ? '停用用户' : '启用用户';
+      });
+    }
+    function renderUserEdit() {
+      const user = users.find(item => item.id === selectedUser);
+      if (!user || hasAdminRole(user)) { show('userDetail'); return; }
+      $('userEditTitle').textContent = user.name + ' · 编辑' + (userEditKind === 'roles' ? '角色' : '组织归属');
+      const choices = userEditKind === 'roles' ? Object.entries(roles).map(([value, role]) => ({ value, label: role.name, disabled: value === 'admin' })) : units.filter(unit => !unit.navigationOnly).map(unit => ({ value: unit.id, label: unitPath(unit.id) }));
+      $('userEditForm').innerHTML = `<h2>${userEditKind === 'roles' ? '角色' : '组织单位'}</h2><div class="edit-list">${choices.map(item => `<label class="check-row" ${item.disabled ? 'aria-disabled="true"' : ''}><input type="checkbox" value="${item.value}" ${user[userEditKind].includes(item.value) ? 'checked' : ''} ${item.disabled ? 'disabled' : ''}><span>${item.label}</span></label>`).join('')}</div><div class="edit-footer"><button type="button" class="outline-button" data-view="userDetail">取消</button><button type="button" class="button" id="saveUserEdit">保存更改</button></div>`;
+    }
+    function saveUserEdit() {
+      const user = users.find(item => item.id === selectedUser);
+      const chosen = [...$('userEditForm').querySelectorAll('input:checked')].map(input => input.value);
+      confirmAction('确认更新' + user.name + '的' + (userEditKind === 'roles' ? '角色' : '组织归属') + '？', `示例归属：${user[userEditKind].length} 项 → ${chosen.length} 项。更改后该用户的旧会话将失效。`, () => { user[userEditKind] = chosen; show('userDetail'); toast('已更新示例归属；未连接服务器。'); });
+    }
+    function userAction(kind, userId) {
+      const user = users.find(item => item.id === Number(userId || selectedUser));
+      if (!user || hasAdminRole(user)) return;
+      const label = kind === 'toggle' ? user.status === 'active' ? '停用' : '启用' : kind === 'kick' ? '强制下线' : '删除';
+      confirmAction(`确认${label}${user.name}？`, `${userName(user)}。${kind === 'delete' ? '删除后不再出现在用户列表中。' : kind === 'kick' ? '用户资料和状态不变；旧会话失效。' : '用户状态将改变；旧会话失效。'}`, () => {
+        if (kind === 'delete') { users.splice(users.indexOf(user), 1); show('users'); }
+        else { if (kind === 'toggle') user.status = user.status === 'active' ? 'disabled' : 'active'; show(view === 'userDetail' ? 'userDetail' : 'users'); }
+        toast(`已${label}示例用户；未连接服务器。`);
+      });
+    }
+    function renderOrganization() {
+      $('orgTree').innerHTML = treeMarkup(null, false);
+      const unit = units.find(item => item.id === selectedOrg);
+      if (!unit) return;
+      const members = users.filter(user => user.orgs.includes(unit.id));
+      $('orgDetail').innerHTML = `<div class="hero-line"><div><span class="eyebrow">ORGANIZATION · ${unit.navigationOnly ? '层级定位' : '组织单位'}</span><h2 style="margin-bottom:4px">${unit.name}</h2><span class="mini">${unit.code}</span></div><span class="status">${unit.status}</span></div><dl class="org-details"><div><dt>完整路径</dt><dd>${unitPath(unit.id)}</dd></div><div><dt>成员</dt><dd>${unit.navigationOnly ? '仅供定位' : members.length + ' 位示例成员'}</dd></div></dl>${unit.navigationOnly ? '<p class="warning-note">此祖先节点仅用于补全层级，不属于当前可管理范围；不能查看成员或修改资料。</p>' : `<button class="outline-button" type="button" data-view="orgMove">修改上级组织单位</button><div class="muted-line"></div><div class="page-head"><div><h3>组织成员</h3><p class="hint">逐人加入或移除；不覆盖整个组织单位的成员列表。</p></div><button class="outline-button" type="button" id="addOrgMember">加入成员</button></div><ul class="member-list">${members.map(user => `<li><div class="member-left"><span class="avatar" aria-hidden="true">${user.name.slice(0, 1)}</span><div><button class="list-link" type="button" data-open-user="${user.id}">${user.name}</button><span class="row-sub">${user.username}</span></div></div>${hasAdminRole(user) ? '<span class="hint">受保护</span>' : `<button type="button" class="text-button danger" data-remove-member="${user.id}">移除</button>`}</li>`).join('') || '<li class="hint">还没有成员。可从“加入成员”选择一位示例用户。</li>'}</ul>`}`;
+    }
+    function renderOrgMove() {
+      const unit = units.find(item => item.id === selectedOrg);
+      if (!unit || unit.navigationOnly) { show('organization'); return; }
+      $('oldOrgPath').textContent = '当前路径：' + unitPath(unit.id);
+      const descendants = new Set([unit.id]);
+      let changed = true;
+      while (changed) { changed = false; for (const item of units) if (descendants.has(item.parent) && !descendants.has(item.id)) { descendants.add(item.id); changed = true; } }
+      $('orgMoveTarget').innerHTML = units.filter(item => !descendants.has(item.id) && !item.navigationOnly).map(item => `<option value="${item.id}" ${item.id === unit.parent ? 'selected' : ''}>${unitPath(item.id)}</option>`).join('');
+      $('saveOrgMove').disabled = !$('orgMoveTarget').value;
+      updateNewOrgPath();
+    }
+    function updateNewOrgPath() { $('newOrgPath').textContent = $('orgMoveTarget').value ? '调整后路径：' + unitPath($('orgMoveTarget').value) + ' / ' + unitName(selectedOrg) : '当前没有可选择的上级组织单位。'; }
+    function addMember() {
+      const candidates = users.filter(user => !user.orgs.includes(selectedOrg) && !hasAdminRole(user));
+      if (!candidates.length) { toast('当前没有可加入的示例用户。'); return; }
+      $('memberCandidate').replaceChildren(...candidates.map(user => {
+        const option = document.createElement('option');
+        option.value = user.id; option.textContent = userName(user);
+        return option;
+      }));
+      $('memberDialog').showModal();
+    }
+    function refreshCaptcha() {
+      captchaIndex = (captchaIndex + 1) % captchaSamples.length;
+      $('captchaImage').textContent = captchaSamples[captchaIndex]; $('registerCaptchaImage').textContent = captchaSamples[(captchaIndex + 1) % captchaSamples.length];
+      $('loginCaptcha').value = ''; $('registerCaptcha').value = '';
+    }
+    function authState(state) {
+      clearInterval(lockTimer); $('loginMessage').hidden = false;
+      if (state === 'captcha') { $('loginMessage').textContent = '验证码无效或已使用。请查看新图片后重新输入。'; refreshCaptcha(); }
+      if (state === 'credentials') { $('loginMessage').textContent = '用户名或密码不正确。请核对后重试。'; refreshCaptcha(); }
+      if (state === 'expired') { $('loginMessage').textContent = '管理权限已变更，当前会话失效。请重新登录。'; }
+      if (state === 'locked') {
+        let remaining = 90;
+        const tick = () => { $('loginMessage').textContent = `登录暂时受限，请在 ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')} 后获取新验证码并手动重试。`; if (remaining-- <= 0) clearInterval(lockTimer); };
+        tick(); lockTimer = setInterval(tick, 1000);
+      }
+    }
+    function hasUnsavedChanges() {
+      const selected = id => [...$(id).querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value);
+      const differs = (left, right) => left.length !== right.length || left.some(value => !right.includes(value));
+      if (view === 'roleEdit') {
+        const role = roles[selectedRole];
+        if (editKind === 'scope') {
+          const scope = $('roleEditForm').querySelector('input[name="scope"]:checked').value;
+          return scope !== role.scope || (scope === 'custom' && differs(selected('customUnits'), role.scopeIds));
+        }
+        return differs(selected('roleEditForm'), role[editKind]);
+      }
+      if (view === 'userEdit') return differs(selected('userEditForm'), users.find(user => user.id === selectedUser)[userEditKind]);
+      if (view === 'orgMove') return $('orgMoveTarget').value !== units.find(unit => unit.id === selectedOrg).parent;
+      return false;
+    }
+    window.addEventListener('scroll', () => {
+      for (const menu of document.querySelectorAll('.action-menu[open]')) menu.open = false;
+    }, true);
+    document.addEventListener('click', event => {
+      const summary = event.target.closest('.action-menu summary');
+      if (summary) {
+        event.preventDefault();
+        const menu = summary.parentElement, opening = !menu.open;
+        for (const openMenu of document.querySelectorAll('.action-menu[open]')) openMenu.open = false;
+        if (opening) {
+          menu.open = true;
+          const panel = menu.querySelector('.action-items'), anchor = summary.getBoundingClientRect();
+          const x = Math.min(anchor.right + 8, innerWidth - panel.offsetWidth - 8);
+          const y = innerWidth <= 850 ? anchor.bottom - panel.offsetHeight : anchor.top;
+          panel.style.left = `${Math.max(8, x)}px`;
+          panel.style.top = `${Math.max(8, Math.min(y, innerHeight - panel.offsetHeight - 8))}px`;
+        }
+        return;
+      }
+      for (const menu of document.querySelectorAll('.action-menu[open]')) menu.open = false;
+      const target = event.target.closest('button');
+      if (!target || target.disabled) return;
+      if (target.dataset.view) {
+        const navigate = () => { if (target.matches('.nav-button') && target.dataset.view === 'organization') orgMobileDetail = false; show(target.dataset.view); };
+        if (hasUnsavedChanges()) confirmAction('放弃未保存的更改？', '离开此页后，本次选择不会保留。', navigate);
+        else navigate();
+        return;
+      }
+      if (target.dataset.openRole) { selectedRole = target.dataset.openRole; show('roleDetail'); return; }
+      if (target.dataset.roleEdit) { editKind = target.dataset.roleEdit; show('roleEdit'); return; }
+      if (target.id === 'previewSaveError') { $('saveError').hidden = false; return; }
+      if (target.id === 'saveRoleEdit') { saveRoleEdit(); return; }
+      if (target.dataset.openUser) { selectedUser = Number(target.dataset.openUser); show('userDetail'); return; }
+      if (target.dataset.userEdit) { userEditKind = target.dataset.userEdit; show('userEdit'); return; }
+      if (target.id === 'saveUserEdit') { saveUserEdit(); return; }
+      if (target.dataset.userAction) { userAction(target.dataset.userAction, target.dataset.user); return; }
+      if (target.dataset.org) { selectedOrg = target.dataset.org; orgMobileDetail = true; $('orgLayout').classList.add('show-detail'); renderOrganization(); window.scrollTo(0, 0); return; }
+      if (target.id === 'backOrgTree') { orgMobileDetail = false; $('orgLayout').classList.remove('show-detail'); return; }
+      if (target.id === 'addOrgMember') { addMember(); return; }
+      if (target.id === 'memberCancel') { $('memberDialog').close(); return; }
+      if (target.id === 'memberAdd') {
+        const user = users.find(item => item.id === Number($('memberCandidate').value));
+        $('memberDialog').close();
+        confirmAction(`加入${user.name}？`, `将${user.name}加入${unitName(selectedOrg)}；仅修改这位示例用户的归属。`, () => { user.orgs.push(selectedOrg); renderOrganization(); toast('已加入示例成员；未连接服务器。'); });
+        return;
+      }
+      if (target.dataset.removeMember) {
+        const user = users.find(item => item.id === Number(target.dataset.removeMember));
+        confirmAction(`从${unitName(selectedOrg)}移除${user.name}？`, '仅移除这一位示例成员；其旧会话会失效。', () => { user.orgs = user.orgs.filter(id => id !== selectedOrg); renderOrganization(); toast('已移除示例成员；未连接服务器。'); }); return;
+      }
+      if (target.id === 'saveOrgMove') {
+        const unit = units.find(item => item.id === selectedOrg), parent = $('orgMoveTarget').value;
+        confirmAction('确认调整上级？', `旧路径：${unitPath(unit.id)}。新路径：${unitPath(parent)} / ${unit.name}。`, () => { unit.parent = parent; show('organization'); toast('已调整示例层级；未连接服务器。'); }); return;
+      }
+      if (target.id === 'refreshCaptcha' || target.hasAttribute('data-refresh-captcha')) { refreshCaptcha(); return; }
+      if (target.dataset.authState) { authState(target.dataset.authState); return; }
+      if (target.id === 'previewLogin') { $('loginPassword').value = ''; show('roles'); return; }
+      if (target.id === 'previewRegister') { $('registerPassword').value = ''; show('login'); toast('注册完成状态预览：仍需管理员分配角色。未创建真实用户。'); }
+    });
+    document.addEventListener('change', event => {
+      if (event.target.id === 'statusFilter') renderUsers();
+      if (event.target.name === 'scope') $('customUnits').hidden = event.target.value !== 'custom';
+      if (event.target.closest('#customUnits')) updateChosenUnits();
+      if (event.target.id === 'orgMoveTarget') updateNewOrgPath();
+    });
+    $('userSearch').addEventListener('input', renderUsers);
+    show('roles');
+  </script>
+</body>
+</html>
