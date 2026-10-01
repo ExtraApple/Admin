@@ -1,0 +1,16 @@
+import * as React from 'react';
+import * as Primitive from '@radix-ui/react-alert-dialog';
+import { cn } from '@/lib/utils';
+import { buttonVariants } from './button';
+export const AlertDialog = Primitive.Root;
+export const AlertDialogTrigger = Primitive.Trigger;
+export const AlertDialogPortal = Primitive.Portal;
+export const AlertDialogOverlay = React.forwardRef<React.ElementRef<typeof Primitive.Overlay>, React.ComponentPropsWithoutRef<typeof Primitive.Overlay>>(({ className, ...props }, ref) => <Primitive.Overlay ref={ref} className={cn('ui-dialog-overlay', className)} {...props} />);
+export const AlertDialogContent = React.forwardRef<React.ElementRef<typeof Primitive.Content>, React.ComponentPropsWithoutRef<typeof Primitive.Content>>(({ className, ...props }, ref) => <AlertDialogPortal><AlertDialogOverlay /><Primitive.Content ref={ref} className={cn('ui-dialog-content', className)} {...props} /></AlertDialogPortal>);
+export const AlertDialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div className={cn('ui-dialog-header', className)} {...props} />;
+export const AlertDialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div className={cn('ui-dialog-footer', className)} {...props} />;
+export const AlertDialogTitle = React.forwardRef<React.ElementRef<typeof Primitive.Title>, React.ComponentPropsWithoutRef<typeof Primitive.Title>>(({ className, ...props }, ref) => <Primitive.Title ref={ref} className={cn('ui-dialog-title', className)} {...props} />);
+export const AlertDialogDescription = React.forwardRef<React.ElementRef<typeof Primitive.Description>, React.ComponentPropsWithoutRef<typeof Primitive.Description>>(({ className, ...props }, ref) => <Primitive.Description ref={ref} className={cn('ui-dialog-description', className)} {...props} />);
+export const AlertDialogAction = React.forwardRef<React.ElementRef<typeof Primitive.Action>, React.ComponentPropsWithoutRef<typeof Primitive.Action>>(({ className, ...props }, ref) => <Primitive.Action ref={ref} className={cn(buttonVariants(), className)} {...props} />);
+export const AlertDialogCancel = React.forwardRef<React.ElementRef<typeof Primitive.Cancel>, React.ComponentPropsWithoutRef<typeof Primitive.Cancel>>(({ className, ...props }, ref) => <Primitive.Cancel ref={ref} className={cn(buttonVariants({ variant: 'outline' }), className)} {...props} />);
+AlertDialogContent.displayName = 'AlertDialogContent'; AlertDialogTitle.displayName = 'AlertDialogTitle'; AlertDialogDescription.displayName = 'AlertDialogDescription'; AlertDialogAction.displayName = 'AlertDialogAction'; AlertDialogCancel.displayName = 'AlertDialogCancel'; AlertDialogOverlay.displayName = 'AlertDialogOverlay';

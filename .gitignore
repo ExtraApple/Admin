@@ -3,3 +3,4 @@
 logs/*.log
 /study/
 .gocache/
+node_modules/

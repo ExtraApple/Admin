@@ -1,0 +1,126 @@
+{
+  "cases": [
+    {
+      "name": "success-object",
+      "status": 200,
+      "envelope": { "code": 200, "error_code": "", "msg": "success", "data": { "id": 7 } },
+      "expected": { "result": { "id": 7 } }
+    },
+    {
+      "name": "success-null",
+      "status": 200,
+      "envelope": { "code": 200, "error_code": "", "msg": "success", "data": null },
+      "expected": { "result": null }
+    },
+    {
+      "name": "success-empty-array",
+      "status": 200,
+      "envelope": { "code": 200, "error_code": "", "msg": "success", "data": [] },
+      "expected": { "result": [] }
+    },
+    {
+      "name": "validation-json-fields",
+      "status": 422,
+      "envelope": {
+        "code": 422, "error_code": "IDENTITY_VALIDATION_INVALID", "msg": "request validation failed",
+        "data": { "fields": [
+          { "field": "confirm_password", "error_code": "IDENTITY_PASSWORD_CONFIRMATION_INVALID", "message": "password confirmation does not match" },
+          { "field": "password", "error_code": "IDENTITY_PASSWORD_INVALID", "message": "password does not meet the security requirements" }
+        ] }
+      },
+      "expected": {
+        "status": 422, "errorCode": "IDENTITY_VALIDATION_INVALID", "fallback": "request validation failed", "message": "请检查标注的字段。",
+        "fields": [
+          { "field": "confirm_password", "error_code": "IDENTITY_PASSWORD_CONFIRMATION_INVALID", "message": "password confirmation does not match" },
+          { "field": "password", "error_code": "IDENTITY_PASSWORD_INVALID", "message": "password does not meet the security requirements" }
+        ],
+        "fieldMessages": { "confirm_password": ["两次输入的密码不一致。"], "password": ["密码至少 6 位，且包含大写、小写、数字、特殊字符中的至少三类。"] },
+        "safeData": null, "retryAfterSeconds": 0
+      }
+    },
+    {
+      "name": "auth-credentials-invalid",
+      "status": 401,
+      "envelope": { "code": 401, "error_code": "AUTHN_CREDENTIALS_INVALID", "msg": "username or password is invalid", "data": { "remaining_attempts": 2 } },
+      "expected": { "status": 401, "errorCode": "AUTHN_CREDENTIALS_INVALID", "fallback": "username or password is invalid", "message": "用户名或密码不正确。", "fields": [], "fieldMessages": {}, "safeData": { "remaining_attempts": 2 }, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "authorization-denied",
+      "status": 403,
+      "envelope": { "code": 403, "error_code": "API_META_PERMISSION_DENIED", "msg": "permission is denied", "data": null },
+      "expected": { "status": 403, "errorCode": "API_META_PERMISSION_DENIED", "fallback": "permission is denied", "message": "没有访问此功能的权限。", "fields": [], "fieldMessages": {}, "safeData": null, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "identity-conflict",
+      "status": 409,
+      "envelope": { "code": 409, "error_code": "IDENTITY_CONFLICT", "msg": "identity resource conflicts with an existing resource", "data": null },
+      "expected": { "status": 409, "errorCode": "IDENTITY_CONFLICT", "fallback": "identity resource conflicts with an existing resource", "message": "资料与现有记录冲突，请核对后重试。", "fields": [], "fieldMessages": {}, "safeData": null, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "auth-rate-limited",
+      "status": 429,
+      "headers": { "Retry-After": "37" },
+      "envelope": { "code": 429, "error_code": "AUTHN_LOGIN_LOCKED", "msg": "login is temporarily locked", "data": { "retry_after_seconds": 30 } },
+      "expected": { "status": 429, "errorCode": "AUTHN_LOGIN_LOCKED", "fallback": "login is temporarily locked", "message": "登录暂时锁定，请等待倒计时结束后手动重试。", "fields": [], "fieldMessages": {}, "safeData": { "retry_after_seconds": 30 }, "retryAfterSeconds": 37 }
+    },
+    {
+      "name": "internal-failure",
+      "status": 500,
+      "envelope": { "code": 500, "error_code": "HTTP_INTERNAL_ERROR", "msg": "internal server error", "data": null },
+      "expected": { "status": 500, "errorCode": "HTTP_INTERNAL_ERROR", "fallback": "internal server error", "message": "服务器暂时无法完成操作，请稍后重试。", "fields": [], "fieldMessages": {}, "safeData": null, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "upload-storage-unavailable",
+      "status": 503,
+      "envelope": { "code": 503, "error_code": "STORAGE_UNAVAILABLE", "msg": "file storage is unavailable", "data": null },
+      "expected": { "status": 503, "errorCode": "STORAGE_UNAVAILABLE", "fallback": "file storage is unavailable", "message": "文件存储暂时不可用。", "fields": [], "fieldMessages": {}, "safeData": null, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "future-localization-conflict",
+      "status": 409,
+      "envelope": { "code": 409, "error_code": "FUTURE_CONFLICT", "msg": "Resource changed. Please reload.", "data": null },
+      "expected": { "status": 409, "errorCode": "FUTURE_CONFLICT", "fallback": "Resource changed. Please reload.", "message": "Resource changed. Please reload.", "fields": [], "fieldMessages": {}, "safeData": null, "retryAfterSeconds": 0 }
+    },
+    {
+      "name": "future-localization-multiple-errors-same-field",
+      "status": 422,
+      "envelope": {
+        "code": 422, "error_code": "IDENTITY_VALIDATION_INVALID", "msg": "request validation failed",
+        "data": { "fields": [
+          { "field": "password", "error_code": "FUTURE_PASSWORD_RULE", "message": "Password cannot contain the account name." },
+          { "field": "password", "error_code": "IDENTITY_PASSWORD_INVALID", "message": "password does not meet the security requirements" }
+        ] }
+      },
+      "expected": {
+        "status": 422, "errorCode": "IDENTITY_VALIDATION_INVALID", "fallback": "request validation failed", "message": "请检查标注的字段。",
+        "fields": [
+          { "field": "password", "error_code": "FUTURE_PASSWORD_RULE", "message": "Password cannot contain the account name." },
+          { "field": "password", "error_code": "IDENTITY_PASSWORD_INVALID", "message": "password does not meet the security requirements" }
+        ],
+        "fieldMessages": { "password": ["Password cannot contain the account name.", "密码至少 6 位，且包含大写、小写、数字、特殊字符中的至少三类。"] },
+        "safeData": null, "retryAfterSeconds": 0
+      }
+    },
+    {
+      "name": "native-image",
+      "status": 200,
+      "headers": { "Content-Type": "image/png" },
+      "native": { "kind": "image", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9n8AAAAASUVORK5CYII=" },
+      "expected": { "contentType": "image/png", "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9n8AAAAASUVORK5CYII=" }
+    },
+    {
+      "name": "native-download",
+      "status": 200,
+      "headers": { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=contract.pdf" },
+      "native": { "kind": "blob", "body": "%PDF-1.4\nshared contract fixture\n%%EOF\n" },
+      "expected": { "contentType": "application/pdf", "body": "%PDF-1.4\nshared contract fixture\n%%EOF\n" }
+    },
+    {
+      "name": "native-openapi",
+      "status": 200,
+      "headers": { "Content-Type": "application/json" },
+      "native": { "kind": "raw", "json": { "openapi": "3.0.3", "info": { "title": "Admin API", "version": "1.0.0" }, "paths": {} } },
+      "expected": { "json": { "openapi": "3.0.3", "info": { "title": "Admin API", "version": "1.0.0" }, "paths": {} } }
+    }
+  ]
+}

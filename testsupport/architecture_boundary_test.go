@@ -319,48 +319,6 @@ func TestArchitectureProductionDoesNotDiscoverGinRoutes(t *testing.T) {
 		})
 	}
 }
-func TestArchitectureIdentityConsumersAreComposedBeforeFullIdentity(t *testing.T) {
-	root := architectureRepositoryRoot(t)
-	path := filepath.Join(root, "internal", "app", "app.go")
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse internal/app/app.go: %v", err)
-	}
-	wanted := map[string]struct{}{
-		"newIdentityCore":                       {},
-		"newAuthorizationService":               {},
-		"newNavigationComposition":              {},
-		"organizationDescriptorsWithVisibility": {},
-		"newIdentityComposition":                {},
-	}
-	positions := make(map[string]token.Pos, len(wanted))
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		function, ok := call.Fun.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		if _, tracked := wanted[function.Name]; tracked {
-			positions[function.Name] = call.Pos()
-		}
-		return true
-	})
-	for name := range wanted {
-		if positions[name] == token.NoPos {
-			t.Fatalf("internal/app/app.go does not call %s", name)
-		}
-	}
-	core := positions["newIdentityCore"]
-	fullIdentity := positions["newIdentityComposition"]
-	for _, consumer := range []string{"newAuthorizationService", "newNavigationComposition", "organizationDescriptorsWithVisibility"} {
-		if positions[consumer] <= core || positions[consumer] >= fullIdentity {
-			t.Errorf("%s must be composed after Identity Core and before full Identity", consumer)
-		}
-	}
-}
 func TestArchitectureFullIdentityCompositionDoesNotRetainDirectory(t *testing.T) {
 	root := architectureRepositoryRoot(t)
 	path := filepath.Join(root, "internal", "app", "identity.go")

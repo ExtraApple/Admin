@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"net/http"
+	"reflect"
 
 	"admin/internal/platform/httpresponse"
 )
@@ -15,7 +16,14 @@ func authzConflict() httpresponse.ErrorDefinition {
 }
 
 func authzValidation() httpresponse.ErrorDefinition {
-	return httpresponse.ErrorDefinition{Owner: "authorization", Code: "AUTHZ_VALIDATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "authorization validation failed"}
+	return httpresponse.ErrorDefinition{
+		Owner: "authorization", Code: "AUTHZ_VALIDATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "authorization validation failed",
+		DataSchema: reflect.TypeOf(httpresponse.ValidationErrorData{}),
+		Fields: []httpresponse.FieldErrorDefinition{
+			{Field: "role_ids", Code: "AUTHZ_ROLE_IDS_INVALID", Message: "role_ids must be an explicit array of positive IDs"},
+			{Field: "expected_access_version", Code: "AUTHZ_ACCESS_VERSION_INVALID", Message: "expected_access_version must be positive"},
+		},
+	}
 }
 
 func authzInvalidUser() httpresponse.ErrorDefinition {

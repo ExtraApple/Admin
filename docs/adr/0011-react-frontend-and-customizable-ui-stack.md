@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受；正式前端尚未实施。
+已接受；React 工作台、集中 Client 和角色／用户／组织页面已有代码实现。运行验收与发布结论以两个关联 change 的验收证据为准，本 ADR 不宣称浏览器或联合验收已通过。
 
 ## 背景
 
@@ -27,4 +27,4 @@ Admin 将在根目录 `web/` 建立管理端，以用户、角色和组织授权
 - **Element Plus** 提供成套管理控件，但属于 Vue 生态，且其整体使用方式不符合本次选型偏好；shadcn/ui 更便于保持已审核的页面设计。
 - **仅用 Radix UI 自建所有控件** 提供最大控制权，但会增加通用按钮、表单控件及交互样式的维护工作；shadcn/ui 提供可按需调整的组件源码。
 
-该路线要求项目维护引入后的组件源码与主题变量；复杂表格、表单错误及响应状态仍须按业务契约自行组合和验证。初始化 shadcn/ui 时须显式选择 Radix（例如 `shadcn init --base radix`），避免实际基元与决策不一致。具体依赖版本、包管理器和页面路由方案在正式创建 `web/` 应用时确定，不由本 ADR 虚构为已实施事实。
+该路线要求项目维护引入后的组件源码与主题变量；复杂表格、表单错误及响应状态仍须按业务契约自行组合和验证。现有实现采用 npm、React Router 和 Radix 组件，版本由 `web/package.json` 与 `web/package-lock.json` 固定；入口在 `web/src/App.tsx`，集中 Client 在 `web/src/lib/api.ts`。实现与联合验收门禁见 [`build-admin-workbench`](../../openspec/changes/build-admin-workbench/)；开发、部署及内存会话限制见 [README](../../README.md#管理工作台)。

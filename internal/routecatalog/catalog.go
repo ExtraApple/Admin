@@ -48,6 +48,7 @@ type Operation struct {
 	Summary     string
 	Description string
 	Protocol    string
+	QuerySchema reflect.Type
 	Request     RequestBody
 	Responses   map[int]Response
 }

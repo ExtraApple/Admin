@@ -172,8 +172,9 @@ func buildOperation(descriptor routecatalog.Descriptor, entry Metadata, metadata
 	if metadataFound && entry.Status != 1 {
 		operation["deprecated"] = true
 	}
-	if len(params) > 0 {
-		operation["parameters"] = pathParameters(params)
+	parameters := append(pathParameters(params), queryParameters(descriptor.OpenAPI.QuerySchema)...)
+	if len(parameters) > 0 {
+		operation["parameters"] = parameters
 	}
 	if request := buildRequestBody(descriptor.OpenAPI.Request); request != nil {
 		operation["requestBody"] = request
@@ -373,6 +374,8 @@ func schemaForStack(value reflect.Type, stack map[reflect.Type]bool) map[string]
 		return map[string]any{"type": "object", "additionalProperties": schemaForStack(value.Elem(), stack)}
 	case reflect.Bool:
 		return map[string]any{"type": "boolean"}
+	case reflect.String:
+		return map[string]any{"type": "string"}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return map[string]any{"type": "integer", "format": "int64"}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -398,7 +401,9 @@ func objectSchema(value reflect.Type, stack map[reflect.Type]bool) map[string]an
 		if omit || name == "" {
 			continue
 		}
-		properties[name] = schemaForStack(field.Type, stack)
+		property := schemaForStack(field.Type, stack)
+		applyIntegerBinding(property, field.Tag.Get("binding"))
+		properties[name] = property
 		if strings.Contains(field.Tag.Get("binding"), "required") {
 			required = append(required, name)
 		}
@@ -408,6 +413,33 @@ func objectSchema(value reflect.Type, stack map[reflect.Type]bool) map[string]an
 		result["required"] = required
 	}
 	return result
+}
+
+func applyIntegerBinding(schema map[string]any, binding string) {
+	for _, rule := range strings.Split(binding, ",") {
+		if rule == "dive" {
+			items, ok := schema["items"].(map[string]any)
+			if !ok { return }
+			schema = items
+			continue
+		}
+		if schema["type"] != "integer" { continue }
+		if strings.HasPrefix(rule, "oneof=") {
+			values := strings.Fields(strings.TrimPrefix(rule, "oneof="))
+			enum := make([]int, 0, len(values))
+			for _, value := range values {
+				number, err := strconv.Atoi(value)
+				if err != nil { return }
+				enum = append(enum, number)
+			}
+			schema["enum"] = enum
+		} else if strings.HasPrefix(rule, "min=") || strings.HasPrefix(rule, "gt=") {
+			bound, err := strconv.ParseFloat(strings.SplitN(rule, "=", 2)[1], 64)
+			if err != nil { continue }
+			if strings.HasPrefix(rule, "gt=") { bound++ }
+			schema["minimum"] = bound
+		}
+	}
 }
 
 func jsonName(field reflect.StructField) (string, bool) {
@@ -439,6 +471,23 @@ func pathParameters(params []string) []map[string]any {
 	result := make([]map[string]any, len(params))
 	for index, name := range params {
 		result[index] = map[string]any{"name": name, "in": "path", "required": true, "schema": map[string]any{"type": "string"}}
+	}
+	return result
+}
+
+func queryParameters(value reflect.Type) []map[string]any {
+	if value == nil { return nil }
+	if value.Kind() == reflect.Pointer { value = value.Elem() }
+	if value.Kind() != reflect.Struct { return nil }
+	result := make([]map[string]any, 0, value.NumField())
+	for index := range value.NumField() {
+		field := value.Field(index)
+		name := strings.Split(field.Tag.Get("form"), ",")[0]
+		if field.PkgPath != "" || name == "" || name == "-" { continue }
+		schema := schemaFor(field.Type)
+		delete(schema, "nullable")
+		applyIntegerBinding(schema, field.Tag.Get("binding"))
+		result = append(result, map[string]any{"name": name, "in": "query", "required": strings.Contains(field.Tag.Get("binding"), "required"), "schema": schema})
 	}
 	return result
 }

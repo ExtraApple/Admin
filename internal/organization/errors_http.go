@@ -2,6 +2,7 @@ package organization
 
 import (
 	"net/http"
+	"reflect"
 
 	"admin/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,20 @@ func orgConflict() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "organization", Code: "ORG_CONFLICT", Status: http.StatusConflict, Message: "organization resource conflicts with an existing resource"}
 }
 func orgValidation() httpresponse.ErrorDefinition {
-	return httpresponse.ErrorDefinition{Owner: "organization", Code: "ORG_VALIDATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "organization validation failed"}
+	return httpresponse.ErrorDefinition{
+		Owner: "organization", Code: "ORG_VALIDATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "organization validation failed",
+		DataSchema: reflect.TypeOf(httpresponse.ValidationErrorData{}),
+		Fields: []httpresponse.FieldErrorDefinition{
+			{Field: "organization_ids", Code: "ORG_ORGANIZATION_IDS_INVALID", Message: "organization_ids must be an explicit array of positive IDs"},
+			{Field: "expected_access_version", Code: "ORG_ACCESS_VERSION_INVALID", Message: "expected_access_version must be positive"},
+		},
+	}
 }
 func orgInternal() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "organization", Code: "ORG_INTERNAL_ERROR", Status: http.StatusInternalServerError, Message: "organization operation failed"}
+}
+func orgPermissionDenied() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "organization", Code: "ORG_PERMISSION_DENIED", Status: http.StatusForbidden, Message: "organization operation is not permitted"}
 }
 func classifyOrganizationError(err error) httpresponse.ErrorDefinition {
 	if code, ok := CodeOf(err); ok {
@@ -26,6 +37,8 @@ func classifyOrganizationError(err error) httpresponse.ErrorDefinition {
 			return orgNotFound()
 		case CodeConflict:
 			return orgConflict()
+		case CodePermissionDenied:
+			return orgPermissionDenied()
 		case CodeValidationInvalid:
 			return orgValidation()
 		case CodeInternalError:

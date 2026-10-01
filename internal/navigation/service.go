@@ -190,11 +190,16 @@ func (service *Service) RoleMenus(ctx context.Context, roleID uint) ([]MenuDetai
 	if err != nil || len(menuIDs) == 0 {
 		return []MenuDetail{}, err
 	}
-	menus, err := service.repository.ListMenus(ctx, true)
+	menus, err := service.repository.ListMenus(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	return buildMenuTree(filterMenusByIDs(menus, menuIDs), 0), nil
+	assigned := filterMenusByIDs(menus, menuIDs)
+	result := make([]MenuDetail, len(assigned))
+	for index, menu := range assigned {
+		result[index] = menuToDetail(menu)
+	}
+	return result, nil
 }
 
 func (service *Service) UserMenus(ctx context.Context, userID uint) ([]MenuDetail, error) {

@@ -1,0 +1,7 @@
+build-admin-workbench 联合验收记录（2026-09-30）
+
+本 change 与 standardize-api-response-contract 使用同一份完整验收证据：
+../../standardize-api-response-contract/evidence/frontend-integration-acceptance-2026-09-30.txt
+
+证据记录 Go 全量测试、前端类型检查／43 项测试／生产构建、真实浏览器联调、版本冲突、原生响应及发布门槛。
+本目录 profile-320.png 为真实公开注册账户长昵称／长邮箱的 320px 个人资料截图；不是样稿或模拟数据。

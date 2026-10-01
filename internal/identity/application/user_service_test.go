@@ -24,9 +24,6 @@ func (fake *managementRepositoryFake) FindByIDForUpdate(_ context.Context, _ uin
 	return fake.user, nil
 }
 
-func (fake *managementRepositoryFake) List(context.Context, int, int, domain.UserScope) ([]domain.User, int64, error) {
-	return []domain.User{fake.user}, 1, nil
-}
 func (fake *managementRepositoryFake) EmailExists(_ context.Context, _ string, _ uint) (bool, error) {
 	if len(fake.emailExistsValues) > 0 {
 		exists := fake.emailExistsValues[0]

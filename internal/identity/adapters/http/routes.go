@@ -78,7 +78,6 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
 		identityRoute(http.MethodPost, "/api/user/logout", "Logout", routecatalog.Authenticated, handler.logout, nil, nil),
-		permissionIdentityRoute(http.MethodGet, "/api/admin/users", "List Users", "admin.users.get", handler.listUsers, nil, identity.UserListResponse{}),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{}),
 		permissionIdentityRoute(http.MethodDelete, "/api/admin/users/:id", "Delete User", "admin.users.id.delete", handler.deleteUser, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/status", "Toggle User Status", "admin.users.id.status.put", handler.toggleStatus, nil, nil),
@@ -228,20 +227,6 @@ func (handler *routeHandler) changePassword(c *gin.Context) {
 	identitySuccess(c, nil)
 }
 
-func (handler *routeHandler) listUsers(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	size, _ := strconv.Atoi(c.DefaultQuery("size", "10"))
-	result, err := handler.users.List(c.Request.Context(), c.GetUint("userID"), page, size)
-	if err != nil {
-		writeIdentityError(c, err, false)
-		return
-	}
-	list := make([]identity.UserInfo, len(result.List))
-	for index := range result.List {
-		list[index] = identity.UserInfoFromDomain(result.List[index])
-	}
-	identitySuccess(c, identity.UserListResponse{List: list, Total: result.Total, Page: page, Size: size})
-}
 
 func (handler *routeHandler) resendEmailVerification(c *gin.Context) {
 	if handler.emailVerification == nil {

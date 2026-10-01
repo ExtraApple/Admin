@@ -98,12 +98,6 @@ type EmailVerificationRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
-type UserListResponse struct {
-	List  []UserInfo `json:"list"`
-	Total int64      `json:"total"`
-	Page  int        `json:"page"`
-	Size  int        `json:"size"`
-}
 
 type AdminUpdateUserRequest struct {
 	Nickname string `json:"nickname" binding:"max=100"`

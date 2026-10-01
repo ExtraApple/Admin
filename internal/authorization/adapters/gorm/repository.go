@@ -110,6 +110,42 @@ func (repository *Repository) RoleIDsByUser(ctx context.Context, userID uint) ([
 	}
 	return nonNilIDs(roleIDs), nil
 }
+func (repository *Repository) UserRoleSummaries(ctx context.Context, userIDs []uint) ([]application.UserRoleSummary, error) {
+	ids := uniqueIDs(userIDs)
+	if len(ids) == 0 {
+		return []application.UserRoleSummary{}, nil
+	}
+	var summaries []application.UserRoleSummary
+	err := repository.connection(ctx).Model(&Role{}).
+		Select("user_roles.user_id AS user_id, roles.id AS role_id, roles.code AS code, roles.name AS name, roles.status AS status").
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("user_roles.user_id IN ?", ids).
+		Order("user_roles.user_id asc, roles.sort asc, roles.id asc").
+		Scan(&summaries).Error
+	if err != nil {
+		return nil, err
+	}
+	if summaries == nil {
+		summaries = []application.UserRoleSummary{}
+	}
+	return summaries, nil
+}
+
+func (repository *Repository) ReplaceUserRoles(ctx context.Context, userID uint, roleIDs []uint) error {
+	db := repository.connection(ctx)
+	if err := db.Where("user_id = ?", userID).Delete(&UserRole{}).Error; err != nil {
+		return err
+	}
+	roleIDs = uniqueIDs(roleIDs)
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	relations := make([]UserRole, len(roleIDs))
+	for index, roleID := range roleIDs {
+		relations[index] = UserRole{UserID: userID, RoleID: roleID}
+	}
+	return db.Create(&relations).Error
+}
 
 func (repository *Repository) ReplaceRoleUsers(ctx context.Context, roleID uint, userIDs []uint) error {
 	db := repository.connection(ctx)

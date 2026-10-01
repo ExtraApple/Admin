@@ -118,13 +118,19 @@ func (repository *Repository) ListUserIDs(ctx context.Context) ([]uint, error) {
 
 var _ application.DirectoryRepository = (*Repository)(nil)
 
-func (repository *Repository) List(ctx context.Context, offset, limit int, scope domain.UserScope) ([]domain.User, int64, error) {
+func (repository *Repository) List(ctx context.Context, offset, limit int, scope domain.UserScope, filter application.UserFilter) ([]domain.User, int64, error) {
 	query := repository.connection(ctx).Model(&UserModel{})
 	if !scope.All {
 		if len(scope.UserIDs) == 0 {
 			return []domain.User{}, 0, nil
 		}
 		query = query.Where("id IN ?", scope.UserIDs)
+	}
+	if filter.Keyword != "" {
+		query = query.Where("(username LIKE ? OR nickname LIKE ?)", "%"+filter.Keyword+"%", "%"+filter.Keyword+"%")
+	}
+	if filter.Status != nil {
+		query = query.Where("status = ?", *filter.Status)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

@@ -27,6 +27,8 @@ type Repository interface {
 	ChildCount(context.Context, uint) (int64, error)
 	MemberUserIDs(context.Context, uint) ([]uint, error)
 	MemberOrganizationMemberships(context.Context, uint) ([]MembershipFact, error)
+	UserOrganizationFacts(context.Context, []uint) ([]UserOrganizationFact, error)
+	ReplaceUserMemberships(context.Context, uint, []uint, []uint) error
 	DeleteMemberships(context.Context, uint) error
 	CreateMemberships(context.Context, []Membership) error
 	ReplaceMemberships(context.Context, uint, []uint) error
@@ -76,6 +78,42 @@ func (repository *gormRepository) MemberOrganizationMemberships(ctx context.Cont
 		Scan(&records).Error
 	return records, err
 }
+func (repository *gormRepository) UserOrganizationFacts(ctx context.Context, userIDs []uint) ([]UserOrganizationFact, error) {
+	result := []UserOrganizationFact{}
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	err := repository.connection(ctx).Model(&Unit{}).
+		Select("user_organizations.user_id, organizations.id AS organization_id, organizations.name").
+		Joins("JOIN user_organizations ON user_organizations.organization_id = organizations.id").
+		Where("user_organizations.user_id IN ?", userIDs).
+		Order("user_organizations.user_id asc, organizations.sort asc, organizations.id asc").
+		Scan(&result).Error
+	return result, err
+}
+
+func (repository *gormRepository) ReplaceUserMemberships(ctx context.Context, userID uint, manageable, selected []uint) error {
+	db := repository.connection(ctx)
+	if len(manageable) > 0 {
+		query := db.Where("user_id = ? AND organization_id IN ?", userID, manageable)
+		if len(selected) > 0 {
+			query = query.Where("organization_id NOT IN ?", selected)
+		}
+		if err := query.Delete(&Membership{}).Error; err != nil {
+			return err
+		}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	records := make([]Membership, len(selected))
+	for index, id := range selected {
+		records[index] = Membership{UserID: userID, OrganizationID: id, CreatedAt: now}
+	}
+	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&records).Error
+}
+
 
 func (repository *gormRepository) OrganizationParents(ctx context.Context) ([]OrganizationParent, error) {
 	var organizations []OrganizationParent

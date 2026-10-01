@@ -36,6 +36,7 @@ func newIdentityCore(resources Resources) identityCore {
 type identityComposition struct {
 	service           *identityapplication.Service
 	users             *identityapplication.UserService
+	adminUsers        *identityapplication.AdminUserService
 	context           *identityapplication.ContextService
 	avatars           *identityapplication.AvatarService
 	store             *identityredis.Store
@@ -43,7 +44,7 @@ type identityComposition struct {
 	repository        identityapplication.UserRepository
 }
 
-func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore) (identityComposition, error) {
+func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore, organizations identityapplication.AdminOrganizationReader) (identityComposition, error) {
 	store := identityredis.NewStore(resources.Redis)
 	tokens := identityjwt.NewService(identityjwt.Config{
 		Secret:                  config.Jwt.Secret,
@@ -75,15 +76,17 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 	}
 	access := &identityAccessManager{authorization: authorization, roles: authgorm.NewRepository(resources.DB), versions: authgorm.NewAccessVersions(resources.DB)}
 	users := identityapplication.NewUserService(core.repository, identitypassword.Bcrypt{}, platformdatabase.NewTransactionRunner(resources.DB), access)
+	adminUsers := identityapplication.NewAdminUserService(core.repository, access, organizations, platformdatabase.NewTransactionRunner(resources.DB))
 	if emailSender != nil {
 		users.ConfigureEmailVerification(emailVerification, emailSender)
 	}
 	contextService := identityapplication.NewContextService(core.repository, authorizationReader, navigation)
 	avatars := newAvatarService(resources, core.repository)
-	return identityComposition{service: service, users: users, context: contextService, avatars: avatars, store: store, emailVerification: emailVerification, repository: core.repository}, nil
+	return identityComposition{service: service, users: users, adminUsers: adminUsers, context: contextService, avatars: avatars, store: store, emailVerification: emailVerification, repository: core.repository}, nil
 }
 func identityDescriptors(composition identityComposition, config platformconfig.Config) []routecatalog.Descriptor {
-	return identityhttp.RoutesWithEmailVerification(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, durationMinutes(config.Jwt.Expire), composition.emailVerification)
+	routes := identityhttp.RoutesWithEmailVerification(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, durationMinutes(config.Jwt.Expire), composition.emailVerification)
+	return append(routes, identityhttp.AdminUserRoutes(composition.adminUsers)...)
 }
 
 func durationMinutes(minutes int) time.Duration { return time.Duration(minutes) * time.Minute }
@@ -154,6 +157,24 @@ func (adapter *identityAccessManager) IsAdministrator(ctx context.Context, userI
 	}
 	return false, nil
 }
+
+func (adapter *identityAccessManager) UserRoles(ctx context.Context, userIDs []uint) ([]identityapplication.UserRoleFact, error) {
+	facts, err := adapter.authorization.UserRoleSummaries(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]identityapplication.UserRoleFact, len(facts))
+	for index, fact := range facts {
+		result[index] = identityapplication.UserRoleFact{UserID: fact.UserID, ID: fact.RoleID, Code: fact.Code, Name: fact.Name, Status: fact.Status}
+	}
+	return result, nil
+}
+
+func (adapter *identityAccessManager) EnsureVersions(ctx context.Context, userIDs []uint) (map[uint]int, error) {
+	return adapter.versions.EnsureMany(ctx, userIDs)
+}
+
+var _ identityapplication.AdminAuthorizationReader = (*identityAccessManager)(nil)
 
 func runIdentityEmailVerificationCleanup(ctx context.Context, service *identityapplication.EmailVerificationService, logger *zap.Logger) {
 	cleanup := func() {

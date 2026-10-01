@@ -1,9 +1,9 @@
 ## 1. 分阶段边界与契约基线
 
-- [ ] 1.1 固化 Backend Part、Frontend Part、Backend Acceptance、Frontend Acceptance 和 Integration Acceptance 的状态与依赖关系；明确 Backend Accepted 仍为 Release Blocked
-- [ ] 1.2 固化全部 `/api/*`、`/ping`、API 404/405、OpenAPI 失败、文件下载失败及认证/权限中间件的当前响应清单
-- [ ] 1.3 建立目标 HTTP 状态、顶层 error_code、字段级 error_code、英文 fallback、data Schema 和所有者矩阵，明确现有 Upload Security/File 错误码保留项
-- [ ] 1.4 建立前后端共享契约 Fixture，覆盖成功、无返回值、空集合、字段校验、认证、授权、冲突、限流、服务端失败和原生响应例外
+- [x] 1.1 固化 Backend Part、Frontend Part、Backend Acceptance、Frontend Acceptance 和 Integration Acceptance 的状态与依赖关系；明确 Backend Accepted 仍为 Release Blocked
+- [x] 1.2 固化全部 `/api/*`、`/ping`、API 404/405、OpenAPI 失败、文件下载失败及认证/权限中间件的当前响应清单
+- [x] 1.3 建立目标 HTTP 状态、顶层 error_code、字段级 error_code、英文 fallback、data Schema 和所有者矩阵，明确现有 Upload Security/File 错误码保留项
+- [x] 1.4 建立前后端共享契约 Fixture，覆盖成功、无返回值、空集合、字段校验、认证、授权、冲突、限流、服务端失败和原生响应例外
 
 ## 2. Backend Part：Platform HTTP 响应与错误上下文
 
@@ -61,28 +61,30 @@
 
 ## 8. Frontend Part：前置条件与 API Client
 
-- [ ] 8.1 创建根目录 `web/`，记录前端框架、包管理器、集中 API Client、错误本地化位置、原生响应入口和前端验证命令
-- [ ] 8.2 在 `web/` 集中 API Client 实现四字段信封解析、HTTP status/code 一致性校验和成功 data 解包
-- [ ] 8.3 定义前端 typed API Error，保留顶层/字段级 error_code、英文 fallback 和批准的安全详情
-- [ ] 8.4 建立 error_code 本地化映射和未知码 fallback，禁止通过匹配英文 msg 决定业务分支
-- [ ] 8.5 将 422 `data.fields` 接入表单字段错误展示，支持同字段多个错误且不依赖后端 Go 字段名
-- [ ] 8.6 将登录剩余次数、登录锁定时间和 Retry-After 接入认证页面状态
-- [ ] 8.7 为下载、头像和原始 OpenAPI 请求保留显式 blob/image/raw JSON 路径，禁止成功原生响应进入信封解析器
-- [ ] 8.8 迁移所有直接读取旧 `code/msg/data` 组合或旧错误文本的前端调用点并删除旧兼容分支
+- [x] 8.1 创建根目录 `web/`，记录前端框架、包管理器、集中 API Client、错误本地化位置、原生响应入口和前端验证命令
+- [x] 8.2 在 `web/` 集中 API Client 实现四字段信封解析、HTTP status/code 一致性校验和成功 data 解包
+- [x] 8.3 定义前端 typed API Error，保留顶层/字段级 error_code、英文 fallback 和批准的安全详情
+- [x] 8.4 建立 error_code 本地化映射和未知码 fallback，禁止通过匹配英文 msg 决定业务分支
+- [x] 8.5 将 422 `data.fields` 接入表单字段错误展示，支持同字段多个错误且不依赖后端 Go 字段名
+- [x] 8.6 将登录剩余次数、登录锁定时间和 Retry-After 接入认证页面状态
+- [x] 8.7 为下载、头像和原始 OpenAPI 请求保留显式 blob/image/raw JSON 路径，禁止成功原生响应进入信封解析器
+- [x] 8.8 迁移所有直接读取旧 `code/msg/data` 组合或旧错误文本的前端调用点并删除旧兼容分支
 
 ## 9. Frontend Acceptance：前端验收
 
-- [ ] 9.1 运行前端 API Client 成功、失败、字段错误、登录锁定、未知 error_code 和原生响应测试
-- [ ] 9.2 运行前端错误本地化、表单字段映射和认证状态测试
-- [ ] 9.3 运行前端类型检查、完整测试和构建
-- [ ] 9.4 记录 Frontend Acceptance 结果并确认所有前端旧响应兼容分支已删除
+- [x] 9.1 运行前端 API Client 成功、失败、字段错误、登录锁定、未知 error_code 和原生响应测试
+- [x] 9.2 运行前端错误本地化、表单字段映射和认证状态测试
+- [x] 9.3 运行前端类型检查、完整测试和构建
+- [x] 9.4 记录 Frontend Acceptance 结果并确认所有前端旧响应兼容分支已删除
 
 ## 10. Integration Acceptance：前后端联合验收与最终发布门禁
 
-- [ ] 10.1 启动真实后端和 `web/`，确认前端 API Client 使用真实后端地址和真实 OpenAPI/响应契约
-- [ ] 10.2 使用浏览器验证登录失败/锁定、受保护路由、字段校验、列表空集合和未知错误码 fallback
-- [ ] 10.3 使用浏览器验证文件下载、头像读取、Swagger HTML、原始 OpenAPI JSON 和成功 CORS 预检
-- [ ] 10.4 使用共享契约 Fixture 对比前端解析结果和后端实际响应，确认错误码、状态、字段详情和安全 data 一致
-- [ ] 10.5 确认后端和前端没有双信封、版本 Header、旧字段别名、兼容端点或直接依赖英文消息的逻辑
-- [ ] 10.6 更新 README、API Client 说明和受影响长期规格导航，明确 breaking contract、原生协议例外、Backend Accepted 非发布状态和联合验收规则
-- [ ] 10.7 对照 proposal、design 和全部 Delta Spec 完成最终验收；只有 Backend Acceptance、Frontend Acceptance 和 Integration Acceptance 全部通过时才可完成或归档 Change
+- [x] 10.1 启动真实后端和 `web/`，确认前端 API Client 使用真实后端地址和真实 OpenAPI/响应契约
+- [x] 10.2 使用浏览器验证登录失败/锁定、受保护路由、字段校验、列表空集合和未知错误码 fallback
+- [x] 10.3 使用浏览器验证文件下载、头像读取、Swagger HTML、原始 OpenAPI JSON 和成功 CORS 预检
+- [x] 10.4 使用共享契约 Fixture 对比前端解析结果和后端实际响应，确认错误码、状态、字段详情和安全 data 一致
+- [x] 10.5 确认后端和前端没有双信封、版本 Header、旧字段别名、兼容端点或直接依赖英文消息的逻辑
+- [x] 10.6 更新 README、API Client 说明和受影响长期规格导航，明确 breaking contract、原生协议例外、Backend Accepted 非发布状态和联合验收规则
+- [x] 10.7 对照 proposal、design 和全部 Delta Spec 完成最终验收；只有 Backend Acceptance、Frontend Acceptance 和 Integration Acceptance 全部通过时才可完成或归档 Change
+
+最终证据：[2026-09-30 前端与联合验收](evidence/frontend-integration-acceptance-2026-09-30.txt)、[完整响应对象去重基线](evidence/openapi-2026-09-30.json)、[错误所有权与字段矩阵](evidence/error-matrix-2026-09-30.json)。2026-08-22 的后端验收记录保留历史 release-blocked 边界。

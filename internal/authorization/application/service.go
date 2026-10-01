@@ -55,6 +55,10 @@ type RolePage struct {
 	Page  int
 	Size  int
 }
+type UpdateUserRolesRequest struct {
+	RoleIDs               []uint
+	ExpectedAccessVersion int
+}
 
 func (service *Service) ListRoles(ctx context.Context, page, size int) (RolePage, error) {
 	page, size = normalizePage(page, size)
@@ -63,6 +67,24 @@ func (service *Service) ListRoles(ctx context.Context, page, size int) (RolePage
 		return RolePage{}, NewError(CodeInternalError, err)
 	}
 	return RolePage{List: roles, Total: total, Page: page, Size: size}, nil
+}
+func (service *Service) GetRole(ctx context.Context, roleID uint) (domain.Role, error) {
+	role, err := service.repository.FindRole(ctx, roleID)
+	if err != nil {
+		return domain.Role{}, roleError(err)
+	}
+	return role, nil
+}
+
+func (service *Service) UserRoleSummaries(ctx context.Context, userIDs []uint) ([]UserRoleSummary, error) {
+	summaries, err := service.repository.UserRoleSummaries(ctx, userIDs)
+	if err != nil {
+		return nil, NewError(CodeInternalError, err)
+	}
+	if summaries == nil {
+		return []UserRoleSummary{}, nil
+	}
+	return summaries, nil
 }
 
 func (service *Service) CreateRole(ctx context.Context, request CreateRoleRequest) (domain.Role, error) {
@@ -193,6 +215,81 @@ func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, user
 		}
 		return service.incrementUsers(tx, append(oldIDs, userIDs...))
 	})
+}
+func (service *Service) SetUserRoles(ctx context.Context, operatorID, targetUserID uint, request UpdateUserRolesRequest) (int, error) {
+	if operatorID == 0 || targetUserID == 0 || operatorID == targetUserID {
+		return 0, NewError(CodeInvalidUser, nil)
+	}
+	if request.ExpectedAccessVersion < 1 {
+		return 0, NewError(CodeValidationInvalid, nil)
+	}
+	for _, roleID := range request.RoleIDs {
+		if roleID == 0 {
+			return 0, NewError(CodeValidationInvalid, nil)
+		}
+	}
+	roleIDs := uniqueIDs(request.RoleIDs)
+
+	version := 0
+	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		current, err := service.versions.Ensure(tx, targetUserID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if current != request.ExpectedAccessVersion {
+			return NewError(CodeConflict, nil)
+		}
+		scope, err := service.ResolveUserScope(tx, domain.Principal{UserID: operatorID})
+		if err != nil {
+			return err
+		}
+		if !scope.All && !containsID(scope.UserIDs, targetUserID) {
+			return NewError(CodeInvalidUser, nil)
+		}
+		users, err := service.users.ListUsersByIDs(tx, []uint{targetUserID})
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if len(users) != 1 || users[0].ID != targetUserID {
+			return NewError(CodeInvalidUser, nil)
+		}
+		currentRoles, err := service.repository.UserRoleSummaries(tx, []uint{targetUserID})
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		for _, assignment := range currentRoles {
+			if domain.IsProtectedRole(assignment.Code) {
+				return NewError(CodeConflict, nil)
+			}
+		}
+		for _, roleID := range roleIDs {
+			role, err := service.repository.FindRole(tx, roleID)
+			if errors.Is(err, ErrNotFound) {
+				return NewError(CodeValidationInvalid, err)
+			}
+			if err != nil {
+				return NewError(CodeInternalError, err)
+			}
+			if domain.IsProtectedRole(role.Code) {
+				return NewError(CodeConflict, nil)
+			}
+		}
+		if err := service.repository.ReplaceUserRoles(tx, targetUserID, roleIDs); err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		version, err = service.versions.EnsureAndIncrement(tx, targetUserID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		return nil
+	})
+	if err != nil {
+		if _, ok := CodeOf(err); ok {
+			return 0, err
+		}
+		return 0, NewError(CodeInternalError, err)
+	}
+	return version, nil
 }
 
 func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]identitydomain.DirectoryUser, error) {

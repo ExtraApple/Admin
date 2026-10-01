@@ -83,8 +83,9 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	authorizationApplication := newAuthorizationService(resources, identityCore.directory)
 	routeSource := &catalogRouteSource{}
 	modules := newNavigationComposition(resources, authorizationApplication, routeSource, identityCore.directory)
-	organizationRoutes := organizationDescriptorsWithVisibility(resources, authorizationOrganizationVisibility{authorization: authorizationApplication}, identityCore.directory)
-	identityModule, err := newIdentityComposition(resources, conf, authorizationApplication, identityNavigation{navigation: modules.Navigation}, identityCore)
+	organizationModule := newOrganizationComposition(resources, authorizationOrganizationVisibility{authorization: authorizationApplication}, identityCore.directory, authorizationApplication)
+	organizationRoutes := organizationModule.routes
+	identityModule, err := newIdentityComposition(resources, conf, authorizationApplication, identityNavigation{navigation: modules.Navigation}, identityCore, identityOrganizationReader{memberships: organizationModule.memberships})
 	if err != nil {
 		return nil, fmt.Errorf("build Identity module: %w", err)
 	}
@@ -118,7 +119,7 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	descriptors = append(descriptors, filesModule.routes...)
 	descriptors = append(descriptors, auditRoutes...)
 	descriptors = append(descriptors, readyRoute)
-	catalog, err := routecatalog.New(descriptors)
+	catalog, err := routecatalog.New(addMiddlewareErrorDefinitions(descriptors))
 	if err != nil {
 		return nil, fmt.Errorf("build Route Catalog: %w", err)
 	}

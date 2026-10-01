@@ -12,6 +12,8 @@ func Routes(service *application.Service, routeSource application.RoutePermissio
 	handler := &Handler{service: service, routes: routeSource}
 	return []routecatalog.Descriptor{
 		authRoute(http.MethodGet, "/api/admin/roles", "List Roles", "admin.roles.get", handler.listRoles, nil, roleListResponse{}),
+		authRoute(http.MethodGet, "/api/admin/roles/:id", "Get Role", "admin.roles.id.get", handler.getRole, nil, roleResponse{}),
+		authRoute(http.MethodPut, "/api/admin/users/:id/roles", "Set User Roles", "admin.users.id.roles.put", handler.setUserRoles, updateUserRolesRequest{}, accessVersionResponse{}),
 		authRoute(http.MethodPost, "/api/admin/roles", "Create Role", "admin.roles.post", handler.createRole, createRoleRequest{}, roleResponse{}),
 		authRoute(http.MethodPut, "/api/admin/roles/:id", "Update Role", "admin.roles.id.put", handler.updateRole, updateRoleRequest{}, roleResponse{}),
 		authRoute(http.MethodDelete, "/api/admin/roles/:id", "Delete Role", "admin.roles.id.delete", handler.deleteRole, nil, nil),

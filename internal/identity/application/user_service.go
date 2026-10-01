@@ -26,12 +26,6 @@ type AdminUpdateUserRequest struct {
 	Status   *int
 }
 
-type UserPage struct {
-	List  []domain.User
-	Total int64
-	Page  int
-	Size  int
-}
 
 type UserService struct {
 	users                   UserManagementRepository
@@ -190,21 +184,6 @@ func (service *UserService) ChangePassword(ctx context.Context, userID uint, req
 	return nil
 }
 
-func (service *UserService) List(ctx context.Context, operatorID uint, page, size int) (UserPage, error) {
-	page, size = normalizeUserPage(page, size)
-	scope, err := service.access.UserScope(ctx, operatorID)
-	if err != nil {
-		return UserPage{}, NewError(CodeInternalError, err)
-	}
-	users, total, err := service.users.List(ctx, (page-1)*size, size, scope)
-	if err != nil {
-		return UserPage{}, NewError(CodeInternalError, err)
-	}
-	if users == nil {
-		users = []domain.User{}
-	}
-	return UserPage{List: users, Total: total, Page: page, Size: size}, nil
-}
 
 func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targetID uint, request AdminUpdateUserRequest) (domain.User, error) {
 	if operatorID == targetID {

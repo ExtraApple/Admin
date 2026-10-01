@@ -1,0 +1,85 @@
+联合验收：build-admin-workbench + standardize-api-response-contract
+验证日期：2026-09-30
+
+Backend Acceptance: backend-accepted
+Frontend Acceptance: frontend-accepted
+Integration Acceptance: integration-accepted
+发布门槛：上述三项验收已通过；两份 change 可以进入最终核验／归档流程。未执行 Git 提交、推送或 OpenSpec 归档。
+历史 evidence/backend-acceptance-2026-08-22.txt 保留当时 backend-accepted / release-blocked 的真实状态，不以历史后端验收替代本次联合验收。
+
+环境与范围
+- 隔离配置：C:/Users/Rog/AppData/Local/Temp/admin-workbench-acceptance/config.yaml；未修改项目生产配置或真实环境。
+- Go：http://127.0.0.1:18080；web：http://127.0.0.1:15173；Vite 开发代理目标通过 ADMIN_API_TARGET 指定。
+- MySQL：127.0.0.1:13306 / workbench_acceptance；Redis：127.0.0.1:16379 / DB 0；MinIO：127.0.0.1:19000。
+- 容器：admin-workbench-mysql-20260930（mysql:latest）、admin-workbench-redis-20260930（redis:alpine）、admin-workbench-minio-20260930（minio/minio:latest）。通过 docker ps 与 docker inspect 核对容器、端口、镜像及隔离卷；不把标签当作不可变镜像版本。
+- 初始化使用现有 AutoMigrate／Seed；真实关系数据使用临时的 testsupport/workbench-smoke/seed.go 准备。管理员 ID 1，范围管理员 ID 2，目标用户 ID 3；角色 manager/reader/editor 为 3/4/5；祖先/团队/第二团队/隐藏单位/空团队为 1/2/3/4/5。
+- SeedAdminUser 在已有活跃管理员时不覆盖口令。后端重启后，先前记录的管理员／范围管理员口令与库中 hash 不匹配；只读比对确认后未重置任何已有账户。改用真实公开注册创建新普通账户 workbench-runtime-20260930（ID 29），验证最新版后端登录、无角色上下文、个人资料和退出；没有通过假会话替代认证。
+- 口令、Token、JWT Secret 不写入本证据。
+
+命令与结果
+- go test ./... -count=1：全量通过；GOCACHE 使用项目 .gocache，GIN_MODE=release。
+- go test ./internal/app -run TestWorkbenchOpenAPIDocumentsActualAuthenticationFailures -count=1：修复前失败，实际 AUTHN_HEADER_MISSING／AUTHN_HEADER_INVALID 不在 OpenAPI 401 enum；接回 Catalog 的中间件错误组合后通过。
+- npm run typecheck：通过。
+- npm test：3 个文件、43 项测试通过；包含共享 Fixture、错误本地化／JSON 字段错误、认证状态和主动刷新等行为。
+- npm run build：通过。最终 JS 583.88 kB、gzip 186.37 kB；CSS 46.31 kB、gzip 9.80 kB。Vite 仍提示单块 JS 超过 500 kB；没有调高阈值或屏蔽提示，不是本次发布门槛失败。
+
+真实浏览器／HTTP 验证
+认证与会话
+- 真实 /api/captcha 返回四字段信封，data 包含 captcha_id/captcha_img；使用一次性验证码，错误或消耗后重新获取，不显示硬编码答案。
+- 实际账号与不存在账号的错误凭据均得到 401 AUTHN_CREDENTIALS_INVALID，剩余次数依次 4、3、2、1；第五次均得到 429 AUTHN_LOGIN_LOCKED，Retry-After 与安全详情均为 60 秒。页面显示倒计时／手动重试，不自动重交密码或验证码。
+- 真实公开注册：弱口令返回 422，password 字段 aria-invalid=true 并显示字段提示；有效注册创建普通身份，真实登录上下文 roles/permissions/menus 均为 []，不把公开注册变为管理员创建入口。
+- 深链登录保留用户详情目的地址（含 query/hash），无管理菜单页面解释授权边界，仍能访问真实个人资料；明确的 /no-management 页面与浏览器后退均可用。
+- Token 仅在页面内存，实际 localStorage/sessionStorage 均为空。旧会话被强制下线后受保护请求返回 401 AUTHN_TOKEN_INVALID，客户端清空会话并回到 /login；真实 403 拒绝保留已登录状态与当前地址。
+- 未保存编辑时退出先进入离页确认；取消后仍在原编辑页且会话保持，确认放弃后才调用登出并清空会话。
+
+角色／用户／组织
+- 角色按 ID 展示权限、已分配菜单、数据范围三个并列剖面；停用菜单和缺权限码的子菜单仍作为已分配配置展示。权限、菜单、数据范围分别保存，不自动授予另一维或隐式级联选择父子节点。
+- 真正提交角色权限后，其余菜单／数据范围保持；菜单父节点可单独选择；custom 数据范围可单独选择具体团队，不扩成整个后代范围。
+- 在独立创建的临时角色被删除后提交菜单得到真实 404 NAV_NOT_FOUND，页面显示“菜单不存在。”；未提交的父菜单选择仍为 checked=true，没有显示保存成功。该临时角色 ID 6 已删除。
+- 用户列表使用真实服务端关键词、状态、分页；不存在的关键词得到 0 项；目标用户停用后被“已启用”筛选排除，启用后恢复。本人／实际 admin 关联用户受保护；多角色与可见组织由真实关系返回。
+- 目标用户 ID 3 的组织写入返回 access_version=5；范围管理员随后提交旧版本角色修改得到 409 AUTHZ_CONFLICT，重读、显式核对后角色写入成功返回版本 6；后续逐人组织写入依次返回 7、8、9。修改仅针对该用户，不调用整组覆盖模拟逐人操作。
+- 范围内写入保留隐藏单位归属；保留成员关系的 created_at 在 MySQL 中仍为 2026-01-02 11:04:05（原始 UTC 03:04:05），不因整组重建改变加入时间。
+- 范围外祖先仅用于定位，不能作为授权目标；组织详情／空成员状态、逐人成员加入／移除、修改上级路径确认均通过实际界面验证。
+
+视觉／交互
+- 用户列表在 1440px 使用桌面表格，768px／375px／320px 使用卡片；四种宽度的 document.scrollWidth 均等于 innerWidth。
+- 用户操作菜单为按钮右侧 Portal；桌面菜单 left=1164，下一用户按钮 right=1156，没有遮挡该按钮。320px 菜单范围为 122.4–262.4px，仍在视口内；打开前后操作按钮的文档位置／高度一致，行或卡片不被撑高。
+- 原生鼠标切换用户后仅一个菜单，新按钮 aria-expanded=true、旧按钮 false；实际滚动、外部点击及 Escape 均关闭菜单。自动化 helper 的选择器／滚轮误用与点击超时已与真实原生操作区分，不记作产品缺陷。
+- 新注册长昵称、长邮箱的 320px 个人资料实测无页面横向溢出；窄屏身份文本占整行（实测 233px），不被头像和状态挤成狭窄文字列。截图位于 build-admin-workbench/evidence/profile-320.png。
+- 实际表单标签、字段提示、受保护操作、确认弹窗、键盘关闭、加载／空／错误状态均由应用提供；正式应用不包含样稿数据、模拟失败或演示按钮。
+
+响应契约与原生例外
+- testsupport/testdata/api-response-contract.json 为前后端共用 Fixture，15 个命名用例；Go 响应写入器和真实前端 Client 均消费它。浏览器通过实际 Client 对比 15 个用例全部通过。
+- future-localization-conflict 与 future-localization-multiple-errors-same-field 是消费者未知码／多错误本地化场景，不声称后端运行时会发这些未来错误。原生 Fixture 内容为代表性数据，真实协议另行验证。
+- 实际未知本地化码 MSG_NOT_FOUND 返回 404，Client 使用安全英文 fallback，而不是匹配英文文本分支。
+- 真实上传／下载得到原生文件内容 contract-native-proof；默认头像为 image/png、68 bytes；Swagger 为原生 text/html；原始 OpenAPI 为 openapi=3.0.3（89 个 path）；CORS OPTIONS 为 204、空 body，并返回允许的开发 Origin。
+- /ping 为 200 四字段信封；API NoRoute 为 404 HTTP_NOT_FOUND，NoMethod 为 405 HTTP_METHOD_NOT_ALLOWED，data 均为 null。/ping 属于 Go 技术端点，没有把 Vite SPA HTML 当作业务成功。
+- 最终真实服务的 /api/user/info 与 /api/admin/users，在缺失／错误 Authorization Header 时分别发出 401 AUTHN_HEADER_MISSING／AUTHN_HEADER_INVALID；四次实际结果均包含于各自 OpenAPI enum。
+- openapi-2026-09-30.json：从修正后真实 /docs/openapi.json 获取并按完整 Response 对象去重；保留 124 个 method/path、115 个响应对象及 components。routes.responses 的值是 responseSchemas 索引，不是原始 OpenAPI 文件格式。
+- error-matrix-2026-09-30.json：通过实际 Application.Catalog 导出并补充技术错误定义，共 93 个顶层错误定义，记录 owner、status、英文 fallback、data_type 与 JSON 字段级错误；全部 OpenAPI 顶层错误码均有对应 owner。
+- 没有增加双信封、协议版本 Header、旧字段别名、兼容端点、对英文消息的业务分支；原生提交后的错误不追加 JSON，相关后端契约测试通过。
+
+验收修正
+- 不存在用户名与错误密码共用同一凭据失败计数／锁定路径。
+- 无角色／权限的登录上下文集合编码为 []，不返回 null。
+- 退出动作改为可受未保存离页保护的路由，确认后才清理会话。
+- Catalog 构建接入实际认证／API Metadata 中间件错误，修复未调用的 addMiddlewareErrorDefinitions 与 OpenAPI 漂移。
+- 窄屏个人资料身份文字独立占行，保持长内容可读且无横向溢出。
+
+清理边界
+- 凭据比对与 Catalog 导出的临时 Go probe、重启脚本均已删除。
+- 截图与本证据保留；浏览器验收页及本次拥有的临时服务在结束时关闭。隔离容器／数据不作为生产配置或演示页面发布；停止服务不删除用户的其他容器或生产数据。
+
+删除动作补充实测
+- 为避免覆盖既有验收账户口令，继续使用真实公开注册新建的账户 ID 29；仅在隔离 workbench_acceptance 库为该新账户绑定现有 admin 角色，并调用实际 AccessVersions.EnsureAndIncrement，把版本推进到 2 后重新登录，没有伪造 Token。
+- 另由真实公开注册创建专用删除目标 workbench-delete-20260930（ID 30）。界面确认明确说明“此操作删除用户，不是停用，无法撤销”；确认后 DELETE /api/admin/users/30 返回 200 四字段信封，data=null。
+- 页面显示“用户已删除。”并重新查询服务端列表；相同关键词结果从 1 项变为 0 项。只删除本次创建的目标，没有修改原管理员或范围管理员。
+- 用于该隔离数据准备的临时 Go 程序执行完即删除；保留的 320px 长个人资料截图是在该新账户仍为普通身份、角色集合为空时拍摄。
+
+最终状态与已执行清理
+- openspec instructions apply：build-admin-workbench 为 33/33、standardize-api-response-contract 为 59/59，两者 state=all_done。
+- openspec validate --all：18 passed / 0 failed。
+- 已执行最后一次真实退出并关闭 5 个本次拥有的浏览器验收页。
+- 已停止本次启动的 Go 后端与 Vite 进程，以及上述 3 个隔离容器；未删除容器或数据卷，也未停止用户的其他服务。
+- 临时关系数据准备 seed.go 也已移除；真实 Fixture JSON、验收证据、错误矩阵、响应基线及截图保留。
+- 未提交、推送、归档或同步 delta spec 到长期主规格。

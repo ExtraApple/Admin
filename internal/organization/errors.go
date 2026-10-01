@@ -9,6 +9,7 @@ const (
 	CodeConflict          ErrorCode = "ORG_CONFLICT"
 	CodeValidationInvalid ErrorCode = "ORG_VALIDATION_INVALID"
 	CodeInternalError     ErrorCode = "ORG_INTERNAL_ERROR"
+	CodePermissionDenied  ErrorCode = "ORG_PERMISSION_DENIED"
 )
 
 type Error struct {

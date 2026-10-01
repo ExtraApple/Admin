@@ -21,6 +21,14 @@
 - `dict-management`：字典类型、字典条目和前端字典读取。
 - `organization-management`：组织单位 CRUD 和组织树。
 
+## 实施中的工作台与响应契约导航
+
+- [`build-admin-workbench`](changes/build-admin-workbench/)：正式 React 工作台及其 [admin-workbench delta](changes/build-admin-workbench/specs/admin-workbench/spec.md)、[用户](changes/build-admin-workbench/specs/user-management/spec.md)、[角色](changes/build-admin-workbench/specs/rbac/spec.md)、[菜单](changes/build-admin-workbench/specs/menu-management/spec.md)、[组织](changes/build-admin-workbench/specs/organization-management/spec.md) 变化。
+- [`standardize-api-response-contract`](changes/standardize-api-response-contract/)：统一四字段信封、稳定错误码、安全字段详情、原生成功协议例外及前后端联合发布门禁；[任务与验收](changes/standardize-api-response-contract/tasks.md) 区分 Backend、Frontend 和 Integration Acceptance。
+- 长期规格入口仍为 [`auth`](specs/auth/spec.md)、[`user-management`](specs/user-management/spec.md)、[`rbac`](specs/rbac/spec.md)、[`menu-management`](specs/menu-management/spec.md)、[`organization-management`](specs/organization-management/spec.md)、[`api-management`](specs/api-management/spec.md)。这些链接只改善导航，不提前将 delta 同步到长期规格。
+- 现有代码不构成验收证据；Backend Accepted 仍为 Release Blocked。只有三类验收及工作台对应场景完成并记录真实证据，才能完成／归档关联 change。本文不更改任务勾选或归档状态。
+- 操作入口见 [根 README](../README.md#管理工作台)、[配置手册](../docs/runbooks/configuration.md#工作台隔离联调环境) 与 [模块导航](../docs/module-navigation.md)。
+
 ## 工作流
 
 已经完成并稳定的行为，维护到 `specs/`。

@@ -103,10 +103,6 @@ func TestServiceAssignsRoleMenusAndPreservesVisibleParentChain(t *testing.T) {
 	if err := service.AssignRoleMenus(ctx, 99, []uint{child.ID}); err == nil {
 		t.Fatal("missing role accepted menu assignment")
 	}
-	roleTree, err := service.RoleMenus(ctx, 7)
-	if err != nil || len(roleTree) != 0 {
-		t.Fatalf("role tree with unassigned parent = %#v, %v; want empty rooted tree", roleTree, err)
-	}
 	userTree, err := service.UserMenus(ctx, 42)
 	if err != nil {
 		t.Fatalf("user menus: %v", err)
@@ -691,4 +687,23 @@ func newNavigationServiceFixtureWithAPIs(t *testing.T) (*navigation.Service, *na
 	apis := &navigationAPIFake{records: make(map[uint]navigation.APIRecord)}
 	service := navigation.NewService(navigation.NewGORMRepository(db), platformdatabase.NewTransactionRunner(db), authorization, apis)
 	return service, authorization, apis
+}
+
+func TestRoleMenusReturnsDisabledAndOrphanAssignmentsWithoutChangingUserMenus(t *testing.T) {
+ service,authorization:=newNavigationServiceFixture(t);ctx:=context.Background()
+ root,err:=service.CreateMenu(ctx,navigation.CreateInput{Name:"Unassigned parent",Path:"/unassigned",Sort:5})
+ if err!=nil{t.Fatal(err)}
+ child,err:=service.CreateMenu(ctx,navigation.CreateInput{Name:"Assigned child",Path:"/unassigned/child",ParentID:root.ID,Sort:2,PermissionCode:"child.read",Type:2})
+ if err!=nil{t.Fatal(err)}
+ disabled,err:=service.CreateMenu(ctx,navigation.CreateInput{Name:"Disabled assigned",Path:"/disabled",Sort:1,PermissionCode:"disabled.read",Type:2})
+ if err!=nil{t.Fatal(err)}
+ off:=0
+ if _,err:=service.UpdateMenu(ctx,disabled.ID,navigation.UpdateInput{Status:&off});err!=nil{t.Fatal(err)}
+ authorization.roles[7]=true
+ authorization.access[42]=navigation.UserAccess{RoleIDs:[]uint{7},Permissions:[]string{"child.read","disabled.read"}}
+ if err:=service.AssignRoleMenus(ctx,7,[]uint{child.ID,disabled.ID});err!=nil{t.Fatal(err)}
+ menus,err:=service.RoleMenus(ctx,7)
+ if err!=nil||len(menus)!=2||menus[0].ID!=disabled.ID||menus[0].Status!=0||menus[1].ID!=child.ID||menus[1].ParentID!=root.ID||len(menus[1].Children)!=0{t.Fatalf("flat assigned menus = %#v, %v",menus,err)}
+ userTree,err:=service.UserMenus(ctx,42)
+ if err!=nil||len(userTree)!=1||userTree[0].ID!=root.ID||len(userTree[0].Children)!=1||userTree[0].Children[0].ID!=child.ID{t.Fatalf("user menus = %#v, %v",userTree,err)}
 }

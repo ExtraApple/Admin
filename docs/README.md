@@ -15,6 +15,8 @@
 
 发生冲突时，当前行为以 OpenSpec 为准；运行代码用于核验实现一致性。
 
+工作台及响应契约当前处于跨 change 实施／联合验收流程：[`build-admin-workbench`](../openspec/changes/build-admin-workbench/) 与 [`standardize-api-response-contract`](../openspec/changes/standardize-api-response-contract/) 追踪新增行为和发布门禁。此处导航不将 delta 自动同步为长期规格，也不表示已归档或验收完成。
+
 ## 目录职责
 
 | 目录 | 内容 |
@@ -53,6 +55,8 @@
 | [`audit-logging.md`](runbooks/audit-logging.md) | 审计日志和冷热归档 |
 | [`api-documentation.md`](runbooks/api-documentation.md) | Swagger UI 和 OpenAPI 维护 |
 | [`access-version-storage-switch.md`](runbooks/access-version-storage-switch.md) | 授权版本迁移历史 |
+
+工作台 npm 命令、开发代理、同源生产部署、内存 Token 与 API Client 原生入口见 [根 README](../README.md#管理工作台)。隔离 MySQL／Redis／MinIO 与真实数据准备边界见 [配置手册](runbooks/configuration.md#工作台隔离联调环境)，用户定向编辑及 409 处理见 [用户管理](modules/user-management.md#工作台集成实施中的-change)；架构取舍见 [ADR 0011](adr/0011-react-frontend-and-customizable-ui-stack.md) 和 [ADR 0012](adr/0012-user-oriented-membership-management.md)。
 
 ## 维护规则
 

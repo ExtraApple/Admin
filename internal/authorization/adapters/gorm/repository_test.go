@@ -79,6 +79,67 @@ func TestRepositoryPersistsAuthorizationRelationsAndScopes(t *testing.T) {
 		t.Fatalf("rolled back role lookup error = %v, want ErrNotFound", err)
 	}
 }
+func TestRepositoryListsAllAssignedRoleSummariesAndReplacesOnlyOneUser(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(authgorm.Models()...); err != nil {
+		t.Fatalf("migrate authorization models: %v", err)
+	}
+	repository := authgorm.NewRepository(db)
+	ctx := context.Background()
+	first := authdomain.Role{Name: "First", Code: "first", Sort: 1, Status: 1, DataScope: authdomain.DataScopeSelf}
+	second := authdomain.Role{Name: "Second", Code: "second", Sort: 2, Status: 1, DataScope: authdomain.DataScopeSelf}
+	disabled := authdomain.Role{Name: "Disabled", Code: "disabled", Sort: 3, Status: 0, DataScope: authdomain.DataScopeSelf}
+	replacement := authdomain.Role{Name: "Replacement", Code: "replacement", Sort: 4, Status: 1, DataScope: authdomain.DataScopeSelf}
+	for _, role := range []*authdomain.Role{&first, &second, &disabled, &replacement} {
+		if err := repository.CreateRole(ctx, role); err != nil {
+			t.Fatalf("create role %q: %v", role.Code, err)
+		}
+	}
+	disabled.Status = 0
+	if err := repository.UpdateRole(ctx, disabled); err != nil {
+		t.Fatalf("disable role: %v", err)
+	}
+	if err := repository.ReplaceRoleUsers(ctx, first.ID, []uint{7}); err != nil {
+		t.Fatalf("assign first role: %v", err)
+	}
+	if err := repository.ReplaceRoleUsers(ctx, second.ID, []uint{7, 8}); err != nil {
+		t.Fatalf("assign second role: %v", err)
+	}
+	if err := repository.ReplaceRoleUsers(ctx, disabled.ID, []uint{7}); err != nil {
+		t.Fatalf("assign disabled role: %v", err)
+	}
+
+	summaries, err := repository.UserRoleSummaries(ctx, []uint{8, 7, 7})
+	if err != nil {
+		t.Fatalf("list role summaries: %v", err)
+	}
+	want := []authapp.UserRoleSummary{
+		{UserID: 7, RoleID: first.ID, Code: first.Code, Name: first.Name, Status: first.Status},
+		{UserID: 7, RoleID: second.ID, Code: second.Code, Name: second.Name, Status: second.Status},
+		{UserID: 7, RoleID: disabled.ID, Code: disabled.Code, Name: disabled.Name, Status: disabled.Status},
+		{UserID: 8, RoleID: second.ID, Code: second.Code, Name: second.Name, Status: second.Status},
+	}
+	if len(summaries) != len(want) {
+		t.Fatalf("role summaries = %#v; want %d rows including disabled assignments", summaries, len(want))
+	}
+	for index := range want {
+		if summaries[index] != want[index] {
+			t.Fatalf("role summary[%d] = %#v; want %#v", index, summaries[index], want[index])
+		}
+	}
+
+	if err := repository.ReplaceUserRoles(ctx, 7, []uint{replacement.ID, replacement.ID}); err != nil {
+		t.Fatalf("replace user 7 roles: %v", err)
+	}
+	firstUserRoles, err := repository.RoleIDsByUser(ctx, 7)
+	if err != nil || len(firstUserRoles) != 1 || firstUserRoles[0] != replacement.ID {
+		t.Fatalf("user 7 role IDs = %#v, %v; want replacement only", firstUserRoles, err)
+	}
+	secondUserRoles, err := repository.RoleIDsByUser(ctx, 8)
+	if err != nil || len(secondUserRoles) != 1 || secondUserRoles[0] != second.ID {
+		t.Fatalf("user 8 role IDs = %#v, %v; want second role unchanged", secondUserRoles, err)
+	}
+}
 
 type noUsers struct{}
 

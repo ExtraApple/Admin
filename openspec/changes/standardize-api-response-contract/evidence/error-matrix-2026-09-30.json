@@ -1,0 +1,799 @@
+{
+  "API_META_CONFLICT": {
+    "owner": "apimetadata",
+    "error_code": "API_META_CONFLICT",
+    "status": 409,
+    "fallback": "api metadata conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_DISABLED": {
+    "owner": "apimetadata",
+    "error_code": "API_META_DISABLED",
+    "status": 403,
+    "fallback": "api is disabled",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_INTERNAL_ERROR": {
+    "owner": "apimetadata",
+    "error_code": "API_META_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "api metadata operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_NOT_FOUND": {
+    "owner": "apimetadata",
+    "error_code": "API_META_NOT_FOUND",
+    "status": 404,
+    "fallback": "api metadata was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_PERMISSION_DENIED": {
+    "owner": "apimetadata",
+    "error_code": "API_META_PERMISSION_DENIED",
+    "status": 403,
+    "fallback": "permission is denied",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_PERMISSION_MISSING": {
+    "owner": "apimetadata",
+    "error_code": "API_META_PERMISSION_MISSING",
+    "status": 403,
+    "fallback": "api permission code is missing",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_PERMISSION_NOT_CONFIGURED": {
+    "owner": "apimetadata",
+    "error_code": "API_META_PERMISSION_NOT_CONFIGURED",
+    "status": 403,
+    "fallback": "api permission policy is not configured",
+    "data_type": "null",
+    "fields": []
+  },
+  "API_META_VALIDATION_INVALID": {
+    "owner": "apimetadata",
+    "error_code": "API_META_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "api metadata validation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUDIT_INTERNAL_ERROR": {
+    "owner": "audit",
+    "error_code": "AUDIT_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "audit operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUDIT_VALIDATION_INVALID": {
+    "owner": "audit",
+    "error_code": "AUDIT_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "audit query validation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHN_CAPTCHA_INVALID": {
+    "owner": "identity",
+    "error_code": "AUTHN_CAPTCHA_INVALID",
+    "status": 422,
+    "fallback": "captcha is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHN_CREDENTIALS_INVALID": {
+    "owner": "identity",
+    "error_code": "AUTHN_CREDENTIALS_INVALID",
+    "status": 401,
+    "fallback": "username or password is invalid",
+    "data_type": "httpadapter.loginErrorData",
+    "fields": []
+  },
+  "AUTHN_HEADER_INVALID": {
+    "owner": "identity",
+    "error_code": "AUTHN_HEADER_INVALID",
+    "status": 401,
+    "fallback": "authorization header is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHN_HEADER_MISSING": {
+    "owner": "identity",
+    "error_code": "AUTHN_HEADER_MISSING",
+    "status": 401,
+    "fallback": "authorization header is required",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHN_LOGIN_LOCKED": {
+    "owner": "identity",
+    "error_code": "AUTHN_LOGIN_LOCKED",
+    "status": 429,
+    "fallback": "login is temporarily locked",
+    "data_type": "httpadapter.loginErrorData",
+    "fields": []
+  },
+  "AUTHN_REFRESH_TOKEN_INVALID": {
+    "owner": "identity",
+    "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+    "status": 401,
+    "fallback": "refresh token is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHN_TOKEN_INVALID": {
+    "owner": "identity",
+    "error_code": "AUTHN_TOKEN_INVALID",
+    "status": 401,
+    "fallback": "authentication token is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_CONFLICT": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_CONFLICT",
+    "status": 409,
+    "fallback": "authorization resource conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_INTERNAL_ERROR": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "authorization operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_INVALID_USER": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_INVALID_USER",
+    "status": 422,
+    "fallback": "authorization user is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_NOT_FOUND": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_NOT_FOUND",
+    "status": 404,
+    "fallback": "authorization resource was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_PERMISSION_CODE_NOT_FOUND": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_PERMISSION_CODE_NOT_FOUND",
+    "status": 422,
+    "fallback": "authorization permission code is missing",
+    "data_type": "null",
+    "fields": []
+  },
+  "AUTHZ_VALIDATION_INVALID": {
+    "owner": "authorization",
+    "error_code": "AUTHZ_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "authorization validation failed",
+    "data_type": "httpresponse.ValidationErrorData",
+    "fields": [
+      {
+        "field": "role_ids",
+        "error_code": "AUTHZ_ROLE_IDS_INVALID",
+        "fallback": "role_ids must be an explicit array of positive IDs"
+      },
+      {
+        "field": "expected_access_version",
+        "error_code": "AUTHZ_ACCESS_VERSION_INVALID",
+        "fallback": "expected_access_version must be positive"
+      }
+    ]
+  },
+  "AVATAR_FIELD_NOT_WRITABLE": {
+    "owner": "files",
+    "error_code": "AVATAR_FIELD_NOT_WRITABLE",
+    "status": 400,
+    "fallback": "avatar must be changed through the avatar endpoint",
+    "data_type": "null",
+    "fields": []
+  },
+  "DICT_CONFLICT": {
+    "owner": "dictionary",
+    "error_code": "DICT_CONFLICT",
+    "status": 409,
+    "fallback": "dictionary resource conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "DICT_INTERNAL_ERROR": {
+    "owner": "dictionary",
+    "error_code": "DICT_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "dictionary operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "DICT_NOT_FOUND": {
+    "owner": "dictionary",
+    "error_code": "DICT_NOT_FOUND",
+    "status": 404,
+    "fallback": "dictionary resource was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "DICT_VALIDATION_INVALID": {
+    "owner": "dictionary",
+    "error_code": "DICT_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "dictionary validation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_ACCESS_INVALID": {
+    "owner": "files",
+    "error_code": "FILE_ACCESS_INVALID",
+    "status": 403,
+    "fallback": "file access is invalid or expired",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_CONTENT_INVALID": {
+    "owner": "files",
+    "error_code": "FILE_CONTENT_INVALID",
+    "status": 422,
+    "fallback": "file content is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_EMPTY": {
+    "owner": "files",
+    "error_code": "FILE_EMPTY",
+    "status": 400,
+    "fallback": "file is empty",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_ENCODING_INVALID": {
+    "owner": "files",
+    "error_code": "FILE_ENCODING_INVALID",
+    "status": 422,
+    "fallback": "file encoding is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_NAME_INVALID": {
+    "owner": "files",
+    "error_code": "FILE_NAME_INVALID",
+    "status": 400,
+    "fallback": "file name is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_NOT_FOUND": {
+    "owner": "files",
+    "error_code": "FILE_NOT_FOUND",
+    "status": 404,
+    "fallback": "file was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_STATE_BLOCKED": {
+    "owner": "files",
+    "error_code": "FILE_STATE_BLOCKED",
+    "status": 409,
+    "fallback": "file is blocked by security policy",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_STATE_CONFLICT": {
+    "owner": "files",
+    "error_code": "FILE_STATE_CONFLICT",
+    "status": 409,
+    "fallback": "file state does not allow this operation",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_TOO_LARGE": {
+    "owner": "files",
+    "error_code": "FILE_TOO_LARGE",
+    "status": 413,
+    "fallback": "upload exceeds the size limit",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_TYPE_MISMATCH": {
+    "owner": "files",
+    "error_code": "FILE_TYPE_MISMATCH",
+    "status": 415,
+    "fallback": "file type does not match its content",
+    "data_type": "null",
+    "fields": []
+  },
+  "FILE_TYPE_NOT_ALLOWED": {
+    "owner": "files",
+    "error_code": "FILE_TYPE_NOT_ALLOWED",
+    "status": 415,
+    "fallback": "file type is not allowed",
+    "data_type": "null",
+    "fields": []
+  },
+  "HTTP_INTERNAL_ERROR": {
+    "owner": "http",
+    "error_code": "HTTP_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "internal server error",
+    "data_type": "null",
+    "fields": []
+  },
+  "HTTP_METHOD_NOT_ALLOWED": {
+    "owner": "http",
+    "error_code": "HTTP_METHOD_NOT_ALLOWED",
+    "status": 405,
+    "fallback": "method not allowed",
+    "data_type": "null",
+    "fields": []
+  },
+  "HTTP_NOT_FOUND": {
+    "owner": "http",
+    "error_code": "HTTP_NOT_FOUND",
+    "status": 404,
+    "fallback": "resource not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "HTTP_REQUEST_INVALID": {
+    "owner": "http",
+    "error_code": "HTTP_REQUEST_INVALID",
+    "status": 400,
+    "fallback": "request is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_ACCOUNT_DISABLED": {
+    "owner": "identity",
+    "error_code": "IDENTITY_ACCOUNT_DISABLED",
+    "status": 403,
+    "fallback": "account is disabled",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_CONFLICT": {
+    "owner": "identity",
+    "error_code": "IDENTITY_CONFLICT",
+    "status": 409,
+    "fallback": "identity resource conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED": {
+    "owner": "identity",
+    "error_code": "IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED",
+    "status": 503,
+    "fallback": "email verification delivery is temporarily unavailable",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_EMAIL_VERIFICATION_INVALID": {
+    "owner": "identity",
+    "error_code": "IDENTITY_EMAIL_VERIFICATION_INVALID",
+    "status": 422,
+    "fallback": "email verification token is invalid or expired",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED": {
+    "owner": "identity",
+    "error_code": "IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED",
+    "status": 429,
+    "fallback": "email verification requests are temporarily limited",
+    "data_type": "httpadapter.loginErrorData",
+    "fields": []
+  },
+  "IDENTITY_INTERNAL_ERROR": {
+    "owner": "identity",
+    "error_code": "IDENTITY_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "identity operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_PERMISSION_DENIED": {
+    "owner": "identity",
+    "error_code": "IDENTITY_PERMISSION_DENIED",
+    "status": 403,
+    "fallback": "identity operation is not permitted",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_USER_NOT_FOUND": {
+    "owner": "identity",
+    "error_code": "IDENTITY_USER_NOT_FOUND",
+    "status": 404,
+    "fallback": "user was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "IDENTITY_VALIDATION_INVALID": {
+    "owner": "identity",
+    "error_code": "IDENTITY_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "request validation failed",
+    "data_type": "httpresponse.ValidationErrorData",
+    "fields": [
+      {
+        "field": "password",
+        "error_code": "IDENTITY_PASSWORD_INVALID",
+        "fallback": "password does not meet the security requirements"
+      },
+      {
+        "field": "confirm_password",
+        "error_code": "IDENTITY_PASSWORD_CONFIRMATION_INVALID",
+        "fallback": "password confirmation does not match"
+      },
+      {
+        "field": "new_password",
+        "error_code": "IDENTITY_PASSWORD_REUSE",
+        "fallback": "new password must differ from the old password"
+      },
+      {
+        "field": "old_password",
+        "error_code": "IDENTITY_OLD_PASSWORD_INVALID",
+        "fallback": "old password is invalid"
+      },
+      {
+        "field": "current_password",
+        "error_code": "IDENTITY_CURRENT_PASSWORD_INVALID",
+        "fallback": "current password is invalid"
+      },
+      {
+        "field": "email",
+        "error_code": "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE",
+        "fallback": "administrator email changes use the identity email flow"
+      }
+    ]
+  },
+  "IMAGE_DECODE_INVALID": {
+    "owner": "files",
+    "error_code": "IMAGE_DECODE_INVALID",
+    "status": 422,
+    "fallback": "image cannot be decoded",
+    "data_type": "null",
+    "fields": []
+  },
+  "IMAGE_DIMENSION_LIMIT": {
+    "owner": "files",
+    "error_code": "IMAGE_DIMENSION_LIMIT",
+    "status": 422,
+    "fallback": "image dimensions exceed the limit",
+    "data_type": "null",
+    "fields": []
+  },
+  "INTERNAL_ERROR": {
+    "owner": "files",
+    "error_code": "INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "file operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_AUDIENCE_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_AUDIENCE_INVALID",
+    "status": 422,
+    "fallback": "message audience is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_AUDIENCE_TOO_LARGE": {
+    "owner": "messaging",
+    "error_code": "MSG_AUDIENCE_TOO_LARGE",
+    "status": 422,
+    "fallback": "message audience is too large",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_BODY_TOO_LONG": {
+    "owner": "messaging",
+    "error_code": "MSG_BODY_TOO_LONG",
+    "status": 422,
+    "fallback": "message body is too long",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_CATEGORY_IN_USE": {
+    "owner": "messaging",
+    "error_code": "MSG_CATEGORY_IN_USE",
+    "status": 409,
+    "fallback": "message category is in use",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_CATEGORY_UNAVAILABLE": {
+    "owner": "messaging",
+    "error_code": "MSG_CATEGORY_UNAVAILABLE",
+    "status": 422,
+    "fallback": "message category is unavailable",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_CONTENT_EMPTY": {
+    "owner": "messaging",
+    "error_code": "MSG_CONTENT_EMPTY",
+    "status": 422,
+    "fallback": "message content is empty",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_CONTENT_UNSAFE": {
+    "owner": "messaging",
+    "error_code": "MSG_CONTENT_UNSAFE",
+    "status": 422,
+    "fallback": "message content is unsafe",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_HTML_TOO_LARGE": {
+    "owner": "messaging",
+    "error_code": "MSG_HTML_TOO_LARGE",
+    "status": 422,
+    "fallback": "message HTML is too large",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_INTERNAL_ERROR": {
+    "owner": "messaging",
+    "error_code": "MSG_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "message operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_MEDIA_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_MEDIA_INVALID",
+    "status": 422,
+    "fallback": "message media is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_MESSAGE_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_MESSAGE_INVALID",
+    "status": 422,
+    "fallback": "message is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_NOT_FOUND": {
+    "owner": "messaging",
+    "error_code": "MSG_NOT_FOUND",
+    "status": 404,
+    "fallback": "message resource was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_PERMISSION_DENIED": {
+    "owner": "messaging",
+    "error_code": "MSG_PERMISSION_DENIED",
+    "status": 403,
+    "fallback": "message permission is denied",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_RECIPIENT_UNAVAILABLE": {
+    "owner": "messaging",
+    "error_code": "MSG_RECIPIENT_UNAVAILABLE",
+    "status": 422,
+    "fallback": "message recipient is unavailable",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_REQUEST_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_REQUEST_INVALID",
+    "status": 400,
+    "fallback": "message request is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_SCOPE_DENIED": {
+    "owner": "messaging",
+    "error_code": "MSG_SCOPE_DENIED",
+    "status": 403,
+    "fallback": "message organization is outside the allowed scope",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_STATE_CONFLICT": {
+    "owner": "messaging",
+    "error_code": "MSG_STATE_CONFLICT",
+    "status": 409,
+    "fallback": "message state conflicts with the requested operation",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_TEXT_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_TEXT_INVALID",
+    "status": 422,
+    "fallback": "message text is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_TITLE_TOO_LONG": {
+    "owner": "messaging",
+    "error_code": "MSG_TITLE_TOO_LONG",
+    "status": 422,
+    "fallback": "message title is too long",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_WEBSOCKET_UNAVAILABLE": {
+    "owner": "messaging",
+    "error_code": "MSG_WEBSOCKET_UNAVAILABLE",
+    "status": 503,
+    "fallback": "message WebSocket is unavailable",
+    "data_type": "null",
+    "fields": []
+  },
+  "MSG_WS_TICKET_INVALID": {
+    "owner": "messaging",
+    "error_code": "MSG_WS_TICKET_INVALID",
+    "status": 401,
+    "fallback": "message WebSocket ticket is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "NAV_CONFLICT": {
+    "owner": "navigation",
+    "error_code": "NAV_CONFLICT",
+    "status": 409,
+    "fallback": "navigation resource conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "NAV_INTERNAL_ERROR": {
+    "owner": "navigation",
+    "error_code": "NAV_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "navigation operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "NAV_NOT_FOUND": {
+    "owner": "navigation",
+    "error_code": "NAV_NOT_FOUND",
+    "status": 404,
+    "fallback": "navigation resource was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "NAV_VALIDATION_INVALID": {
+    "owner": "navigation",
+    "error_code": "NAV_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "navigation validation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "ORG_CONFLICT": {
+    "owner": "organization",
+    "error_code": "ORG_CONFLICT",
+    "status": 409,
+    "fallback": "organization resource conflicts with an existing resource",
+    "data_type": "null",
+    "fields": []
+  },
+  "ORG_INTERNAL_ERROR": {
+    "owner": "organization",
+    "error_code": "ORG_INTERNAL_ERROR",
+    "status": 500,
+    "fallback": "organization operation failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "ORG_NOT_FOUND": {
+    "owner": "organization",
+    "error_code": "ORG_NOT_FOUND",
+    "status": 404,
+    "fallback": "organization resource was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "ORG_PERMISSION_DENIED": {
+    "owner": "organization",
+    "error_code": "ORG_PERMISSION_DENIED",
+    "status": 403,
+    "fallback": "organization operation is not permitted",
+    "data_type": "null",
+    "fields": []
+  },
+  "ORG_VALIDATION_INVALID": {
+    "owner": "organization",
+    "error_code": "ORG_VALIDATION_INVALID",
+    "status": 422,
+    "fallback": "organization validation failed",
+    "data_type": "httpresponse.ValidationErrorData",
+    "fields": [
+      {
+        "field": "organization_ids",
+        "error_code": "ORG_ORGANIZATION_IDS_INVALID",
+        "fallback": "organization_ids must be an explicit array of positive IDs"
+      },
+      {
+        "field": "expected_access_version",
+        "error_code": "ORG_ACCESS_VERSION_INVALID",
+        "fallback": "expected_access_version must be positive"
+      }
+    ]
+  },
+  "PERSISTENCE_FAILED": {
+    "owner": "files",
+    "error_code": "PERSISTENCE_FAILED",
+    "status": 500,
+    "fallback": "file persistence failed",
+    "data_type": "null",
+    "fields": []
+  },
+  "REQUEST_INVALID": {
+    "owner": "files",
+    "error_code": "REQUEST_INVALID",
+    "status": 400,
+    "fallback": "request is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "STORAGE_OBJECT_NOT_FOUND": {
+    "owner": "files",
+    "error_code": "STORAGE_OBJECT_NOT_FOUND",
+    "status": 404,
+    "fallback": "storage object was not found",
+    "data_type": "null",
+    "fields": []
+  },
+  "STORAGE_UNAVAILABLE": {
+    "owner": "files",
+    "error_code": "STORAGE_UNAVAILABLE",
+    "status": 503,
+    "fallback": "file storage is unavailable",
+    "data_type": "null",
+    "fields": []
+  },
+  "UPLOAD_BODY_INVALID": {
+    "owner": "files",
+    "error_code": "UPLOAD_BODY_INVALID",
+    "status": 400,
+    "fallback": "upload body is invalid",
+    "data_type": "null",
+    "fields": []
+  },
+  "UPLOAD_BODY_TOO_LARGE": {
+    "owner": "files",
+    "error_code": "UPLOAD_BODY_TOO_LARGE",
+    "status": 413,
+    "fallback": "upload exceeds the size limit",
+    "data_type": "null",
+    "fields": []
+  },
+  "UPLOAD_FILE_MISSING": {
+    "owner": "files",
+    "error_code": "UPLOAD_FILE_MISSING",
+    "status": 400,
+    "fallback": "upload file is required",
+    "data_type": "null",
+    "fields": []
+  },
+  "UPLOAD_MULTIPLE_FILES": {
+    "owner": "files",
+    "error_code": "UPLOAD_MULTIPLE_FILES",
+    "status": 400,
+    "fallback": "only one upload file is allowed",
+    "data_type": "null",
+    "fields": []
+  }
+}

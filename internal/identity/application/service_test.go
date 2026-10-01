@@ -148,25 +148,39 @@ func TestRegisterValidatesPasswordAndPersistsHashedUser(t *testing.T) {
 	}
 }
 
-func TestLoginLocksAfterFifthPasswordFailure(t *testing.T) {
-	attempts := &countingAttemptFake{}
-	service := application.NewService(userRepositoryFake{user: domain.User{Username: "alice", Password: "stored", Status: 1}}, &captchaFake{verified: true}, rejectingPasswordFake{}, attempts, blacklistFake{}, authorizationFake{}, &tokenFake{})
-	var lastErr error
-	for i := range 5 {
-		_, lastErr = service.Login(context.Background(), application.LoginRequest{Username: "alice", Password: "wrong", CaptchaID: "id", CaptchaCode: "123456"})
-		if lastErr == nil {
-			t.Fatalf("login attempt %d error = nil", i+1)
-		}
-	}
-	if attempts.failures != 5 || attempts.lockedFor != time.Minute {
-		t.Fatalf("lockout state = failures:%d duration:%s", attempts.failures, attempts.lockedFor)
-	}
-	if code, _ := application.CodeOf(lastErr); code != application.CodeLoginLocked {
-		t.Fatalf("fifth failure code = %q, want %q", code, application.CodeLoginLocked)
-	}
-	details, ok := application.DetailsOf(lastErr)
-	if !ok || details.RetryAfterSeconds != 60 {
-		t.Fatalf("fifth failure details = %#v, want retry_after_seconds=60", details)
+type missingUserRepositoryFake struct{ userRepositoryFake }
+
+func (missingUserRepositoryFake) FindByUsername(context.Context, string) (domain.User, error) {
+	return domain.User{}, application.ErrUserNotFound
+}
+
+func TestLoginCredentialFailuresAreIndistinguishableThroughLockout(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		users application.UserRepository
+	}{
+		{"wrong password", userRepositoryFake{user: domain.User{Username: "alice", Password: "stored", Status: 1}}},
+		{"missing username", missingUserRepositoryFake{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			attempts := &countingAttemptFake{}
+			service := application.NewService(test.users, &captchaFake{verified: true}, rejectingPasswordFake{}, attempts, blacklistFake{}, authorizationFake{}, &tokenFake{})
+			for attempt := 1; attempt <= 5; attempt++ {
+				result, err := service.Login(context.Background(), application.LoginRequest{Username: "alice", Password: "wrong", CaptchaID: "id", CaptchaCode: "123456"})
+				code, _ := application.CodeOf(err)
+				details, ok := application.DetailsOf(err)
+				if result.AccessToken != "" || result.RefreshToken != "" || !ok || attempts.failures != attempt {
+					t.Fatalf("attempt %d: result=%#v details=%#v failures=%d", attempt, result, details, attempts.failures)
+				}
+				if attempt < 5 {
+					if code != application.CodeCredentialsInvalid || details.RemainingAttempts != 5-attempt || details.RetryAfterSeconds != 0 || attempts.lockedFor != 0 {
+						t.Fatalf("attempt %d: code=%q details=%#v locked=%s", attempt, code, details, attempts.lockedFor)
+					}
+				} else if code != application.CodeLoginLocked || details.RetryAfterSeconds != 60 || attempts.lockedFor != time.Minute {
+					t.Fatalf("fifth failure: code=%q details=%#v locked=%s", code, details, attempts.lockedFor)
+				}
+			}
+		})
 	}
 }
 

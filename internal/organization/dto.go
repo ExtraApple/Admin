@@ -40,6 +40,7 @@ type TreeNode struct {
 	Remark   string     `json:"remark"`
 	Sort     int        `json:"sort"`
 	Status   int        `json:"status"`
+	Manageable bool     `json:"manageable"`
 	Children []TreeNode `json:"children,omitempty"`
 }
 

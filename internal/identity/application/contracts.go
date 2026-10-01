@@ -53,7 +53,6 @@ type UserChanges struct {
 type UserManagementRepository interface {
 	UserRepository
 	UserLockRepository
-	List(context.Context, int, int, domain.UserScope) ([]domain.User, int64, error)
 	EmailExists(context.Context, string, uint) (bool, error)
 	Update(context.Context, uint, UserChanges) error
 	UpdatePassword(context.Context, uint, string) error

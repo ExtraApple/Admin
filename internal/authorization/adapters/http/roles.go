@@ -102,6 +102,15 @@ func (handler *Handler) listRoles(c *gin.Context) {
 	success(c, roleList{List: list, Total: result.Total, Page: result.Page, Size: result.Size})
 }
 
+func (handler *Handler) getRole(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok { return }
+	role, err := handler.service.GetRole(c.Request.Context(), id)
+	if err != nil { badRequest(c, err); return }
+	success(c, roleInfoOf(role))
+}
+
+
 func (handler *Handler) createRole(c *gin.Context) {
 	var req createRoleRequest
 	if !bindJSON(c, &req) {

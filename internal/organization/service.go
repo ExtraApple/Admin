@@ -70,7 +70,7 @@ func (service *Service) Tree(ctx context.Context, operatorID uint) ([]TreeNode, 
 	if err != nil {
 		return nil, NewError(CodeInternalError, err)
 	}
-	return buildTree(units, 0), nil
+	return buildTree(units, 0, scope), nil
 }
 
 func (service *Service) CreateUnit(ctx context.Context, operatorID uint, request CreateUnitRequest) (UnitInfo, error) {
@@ -321,14 +321,15 @@ func unitInfo(unit Unit) UnitInfo {
 	return UnitInfo{ID: unit.ID, ParentID: unit.ParentID, Name: unit.Name, Code: unit.Code, Remark: unit.Remark, Sort: unit.Sort, Status: unit.Status}
 }
 
-func buildTree(units []Unit, parentID uint) []TreeNode {
+func buildTree(units []Unit, parentID uint, scope OrganizationScope) []TreeNode {
 	tree := make([]TreeNode, 0)
 	for _, unit := range units {
 		if unit.ParentID != parentID {
 			continue
 		}
 		node := TreeNode{ID: unit.ID, ParentID: unit.ParentID, Name: unit.Name, Code: unit.Code, Remark: unit.Remark, Sort: unit.Sort, Status: unit.Status}
-		node.Children = buildTree(units, unit.ID)
+		node.Manageable = scope.All || containsID(scope.OrganizationIDs, unit.ID)
+		node.Children = buildTree(units, unit.ID, scope)
 		tree = append(tree, node)
 	}
 	sort.SliceStable(tree, func(left, right int) bool {

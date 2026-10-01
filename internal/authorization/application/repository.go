@@ -9,6 +9,13 @@ import (
 
 var ErrNotFound = errors.New("authorization record not found")
 
+type UserRoleSummary struct {
+	UserID uint
+	RoleID uint
+	Code   string
+	Name   string
+	Status int
+}
 type Repository interface {
 	ListRoles(context.Context, int, int) ([]domain.Role, int64, error)
 	FindRole(context.Context, uint) (domain.Role, error)
@@ -18,6 +25,9 @@ type Repository interface {
 	UpdateRole(context.Context, domain.Role) error
 	DeleteRole(context.Context, uint) error
 	UserIDsByRole(context.Context, uint) ([]uint, error)
+	RoleIDsByUser(context.Context, uint) ([]uint, error)
+	UserRoleSummaries(context.Context, []uint) ([]UserRoleSummary, error)
+	ReplaceUserRoles(context.Context, uint, []uint) error
 	ReplaceRoleUsers(context.Context, uint, []uint) error
 	ReplaceRoleDataScope(context.Context, uint, domain.DataScope, []uint) error
 	RoleDataScope(context.Context, uint) (domain.RoleDataScope, error)

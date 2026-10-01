@@ -150,7 +150,7 @@ func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginR
 	user, err := service.users.FindByUsername(ctx, request.Username)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return LoginResult{}, NewCredentialsError(0, nil)
+			return LoginResult{}, service.recordCredentialFailure(ctx, request.Username)
 		}
 		return LoginResult{}, NewError(CodeInternalError, err)
 	}
@@ -158,17 +158,7 @@ func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginR
 		return LoginResult{}, NewError(CodeAccountDisabled, nil)
 	}
 	if err := service.passwords.Compare(user.Password, request.Password); err != nil {
-		failures, recordErr := service.attempts.RecordFailure(ctx, request.Username)
-		if recordErr != nil {
-			return LoginResult{}, NewError(CodeInternalError, recordErr)
-		}
-		if lockDuration := lockDurationForFailures(failures); lockDuration > 0 {
-			if err := service.attempts.Lock(ctx, request.Username, lockDuration); err != nil {
-				return LoginResult{}, NewError(CodeInternalError, err)
-			}
-			return LoginResult{}, NewLoginLockedError(retryAfterSeconds(lockDuration), nil)
-		}
-		return LoginResult{}, NewCredentialsError(maxLoginFailures-failures, nil)
+		return LoginResult{}, service.recordCredentialFailure(ctx, request.Username)
 	}
 
 	version, err := service.authorization.EnsureVersion(ctx, user.ID)
@@ -190,6 +180,20 @@ func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginR
 		return LoginResult{}, NewError(CodeInternalError, err)
 	}
 	return LoginResult{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, User: user}, nil
+}
+
+func (service *Service) recordCredentialFailure(ctx context.Context, username string) error {
+	failures, err := service.attempts.RecordFailure(ctx, username)
+	if err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	if duration := lockDurationForFailures(failures); duration > 0 {
+		if err := service.attempts.Lock(ctx, username, duration); err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		return NewLoginLockedError(retryAfterSeconds(duration), nil)
+	}
+	return NewCredentialsError(maxLoginFailures-failures, nil)
 }
 
 func (service *Service) Refresh(ctx context.Context, request RefreshRequest) (TokenPair, error) {
@@ -307,4 +311,4 @@ func validatePassword(password string) error {
 	return nil
 }
 
-func cloneStrings(values []string) []string { return append([]string(nil), values...) }
+func cloneStrings(values []string) []string { return append([]string{}, values...) }
