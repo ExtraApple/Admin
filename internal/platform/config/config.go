@@ -95,6 +95,7 @@ type RabbitMQConfig struct {
 }
 
 type SMTPConfig struct {
+	Enabled        bool   `yaml:"enabled"`
 	Host           string `yaml:"host"`
 	Port           int    `yaml:"port"`
 	Username       string `yaml:"username"`
@@ -212,8 +213,11 @@ func applySMTPDefaults(result *Config) {
 }
 
 func validateSMTP(smtp SMTPConfig) error {
-	if smtp.Host == "" {
+	if !smtp.Enabled {
 		return nil
+	}
+	if smtp.Host == "" {
+		return errors.New("smtp.host is required when smtp.enabled is true")
 	}
 	if smtp.Port < 1 || smtp.Port > 65535 {
 		return errors.New("smtp.port must be between 1 and 65535")
@@ -222,6 +226,7 @@ func validateSMTP(smtp SMTPConfig) error {
 		return errors.New("smtp.username must be provided through username_env")
 	}
 	if smtp.Password != "" && smtp.PasswordEnv == "" {
+		return errors.New("smtp.password must be provided through password_env")
 	}
 	if smtp.Username == "" || smtp.Password == "" {
 		return errors.New("smtp username and password are required when smtp is configured")
@@ -329,6 +334,7 @@ func applyEnvironment(result *Config) error {
 		name        string
 		fallback    string
 		allowEmpty  bool
+		skip        bool
 		destination *string
 	}{
 		{name: result.Mysql.PasswordEnv, fallback: result.Mysql.Password, destination: &result.Mysql.Password},
@@ -340,15 +346,18 @@ func applyEnvironment(result *Config) error {
 		{name: result.RabbitMQ.UsernameEnv, fallback: result.RabbitMQ.Username, destination: &result.RabbitMQ.Username},
 		{name: result.RabbitMQ.PasswordEnv, fallback: result.RabbitMQ.Password, destination: &result.RabbitMQ.Password},
 		{name: result.RabbitMQ.VHostEnv, fallback: result.RabbitMQ.VHost, destination: &result.RabbitMQ.VHost},
-		{name: result.SMTP.UsernameEnv, fallback: result.SMTP.Username, destination: &result.SMTP.Username},
-		{name: result.SMTP.PasswordEnv, fallback: result.SMTP.Password, destination: &result.SMTP.Password},
-		{name: result.SMTP.FromEnv, fallback: result.SMTP.From, destination: &result.SMTP.From},
+		{name: result.SMTP.UsernameEnv, fallback: result.SMTP.Username, skip: !result.SMTP.Enabled, destination: &result.SMTP.Username},
+		{name: result.SMTP.PasswordEnv, fallback: result.SMTP.Password, skip: !result.SMTP.Enabled, destination: &result.SMTP.Password},
+		{name: result.SMTP.FromEnv, fallback: result.SMTP.From, skip: !result.SMTP.Enabled, destination: &result.SMTP.From},
 		{name: result.Admin.UsernameEnv, fallback: result.Admin.Username, destination: &result.Admin.Username},
 		{name: result.Admin.PasswordEnv, fallback: result.Admin.Password, destination: &result.Admin.Password},
 		{name: result.Admin.EmailEnv, fallback: result.Admin.Email, destination: &result.Admin.Email},
 		{name: result.Admin.NicknameEnv, fallback: result.Admin.Nickname, destination: &result.Admin.Nickname},
 	}
 	for _, binding := range bindings {
+		if binding.skip {
+			continue
+		}
 		value, err := environmentValue(binding.name, binding.fallback, binding.allowEmpty)
 		if err != nil {
 			return err

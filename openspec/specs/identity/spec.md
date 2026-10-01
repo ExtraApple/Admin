@@ -54,11 +54,23 @@ HTTP 用户资料响应由 `user-management` 规格的「当前用户资料」�
 
 ### Requirement: 最小同步 SMTP 投递
 
-配置 SHALL 包含 `host`、`port`、账号/密码/发件人环境变量引用、`tls_mode` 和超时。TLS 模式只允许 `disabled`、`starttls_required`、`implicit`；生产默认要求 STARTTLS，不得 opportunistic 降级；超时默认 10 秒并覆盖建连、TLS、认证和发送。SMTP 投递同步执行；失败、超时或拒绝使刚签发凭据失效并返回安全错误，不伪造发送成功。
+配置 SHALL 包含 `enabled`、`host`、`port`、账号/密码/发件人环境变量引用、`tls_mode` 和超时。`enabled` 默认 `false`；关闭时 SHALL NOT 解析 SMTP 凭据引用、校验 SMTP 连接参数或装配邮件发送器，缺少 SMTP 环境变量 SHALL NOT 阻止服务启动。只有显式 `enabled: true` 才启用邮件；启用时 SHALL 校验非空 host、凭据和连接参数，缺失或无效 SHALL 阻止启动且 SHALL NOT 自动降级为关闭。TLS 模式只允许 `disabled`、`starttls_required`、`implicit`；启用后的生产默认要求 STARTTLS，不得 opportunistic 降级；超时默认 10 秒并覆盖建连、TLS、认证和发送。SMTP 投递同步执行；失败、超时或拒绝使刚签发凭据失效并返回安全错误，不伪造发送成功。
 
 #### Scenario: 验证邮件投递失败
 - **WHEN** SMTP 投递失败、超时或被拒绝
 - **THEN** Identity SHALL 使刚签发凭据失效并返回安全错误
+
+#### Scenario: 邮件默认关闭
+- **WHEN** `smtp.enabled` 未设置或为 `false`，且 SMTP 环境变量缺失
+- **THEN** 应用 SHALL 不因 SMTP 凭据缺失而拒绝启动
+- **AND** 即使存在 SMTP host 或凭据，应用 SHALL NOT 装配邮件发送器
+- **AND** 注册 SHALL NOT 发送验证邮件或自动标记邮箱已验证
+
+#### Scenario: 显式启用邮件
+- **WHEN** `smtp.enabled: true`
+- **THEN** 应用 SHALL 校验 SMTP host、凭据、端口、TLS 模式与超时
+- **AND** 配置无效或所引用凭据缺失时 SHALL 拒绝启动，不静默关闭邮件
+
 
 ### Requirement: 邮箱验证安全边界
 
@@ -124,8 +136,8 @@ HTTP 用户资料响应由 `user-management` 规格的「当前用户资料」�
 - **AND** SHALL NOT 生成 token 或发送邮件
 
 #### Scenario: SMTP 配置边界
-- **WHEN** 应用加载 SMTP 配置
-- **THEN** 配置 SHALL 包含 host、port、username_env、password_env、from_env、tls_mode 和 timeout_seconds
+- **WHEN** 应用加载显式启用的 SMTP 配置
+- **THEN** 配置 SHALL 包含 enabled、host、port、username_env、password_env、from_env、tls_mode 和 timeout_seconds
 - **AND** tls_mode 仅允许 disabled、starttls_required 或 implicit，默认超时为 10 秒且覆盖各阶段 deadline
 - **AND** 系统 SHALL NOT 使用 opportunistic TLS 降级或 OAuth2/XOAUTH2 生命周期
 

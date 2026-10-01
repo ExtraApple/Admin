@@ -50,6 +50,7 @@ messaging:
   max_body_runes: 20000
 
 smtp:
+  enabled: false
   host: 127.0.0.1
   port: 587
   username_env: SMTP_USERNAME

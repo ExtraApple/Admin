@@ -31,6 +31,8 @@ JWT_SECRET=
 ADMIN_PASSWORD=
 ```
 
+邮件服务默认关闭，`config.yaml` 中的 `smtp.enabled: false` 不读取 SMTP 凭据，也不创建邮件发送器，不影响正常启动和登录。需要发送邮箱验证邮件时，将开关改为 `true`，配置真实 SMTP 地址／端口，并在 `.env` 或部署 Secret 中提供非空的 `SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`；启用后缺少凭据或配置无效仍会阻止启动，不自动降级。已有 SMTP 部署也必须显式设置 `enabled: true`，仅填写 `host` 不再启用邮件。
+
 Linux、Docker、Kubernetes 部署时不必依赖 `.env` 文件，可以直接注入同名环境变量，详细示例见 [docs/runbooks/configuration.md](docs/runbooks/configuration.md)。
 
 超级管理员会在启动时按新 RBAC 体系自动兜底创建，管理员身份只看：

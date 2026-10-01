@@ -14,7 +14,7 @@
 
 - `config.yaml` 保存端口、地址、开关和非敏感策略。
 - `.env` 或部署平台 Secret 保存密码和密钥，不得提交真实值。
-- 配置引用了不存在或不合法的环境变量时，服务启动失败。
+- 已启用配置引用了不存在或不合法的环境变量时，服务启动失败；关闭的 SMTP 不解析其凭据引用。
 
 ## 敏感环境变量
 
@@ -33,7 +33,7 @@ SMTP_PASSWORD
 SMTP_FROM
 ```
 
-RabbitMQ、SMTP 和其他必需凭据应由开发环境 `.env`、CI/CD Secret、Docker Secret、Kubernetes Secret 或云 Secret Manager 注入。凭据不得写入运行日志、审计日志、RabbitMQ 事件或 HTTP 错误响应。
+RabbitMQ 和其他必需凭据应由开发环境 `.env`、CI/CD Secret、Docker Secret、Kubernetes Secret 或云 Secret Manager 注入；SMTP 的三项环境变量仅在 `smtp.enabled: true` 时必需。已有 `.env` 只补充缺项，不用模板覆盖真实凭据。凭据不得写入运行日志、审计日志、RabbitMQ 事件或 HTTP 错误响应。
 
 ## 主要配置段
 
@@ -65,9 +65,14 @@ RabbitMQ 事件只包含事件 ID、事件名称/版本、消息副本、组织�
 
 | 配置段 | 关键字段 | 说明 |
 |---|---|---|
+| `smtp` | `enabled` | 默认 `false`；关闭时不读取 SMTP 凭据、不校验其连接参数，也不创建邮件发送器 |
 | `smtp` | `host`、`port`、`username_env`、`password_env`、`from_env` | 邮箱验证 SMTP 连接和 Secret 引用；账号凭据不写 YAML 明文 |
 | `smtp` | `timeout_seconds` | 建连、TLS、认证和发送的统一 deadline，默认 10 秒 |
 | `smtp` | `tls_mode` | 仅允许 `disabled`、`starttls_required`、`implicit`；默认且生产推荐 `starttls_required`，禁止 opportunistic 降级 |
+
+启用步骤：在 `config.yaml` 设置 `smtp.enabled: true`，配置真实 `host`／`port` 及 TLS 模式，在 `.env` 或 Secret 中注入非空的 `SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`，然后重启。启用时 host、凭据和连接参数必须有效，否则启动失败，不回退为关闭；只有 host 的旧配置需要显式补上开关。`tls_mode: disabled` 仅关闭传输 TLS，不是邮件服务开关。
+
+关闭邮件时仍可启动和登录，注册不会发送验证邮件，也不会自动将邮箱标记为已验证；重发验证邮件不能成功投递。已有邮箱、待验证状态和验证凭据不因切换开关而清除。
 
 验证 token 只通过同步 SMTP 发送，不进入数据库、日志、审计或消息事件；投递失败返回稳定错误码，邮箱状态保留并允许节流窗口内重试。
 

@@ -286,10 +286,53 @@ file_upload:
 	}
 }
 
+func TestLoadDisabledSMTPDoesNotResolveCredentials(t *testing.T) {
+	for _, switchYAML := range []string{"", "  enabled: false\n"} {
+		name := "default disabled"
+		if switchYAML != "" {
+			name = "explicitly disabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			for _, variable := range []string{"TEST_DISABLED_SMTP_USERNAME", "TEST_DISABLED_SMTP_PASSWORD", "TEST_DISABLED_SMTP_FROM"} {
+				t.Setenv(variable, "must-not-be-loaded")
+				if switchYAML == "" {
+					if err := os.Unsetenv(variable); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			data := "smtp:\n" + switchYAML + `  host: smtp.example.test
+  port: -1
+  username_env: TEST_DISABLED_SMTP_USERNAME
+  password_env: TEST_DISABLED_SMTP_PASSWORD
+  from_env: TEST_DISABLED_SMTP_FROM
+  timeout_seconds: -1
+  tls_mode: unused-while-disabled
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`
+			if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := platformconfig.Load(configPath)
+			if err != nil {
+				t.Fatalf("disabled SMTP blocked configuration loading: %v", err)
+			}
+			if got.SMTP.Username != "" || got.SMTP.Password != "" || got.SMTP.From != "" {
+				t.Fatal("disabled SMTP resolved credentials from the environment")
+			}
+		})
+	}
+}
+
 func TestLoadReadsSMTPConfigurationAndAppliesSafeDefaults(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
 smtp:
+  enabled: true
   host: smtp.example.test
   port: 2525
   username_env: TEST_SMTP_USERNAME
@@ -320,23 +363,27 @@ file_upload:
 }
 
 func TestLoadRejectsInvalidSMTPConfiguration(t *testing.T) {
+	t.Setenv("TEST_SMTP_USERNAME", "mailer")
+	t.Setenv("TEST_SMTP_PASSWORD", "smtp-secret")
 	tests := []struct {
-		name string
-		yaml string
+		name  string
+		yaml  string
+		field string
 	}{
-		{name: "invalid tls mode", yaml: "host: smtp.example.test\nport: 587\nfrom: no-reply@example.test\ntls_mode: opportunistic\n"},
-		{name: "invalid port", yaml: "host: smtp.example.test\nport: 0\nfrom: no-reply@example.test\n"},
-		{name: "missing sender", yaml: "host: smtp.example.test\nport: 587\n"},
+		{name: "missing host", yaml: "port: 587\nfrom: no-reply@example.test\n", field: "smtp.host"},
+		{name: "invalid tls mode", yaml: "host: smtp.example.test\nport: 587\nfrom: no-reply@example.test\ntls_mode: opportunistic\n", field: "smtp.tls_mode"},
+		{name: "invalid port", yaml: "host: smtp.example.test\nport: 65536\nfrom: no-reply@example.test\n", field: "smtp.port"},
+		{name: "missing sender", yaml: "host: smtp.example.test\nport: 587\n", field: "smtp.from"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			configPath := filepath.Join(t.TempDir(), "config.yaml")
-			data := []byte("smtp:\n  " + strings.ReplaceAll(test.yaml, "\n", "\n  ") + "file_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
+			data := []byte("smtp:\n  enabled: true\n  username_env: TEST_SMTP_USERNAME\n  password_env: TEST_SMTP_PASSWORD\n  " + strings.ReplaceAll(strings.TrimSuffix(test.yaml, "\n"), "\n", "\n  ") + "\nfile_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
 			if err := os.WriteFile(configPath, data, 0o600); err != nil {
 				t.Fatalf("write config: %v", err)
 			}
-			if _, err := platformconfig.Load(configPath); err == nil {
-				t.Fatal("load config succeeded for invalid smtp configuration")
+			if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), test.field) {
+				t.Fatalf("invalid SMTP %s was not rejected at its configuration boundary: %v", test.field, err)
 			}
 		})
 	}
@@ -346,9 +393,10 @@ func TestLoadRejectsSMTPPasswordInConfiguration(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte(`
 smtp:
+  enabled: true
   host: smtp.example.test
   port: 587
-  username: mailer
+  username_env: TEST_SMTP_USERNAME
   password: plain-secret
   from: no-reply@example.test
 file_upload:
@@ -356,11 +404,43 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
+	t.Setenv("TEST_SMTP_USERNAME", "mailer")
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if _, err := platformconfig.Load(configPath); err == nil {
-		t.Fatal("Load() accepted SMTP password from configuration")
+	if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), "smtp.password") {
+		t.Fatalf("SMTP password from YAML was not rejected: %v", err)
+	}
+}
+
+func TestLoadEnabledSMTPRequiresCredentials(t *testing.T) {
+	for _, missing := range []string{"TEST_REQUIRED_SMTP_USERNAME", "TEST_REQUIRED_SMTP_PASSWORD", "TEST_REQUIRED_SMTP_FROM"} {
+		t.Run(missing, func(t *testing.T) {
+			for variable, value := range map[string]string{"TEST_REQUIRED_SMTP_USERNAME": "mailer", "TEST_REQUIRED_SMTP_PASSWORD": "smtp-secret", "TEST_REQUIRED_SMTP_FROM": "no-reply@example.test"} {
+				t.Setenv(variable, value)
+			}
+			if err := os.Unsetenv(missing); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			data := []byte(`smtp:
+  enabled: true
+  host: smtp.example.test
+  username_env: TEST_REQUIRED_SMTP_USERNAME
+  password_env: TEST_REQUIRED_SMTP_PASSWORD
+  from_env: TEST_REQUIRED_SMTP_FROM
+file_upload:
+  max_size_mb: 50
+  avatar_max_size_mb: 2
+  download_url_expire_seconds: 300
+`)
+			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), missing) {
+				t.Fatalf("enabled SMTP accepted missing credential %s: %v", missing, err)
+			}
+		})
 	}
 }
 
