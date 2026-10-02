@@ -117,4 +117,8 @@ Seed 依据 `users -> user_roles -> roles.code = admin` 判断超级管理员：
 
 最终可执行 smoke 操作与浏览器结果必须由真实运行补充：记录配置路径（不含 Secret）、容器／卷标识与启动健康命令、后端／前端地址和启动命令、数据准备命令及非敏感对象 ID、实际请求状态／错误码／版本前后值、浏览器截图或观察、执行时间与退出清理方式。尚无这些证据时不得标记验收通过；本手册不提供未经执行的凭据或假定成功的步骤。
 
+## UI 验收账号
+
+本地 UI 验收账号与密码见 [`ui-acceptance-test-accounts.md`](ui-acceptance-test-accounts.md)。密码只保存在同目录的被 `.gitignore` 忽略文件 `ui-acceptance-test-accounts.local.md`，不得提交或用于生产环境。
+
 生产工作台另按 [README 部署规则](../../README.md#管理工作台) 配置同源 `/api`、`/docs` 优先代理和 SPA 回退；Vite 的 `ADMIN_API_TARGET` 仅用于开发代理。
