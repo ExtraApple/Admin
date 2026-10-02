@@ -129,3 +129,14 @@ describe('explicit native resource paths', () => {
     expect(captchaSource('data:image/png;base64,aGVsbG8=')).toBe('data:image/png;base64,aGVsbG8=');
   });
 });
+describe('authorization overview client contract', () => {
+  it('uses the centralized typed paths and preserves server pagination filters', async () => {
+    const payload = { list: [], total: 0, page: 2, size: 10 };
+    const fetch = vi.fn().mockResolvedValueOnce(response(200, '', payload)).mockResolvedValueOnce(response(200, '', payload));
+    vi.stubGlobal('fetch', fetch);
+    await expect(api.authorizationOverview()).resolves.toEqual(payload);
+    await expect(api.authorizationRisks({ page: 2, size: 10, kind: 'missing_menu_permission', resource: 'role', keyword: '审查' })).resolves.toEqual(payload);
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/admin/authorization-overview', expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/admin/authorization-risks?page=2&size=10&kind=missing_menu_permission&resource=role&keyword=%E5%AE%A1%E6%9F%A5', expect.any(Object));
+  });
+});

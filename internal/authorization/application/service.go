@@ -20,10 +20,11 @@ type Service struct {
 	organizations OrganizationScopeReader
 	users         UserDirectory
 	versions      AccessVersionStore
+	overview      AuthorizationOverviewReader
 }
 
-func NewService(repository Repository, transactions TransactionRunner, organizations OrganizationScopeReader, users UserDirectory, versions AccessVersionStore) *Service {
-	return &Service{repository: repository, transactions: transactions, organizations: organizations, users: users, versions: versions}
+func NewService(repository Repository, transactions TransactionRunner, organizations OrganizationScopeReader, users UserDirectory, versions AccessVersionStore, overview AuthorizationOverviewReader) *Service {
+	return &Service{repository: repository, transactions: transactions, organizations: organizations, users: users, versions: versions, overview: overview}
 }
 
 // EnsureAccessVersion initializes a user's authorization version without invalidating existing tokens.

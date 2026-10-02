@@ -130,6 +130,26 @@ func (repository *Repository) UserRoleSummaries(ctx context.Context, userIDs []u
 	}
 	return summaries, nil
 }
+func (repository *Repository) RolePermissionFacts(ctx context.Context, roleIDs []uint) ([]application.RolePermissionFact, error) {
+	ids := uniqueIDs(roleIDs)
+	if len(ids) == 0 {
+		return []application.RolePermissionFact{}, nil
+	}
+	var facts []application.RolePermissionFact
+	err := repository.connection(ctx).Model(&RolePermission{}).
+		Select("role_permissions.role_id AS role_id, permissions.code AS code").
+		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id").
+		Where("role_permissions.role_id IN ?", ids).
+		Order("role_permissions.role_id asc, permissions.sort asc, permissions.id asc").
+		Scan(&facts).Error
+	if err != nil {
+		return nil, err
+	}
+	if facts == nil {
+		facts = []application.RolePermissionFact{}
+	}
+	return facts, nil
+}
 
 func (repository *Repository) ReplaceUserRoles(ctx context.Context, userID uint, roleIDs []uint) error {
 	db := repository.connection(ctx)

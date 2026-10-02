@@ -53,6 +53,7 @@ func newAuthorizationFixture(t *testing.T) authorizationFixture {
 		organization.NewScopeReader(organizationRepository, hierarchy),
 		users,
 		versions,
+		nil,
 	)
 	return authorizationFixture{service: service, repository: repository, organizations: organizationRepository, versions: versions, users: users, transactions: transactions}
 }
@@ -381,26 +382,50 @@ func TestSetUserRolesRejectsProtectedTargetsAndInvalidAssignments(t *testing.T) 
 }
 
 type revokingScopeTransaction struct {
- base application.TransactionRunner
- revoke func(context.Context)error
+	base   application.TransactionRunner
+	revoke func(context.Context) error
 }
-func (runner revokingScopeTransaction) Run(ctx context.Context,operation func(context.Context)error)error{
- if err:=runner.revoke(ctx);err!=nil{return err}
- return runner.base.Run(ctx,operation)
+
+func (runner revokingScopeTransaction) Run(ctx context.Context, operation func(context.Context) error) error {
+	if err := runner.revoke(ctx); err != nil {
+		return err
+	}
+	return runner.base.Run(ctx, operation)
 }
 func TestSetUserRolesRevalidatesScopeAfterConcurrentOperatorRevocation(t *testing.T) {
- fixture:=newAuthorizationFixture(t);ctx:=context.Background()
- manager:=domain.Role{Name:"Manager",Code:"manager",Status:1,DataScope:domain.DataScopeAll}
- reader:=domain.Role{Name:"Reader",Code:"reader",Status:1,DataScope:domain.DataScopeSelf}
- for _,role:=range []*domain.Role{&manager,&reader}{if err:=fixture.repository.CreateRole(ctx,role);err!=nil{t.Fatal(err)}}
- fixture.users[10]=identitydomain.DirectoryUser{ID:10};fixture.users[20]=identitydomain.DirectoryUser{ID:20}
- if err:=fixture.repository.ReplaceUserRoles(ctx,10,[]uint{manager.ID});err!=nil{t.Fatal(err)}
- if err:=fixture.repository.ReplaceUserRoles(ctx,20,[]uint{reader.ID});err!=nil{t.Fatal(err)}
- if _,err:=fixture.versions.Ensure(ctx,20);err!=nil{t.Fatal(err)}
- transactions:=revokingScopeTransaction{base:fixture.transactions,revoke:func(ctx context.Context)error{return fixture.repository.ReplaceUserRoles(ctx,10,[]uint{})}}
- service:=application.NewService(fixture.repository,transactions,organization.NewScopeReader(fixture.organizations,organization.NewHierarchy(fixture.organizations)),fixture.users,fixture.versions)
- if _,err:=service.SetUserRoles(ctx,10,20,application.UpdateUserRolesRequest{RoleIDs:[]uint{},ExpectedAccessVersion:1});err==nil{t.Fatal("revoked operator changed target roles")}else if code,_:=application.CodeOf(err);code!=application.CodeInvalidUser{t.Fatalf("revoked scope code = %q",code)}
- roles,err:=fixture.repository.RoleIDsByUser(ctx,20)
- if err!=nil||len(roles)!=1||roles[0]!=reader.ID{t.Fatalf("roles after revoked write = %v, %v",roles,err)}
- version,err:=fixture.versions.Current(ctx,20);if err!=nil||version!=1{t.Fatalf("version after revoked write = %d, %v",version,err)}
+	fixture := newAuthorizationFixture(t)
+	ctx := context.Background()
+	manager := domain.Role{Name: "Manager", Code: "manager", Status: 1, DataScope: domain.DataScopeAll}
+	reader := domain.Role{Name: "Reader", Code: "reader", Status: 1, DataScope: domain.DataScopeSelf}
+	for _, role := range []*domain.Role{&manager, &reader} {
+		if err := fixture.repository.CreateRole(ctx, role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.users[10] = identitydomain.DirectoryUser{ID: 10}
+	fixture.users[20] = identitydomain.DirectoryUser{ID: 20}
+	if err := fixture.repository.ReplaceUserRoles(ctx, 10, []uint{manager.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.repository.ReplaceUserRoles(ctx, 20, []uint{reader.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.versions.Ensure(ctx, 20); err != nil {
+		t.Fatal(err)
+	}
+	transactions := revokingScopeTransaction{base: fixture.transactions, revoke: func(ctx context.Context) error { return fixture.repository.ReplaceUserRoles(ctx, 10, []uint{}) }}
+	service := application.NewService(fixture.repository, transactions, organization.NewScopeReader(fixture.organizations, organization.NewHierarchy(fixture.organizations)), fixture.users, fixture.versions, nil)
+	if _, err := service.SetUserRoles(ctx, 10, 20, application.UpdateUserRolesRequest{RoleIDs: []uint{}, ExpectedAccessVersion: 1}); err == nil {
+		t.Fatal("revoked operator changed target roles")
+	} else if code, _ := application.CodeOf(err); code != application.CodeInvalidUser {
+		t.Fatalf("revoked scope code = %q", code)
+	}
+	roles, err := fixture.repository.RoleIDsByUser(ctx, 20)
+	if err != nil || len(roles) != 1 || roles[0] != reader.ID {
+		t.Fatalf("roles after revoked write = %v, %v", roles, err)
+	}
+	version, err := fixture.versions.Current(ctx, 20)
+	if err != nil || version != 1 {
+		t.Fatalf("version after revoked write = %d, %v", version, err)
+	}
 }

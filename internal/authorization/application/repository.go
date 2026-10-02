@@ -27,6 +27,7 @@ type Repository interface {
 	UserIDsByRole(context.Context, uint) ([]uint, error)
 	RoleIDsByUser(context.Context, uint) ([]uint, error)
 	UserRoleSummaries(context.Context, []uint) ([]UserRoleSummary, error)
+	RolePermissionFacts(context.Context, []uint) ([]RolePermissionFact, error)
 	ReplaceUserRoles(context.Context, uint, []uint) error
 	ReplaceRoleUsers(context.Context, uint, []uint) error
 	ReplaceRoleDataScope(context.Context, uint, domain.DataScope, []uint) error

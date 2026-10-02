@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Network, Shield, Users, UserRound, LogOut } from 'lucide-react';
+import { Network, Shield, ShieldCheck, TriangleAlert, Users, UserRound, LogOut } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
-import { canAccessModule, type ManagementModule } from '@/lib/navigation';
+import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, type ManagementModule } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { UserContext } from '@/lib/models';
 
 const modules: { key: ManagementModule; name: string; icon: typeof Shield }[] = [
   { key: 'roles', name: '角色管理', icon: Shield },
   { key: 'users', name: '用户管理', icon: Users },
   { key: 'organizations', name: '组织管理', icon: Network },
 ];
+function AuthorizationNav({ context }: { context: UserContext }) {
+  return <>{canAccessAuthorizationOverview(context) && <NavLink className="nav-button" to="/authorization-overview"><ShieldCheck size={19} />授权总览</NavLink>}{canAccessAuthorizationRisks(context) && <NavLink className="nav-button" to="/authorization-risks"><TriangleAlert size={19} />风险清单</NavLink>}</>;
+}
 export function UserAvatar({ id, name }: { id: number; name: string }) {
   const [url, setUrl] = useState('');
   const [failed, setFailed] = useState(false);
@@ -35,7 +39,8 @@ export function WorkbenchShell() {
   if (!session.context) return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}${location.hash}` }} replace />;
   const { context } = session;
   const currentModule = modules.find(module => location.pathname.startsWith(`/${module.key}`));
-  return <div className="app-shell"><a className="skip-link" href="#main-content">跳转到主要内容</a><aside className="sidebar"><Link className="brand" to="/"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>工作台</small></Link><p className="nav-group">授权与归属</p><nav aria-label="工作台导航">{modules.filter(module => canAccessModule(context, module.key)).map(module => <NavLink key={module.key} className="nav-button" to={`/${module.key}`}><module.icon size={19} />{module.name}</NavLink>)}<NavLink className="nav-button" to="/profile"><UserRound size={19} />个人资料</NavLink></nav><div className="sidebar-foot"><strong>{context.user.nickname || context.user.username}</strong><span>仅显示你的可用功能</span></div></aside><div className="workspace"><header className="topbar"><nav className="breadcrumb" aria-label="当前位置"><Link to="/">工作台</Link><span aria-hidden="true">/</span><strong>{currentModule?.name ?? (location.pathname === '/profile' ? '个人资料' : '访问说明')}</strong></nav><div className="top-actions"><Link className="identity" to="/profile"><UserAvatar id={context.user.id} name={context.user.nickname || context.user.username} /><span>{context.user.nickname || context.user.username}</span></Link><Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} />退出</Link></Button></div></header><main id="main-content" ref={main} tabIndex={-1} className="content"><Outlet /></main></div></div>;
+  const currentLabel = currentModule?.name ?? (location.pathname === '/profile' ? '个人资料' : location.pathname === '/authorization-overview' ? '授权总览' : location.pathname === '/authorization-risks' ? '风险清单' : '访问说明');
+  return <div className="app-shell"><a className="skip-link" href="#main-content">跳转到主要内容</a><aside className="sidebar"><Link className="brand" to="/"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>工作台</small></Link><p className="nav-group">授权与归属</p><nav aria-label="工作台导航"><AuthorizationNav context={context} />{modules.filter(module => canAccessModule(context, module.key)).map(module => <NavLink key={module.key} className="nav-button" to={`/${module.key}`}><module.icon size={19} />{module.name}</NavLink>)}<NavLink className="nav-button" to="/profile"><UserRound size={19} />个人资料</NavLink></nav><div className="sidebar-foot"><strong>{context.user.nickname || context.user.username}</strong><span>仅显示你的可用功能</span></div></aside><div className="workspace"><header className="topbar"><nav className="breadcrumb" aria-label="当前位置"><Link to="/">工作台</Link><span aria-hidden="true">/</span><strong>{currentLabel}</strong></nav><div className="top-actions"><Link className="identity" to="/profile"><UserAvatar id={context.user.id} name={context.user.nickname || context.user.username} /><span>{context.user.nickname || context.user.username}</span></Link><Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} />退出</Link></Button></div></header><main id="main-content" ref={main} tabIndex={-1} className="content"><Outlet /></main></div></div>;
 }
 export function LogoutPage() {
   const { logout } = useSession();
@@ -50,6 +55,7 @@ export function LogoutPage() {
 }
 export function WorkbenchHome() {
   const { context } = useSession();
+  if (canAccessAuthorizationOverview(context)) return <Navigate to="/authorization-overview" replace />;
   const first = modules.find(module => canAccessModule(context, module.key));
   return first ? <Navigate to={`/${first.key}`} replace /> : <NoManagementPage />;
 }

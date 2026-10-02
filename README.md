@@ -91,6 +91,8 @@ Access Token 与 Refresh Token 只保存在页面内存，不写入 localStorage
 
 `ApiError` 保留 HTTP 状态、稳定 `errorCode`、安全英文 fallback、字段错误和白名单安全详情。中文映射在 `web/src/lib/errors.ts`；未知码只使用经过安全处理的 fallback。422 的 `data.fields[]` 按 JSON 字段名映射，可展示同字段多项错误。客户端只接纳批准的登录剩余次数、锁定／邮箱验证等待秒数，并读取 `Retry-After`；不展示任意错误对象、内部 cause、堆栈、密码、Token 或被拒绝值，不自动重交认证表单。
 
+授权总览使用同一 Client 的 `api.authorizationOverview()` 与 `api.authorizationRisks(query)`：入口为 `/authorization-overview`，完整风险清单为 `/authorization-risks`；后端接口分别要求 `admin.authorization.overview.get` 与 `admin.authorization.risks.get`。页面只读，风险详情仅按当前会话已有的角色／用户读取权限提供链接，不在总览或风险清单执行修复写入。发布时先同步 Route Catalog、权限码和后端 OpenAPI，再发布前端 Client 与页面。
+
 原生成功响应使用显式入口：下载走 `api.blob`，头像走 `api.image`（公开头像也可使用同源只读地址），原始 `/docs/openapi.json` 走 `api.raw`；Swagger `/docs` 直接由浏览器打开 HTML。原生成功不经过信封解析，提交前的错误仍按错误信封处理，已提交的流不能追加 JSON。Client 只接受同源路径，公开认证、头像和文档入口不附加 Bearer Token。
 
 统一响应是 breaking contract。`standardize-api-response-contract` 仅达到 Backend Accepted 时仍为 Release Blocked；必须与 `build-admin-workbench` 共用同一 Client，并完成前端及真实联合验收后才可视为可发布，不单独上线已切换协议的后端。路由／权限／读模型及归属编辑边界见 [用户管理](docs/modules/user-management.md)、[角色管理](docs/modules/role-management.md)、[组织管理](docs/modules/organization-management.md)；隔离联调环境见 [配置手册](docs/runbooks/configuration.md)。

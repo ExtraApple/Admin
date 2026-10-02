@@ -136,7 +136,7 @@ func syncCatalogPermissions(ctx context.Context, db *gorm.DB, descriptors []rout
 	authorization := authapplication.NewService(
 		authgorm.NewRepository(db),
 		platformdatabase.NewTransactionRunner(db),
-		nil, nil, authgorm.NewAccessVersions(db),
+		nil, nil, authgorm.NewAccessVersions(db), nil,
 	)
 	_, err := authorization.SyncPermissions(ctx, routes)
 	return err

@@ -2,6 +2,7 @@ package httpadapter
 
 import (
 	"net/http"
+	"reflect"
 
 	"admin/internal/authorization/application"
 	"admin/internal/routecatalog"
@@ -10,7 +11,12 @@ import (
 // Routes returns the complete Authorization-owned RBAC HTTP surface.
 func Routes(service *application.Service, routeSource application.RoutePermissionSource) []routecatalog.Descriptor {
 	handler := &Handler{service: service, routes: routeSource}
+	overview := authRoute(http.MethodGet, "/api/admin/authorization-overview", "Get Authorization Overview", "admin.authorization.overview.get", handler.getAuthorizationOverview, nil, authorizationOverviewResponse{})
+	risks := authRoute(http.MethodGet, "/api/admin/authorization-risks", "List Authorization Risks", "admin.authorization.risks.get", handler.listAuthorizationRisks, nil, authorizationRiskPageResponse{})
+	risks.OpenAPI.QuerySchema = reflect.TypeOf(authorizationRiskListQuery{})
 	return []routecatalog.Descriptor{
+		overview,
+		risks,
 		authRoute(http.MethodGet, "/api/admin/roles", "List Roles", "admin.roles.get", handler.listRoles, nil, roleListResponse{}),
 		authRoute(http.MethodGet, "/api/admin/roles/:id", "Get Role", "admin.roles.id.get", handler.getRole, nil, roleResponse{}),
 		authRoute(http.MethodPut, "/api/admin/users/:id/roles", "Set User Roles", "admin.users.id.roles.put", handler.setUserRoles, updateUserRolesRequest{}, accessVersionResponse{}),

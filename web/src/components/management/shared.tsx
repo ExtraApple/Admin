@@ -4,7 +4,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { api, errorMessage, fieldMessages } from '@/lib/api';
 import type { AdminUser, Organization, Page } from '@/lib/models';
 import { useSession } from '@/lib/session';
-import { canAccessModule } from '@/lib/navigation';
+import { authorizationOverviewPermission, authorizationRisksPermission, canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule } from '@/lib/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,6 +15,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 export function Guard({ module, permissions, children }: { module: 'roles' | 'users' | 'organizations'; permissions: string[]; children: ReactNode }) {
   const { context, can } = useSession();
   if (!context || !canAccessModule(context, module) || !permissions.every(can)) return <div className="management"><Notice title="没有访问权限">当前可见菜单或操作权限不允许打开此页面。请联系管理员核对授权。</Notice></div>;
+  return <div className="management">{children}</div>;
+}
+
+export function AuthorizationGuard({ permission, children }: { permission: typeof authorizationOverviewPermission | typeof authorizationRisksPermission; children: ReactNode }) {
+  const { context } = useSession();
+  const allowed = permission === authorizationOverviewPermission ? canAccessAuthorizationOverview(context) : canAccessAuthorizationRisks(context);
+  if (!allowed) return <div className="management"><Notice title="没有访问权限">当前账号没有读取该授权页面的权限。</Notice></div>;
   return <div className="management">{children}</div>;
 }
 

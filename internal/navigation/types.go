@@ -76,6 +76,11 @@ type APIRecord struct {
 	Remark         string
 }
 
+type RoleMenuAssignment struct {
+	RoleID uint
+	MenuID uint
+}
+
 type PermissionSeed struct {
 	Code  string
 	Name  string

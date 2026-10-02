@@ -8,23 +8,31 @@ import (
 	authapplication "admin/internal/authorization/application"
 	authdomain "admin/internal/authorization/domain"
 	identityapplication "admin/internal/identity/application"
+	"admin/internal/navigation"
 	"admin/internal/organization"
 	platformdatabase "admin/internal/platform/database"
 	"admin/internal/routecatalog"
 )
 
-func newAuthorizationService(resources Resources, users authapplication.UserDirectory) *authapplication.Service {
+func newAuthorizationService(resources Resources, users authapplication.OverviewUserDirectory) *authapplication.Service {
 	repository := authgorm.NewRepository(resources.DB)
 	organizationRepository := organization.NewGORMRepository(resources.DB)
 	hierarchy := organization.NewHierarchy(organizationRepository)
 	organizations := organization.NewScopeReader(organizationRepository, hierarchy)
 	versions := authgorm.NewAccessVersions(resources.DB)
+	overview := authorizationOverviewReader{
+		authorization: repository,
+		navigation:    navigation.NewGORMRepository(resources.DB),
+		organizations: organizationRepository,
+		users:         users,
+	}
 	return authapplication.NewService(
 		repository,
 		platformdatabase.NewTransactionRunner(resources.DB),
 		organizations,
 		users,
 		versions,
+		overview,
 	)
 }
 

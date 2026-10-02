@@ -1,11 +1,15 @@
 import type { RouteObject } from 'react-router-dom';
+import { AuthorizationGuard } from '@/components/management/shared';
 import { Guard } from '@/components/management/shared';
+import { AuthorizationOverviewPage, AuthorizationRisksPage } from './AuthorizationOverviewPages';
 import { GuardedRoleEditor, RoleDetail, RolesList } from './RolePages';
 import { GuardedUserEditor, UserDetail, UsersList } from './UserPages';
 import { GuardedOrganizationMove, OrganizationDetail, OrganizationsList } from './OrganizationPages';
 import '@/management.css';
 
 export const managementRoutes: RouteObject[] = [
+  { path: 'authorization-overview', element: <AuthorizationGuard permission="admin.authorization.overview.get"><AuthorizationOverviewPage /></AuthorizationGuard> },
+  { path: 'authorization-risks', element: <AuthorizationGuard permission="admin.authorization.risks.get"><AuthorizationRisksPage /></AuthorizationGuard> },
   { path: 'roles', element: <Guard module="roles" permissions={['admin.roles.get']}><RolesList /></Guard> },
   { path: 'roles/:id', element: <Guard module="roles" permissions={['admin.roles.id.get']}><RoleDetail /></Guard> },
   { path: 'roles/:id/permissions', element: <GuardedRoleEditor kind="permissions" /> },

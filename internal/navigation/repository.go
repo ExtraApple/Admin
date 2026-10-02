@@ -24,6 +24,7 @@ type Repository interface {
 	DeleteMenu(context.Context, uint) error
 	ReplaceRoleMenus(context.Context, uint, []uint) error
 	MenuIDsByRoleIDs(context.Context, []uint) ([]uint, error)
+	RoleMenuAssignments(context.Context, []uint) ([]RoleMenuAssignment, error)
 	RoleIDsByMenuIDs(context.Context, []uint) ([]uint, error)
 	APIIDsByMenuIDs(context.Context, []uint, bool) ([]uint, error)
 	MenuIDsByAPIIDs(context.Context, []uint, bool) ([]uint, error)
@@ -137,6 +138,26 @@ func (repository *GORMRepository) MenuIDsByRoleIDs(ctx context.Context, roleIDs 
 	err := repository.connection(ctx).Model(&RoleMenuModel{}).Distinct("menu_id").Where("role_id IN ?", roleIDs).Order("menu_id asc").Pluck("menu_id", &ids).Error
 	return nonNilUintIDs(ids), err
 }
+func (repository *GORMRepository) RoleMenuAssignments(ctx context.Context, roleIDs []uint) ([]RoleMenuAssignment, error) {
+	roleIDs = uniqueUintIDs(roleIDs)
+	if len(roleIDs) == 0 {
+		return []RoleMenuAssignment{}, nil
+	}
+	var assignments []RoleMenuAssignment
+	err := repository.connection(ctx).Model(&RoleMenuModel{}).
+		Select("role_id, menu_id").
+		Where("role_id IN ?", roleIDs).
+		Order("role_id asc, menu_id asc").
+		Scan(&assignments).Error
+	if err != nil {
+		return nil, err
+	}
+	if assignments == nil {
+		assignments = []RoleMenuAssignment{}
+	}
+	return assignments, nil
+}
+
 func (repository *GORMRepository) RoleIDsByMenuIDs(ctx context.Context, menuIDs []uint) ([]uint, error) {
 	menuIDs = uniqueUintIDs(menuIDs)
 	if len(menuIDs) == 0 {

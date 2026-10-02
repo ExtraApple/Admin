@@ -12,3 +12,24 @@ export interface UserContext { user: UserInfo; roles: string[]; permissions: str
 export interface LoginInput { username: string; password: string; captcha_id: string; captcha_code: string }
 export interface TokenPair { access_token: string; refresh_token: string }
 export interface Captcha { captcha_id: string; captcha_img: string }
+
+export type AuthorizationRiskKind = 'disabled_assigned_menu' | 'missing_menu_permission' | 'used_role_without_permissions' | 'managed_user_without_role';
+export type AuthorizationRiskResource = 'role' | 'user';
+export interface AuthorizationSessionPolicy { revalidate_on_next_request: boolean }
+export interface AuthorizationOverviewScope { data_scope: string; organization_count: number }
+export interface AuthorizationOverviewCount { total: number; enabled: number; used?: number; without_role?: number; manageable?: number }
+export interface AuthorizationOverviewSummary { roles: AuthorizationOverviewCount; users: AuthorizationOverviewCount; organizations: AuthorizationOverviewCount }
+export interface AuthorizationRisk {
+  resource: AuthorizationRiskResource;
+  resource_id: number;
+  resource_name: string;
+  issue_count: number;
+  issue_kinds: AuthorizationRiskKind[];
+  potentially_affected_users: number;
+  potentially_affected_organizations: number;
+  session_policy: AuthorizationSessionPolicy;
+}
+export interface AuthorizationRiskSummary { items: AuthorizationRisk[]; total: number; limit: number; has_more: boolean }
+export interface AuthorizationOverview { scope: AuthorizationOverviewScope; summary: AuthorizationOverviewSummary; risks: AuthorizationRiskSummary }
+export interface AuthorizationRiskPage { scope: AuthorizationOverviewScope; list: AuthorizationRisk[]; total: number; page: number; size: number }
+export interface AuthorizationRiskQuery { page?: number; size?: number; kind?: AuthorizationRiskKind; resource?: AuthorizationRiskResource; keyword?: string }

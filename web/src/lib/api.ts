@@ -1,5 +1,5 @@
 import { localizedError, safeFallback } from './errors';
-
+import type { AuthorizationOverview, AuthorizationRiskPage, AuthorizationRiskQuery } from './models';
 export interface FieldError { field: string; error_code: string; message: string }
 export interface SafeErrorData { remaining_attempts?: number; retry_after_seconds?: number }
 interface Envelope { code: number; error_code: string; msg: string; data: unknown }
@@ -95,6 +95,16 @@ async function request<T>(path: string, method: string, body: unknown, mode: 'js
   if (!response.ok) throw failure(response, payload);
   return payload.data as T;
 }
+function authorizationRiskPath(query: AuthorizationRiskQuery = {}): string {
+  const params = new URLSearchParams();
+  params.set('page', String(query.page ?? 1));
+  params.set('size', String(query.size ?? 10));
+  if (query.kind) params.set('kind', query.kind);
+  if (query.resource) params.set('resource', query.resource);
+  if (query.keyword?.trim()) params.set('keyword', query.keyword.trim());
+  return `/api/admin/authorization-risks?${params.toString()}`;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path, 'GET', undefined, 'json'),
   post: <T>(path: string, body: unknown) => request<T>(path, 'POST', body, 'json'),
@@ -103,4 +113,6 @@ export const api = {
   blob: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),
   image: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),
   raw: <T>(path: string) => request<T>(path, 'GET', undefined, 'raw'),
+  authorizationOverview: () => request<AuthorizationOverview>('/api/admin/authorization-overview', 'GET', undefined, 'json'),
+  authorizationRisks: (query: AuthorizationRiskQuery = {}) => request<AuthorizationRiskPage>(authorizationRiskPath(query), 'GET', undefined, 'json'),
 };
