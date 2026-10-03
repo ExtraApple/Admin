@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, ExternalLink, RotateCcw, ShieldCheck } from 'lucide-react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import type { AuthorizationOverview, AuthorizationRisk, AuthorizationRiskKind, AuthorizationRiskPage, AuthorizationRiskQuery } from '@/lib/models';
 import { api, errorMessage } from '@/lib/api';
-import { canAccessAuthorizationOverview, canAccessAuthorizationRisks } from '@/lib/navigation';
+import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule } from '@/lib/navigation';
 import { useSession } from '@/lib/session';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -45,10 +45,12 @@ function SummaryCard({ title, total, details, icon }: { title: string; total: nu
 }
 
 function RiskCard({ risk }: { risk: AuthorizationRisk }) {
-  const { can } = useSession();
+  const { can, context } = useSession();
   const location = useLocation();
   const path = riskPath(risk);
-  const canDetail = path && (risk.resource === 'role' ? can('admin.roles.id.get') : can('admin.users.id.get'));
+  const module = risk.resource === 'role' ? 'roles' : risk.resource === 'user' ? 'users' : null;
+  const permission = risk.resource === 'role' ? 'admin.roles.id.get' : risk.resource === 'user' ? 'admin.users.id.get' : '';
+  const canDetail = !!path && !!module && canAccessModule(context, module) && can(permission);
   const name = displayRiskName(risk);
   return <Card className="mg-risk-card"><CardHeader><div className="mg-risk-card-heading"><div><CardDescription>{risk.resource === 'role' ? '角色' : '用户'} · 需要核对</CardDescription><CardTitle>{canDetail ? <Link to={path} state={{ returnTo: `${location.pathname}${location.search}` }}>{name}<ExternalLink size={15} aria-hidden="true" /></Link> : name}</CardTitle></div><Badge variant="destructive">{risk.issue_count} 项</Badge></div></CardHeader><CardContent><div className="mg-risk-kinds" aria-label="风险类型">{risk.issue_kinds.map(kind => <Badge key={kind} variant="outline">{authorizationRiskLabel(kind)}</Badge>)}</div><dl className="mg-risk-impact"><div><dt>潜在影响用户</dt><dd>{risk.potentially_affected_users}</dd></div><div><dt>潜在影响组织</dt><dd>{risk.potentially_affected_organizations}</dd></div></dl><p className="mg-risk-policy">{risk.session_policy.revalidate_on_next_request ? '授权变化将在后续请求重新校验。' : '会话规则由服务端返回。'}</p></CardContent></Card>;
 }
@@ -82,7 +84,13 @@ function parsePage(value: string | null): number {
 }
 
 function RiskFilters({ kind, resource, keyword, onChange, onKeywordChange, onReset }: { kind: string; resource: string; keyword: string; onChange: (changes: Record<string, string>) => void; onKeywordChange: (value: string) => void; onReset: () => void }) {
-  return <form className="mg-risk-filters" onSubmit={event => { event.preventDefault(); onChange({ keyword: keyword.trim(), page: '1' }); }}><label><span>风险类型</span><Select value={kind || 'all'} onValueChange={value => onChange({ kind: value === 'all' ? '' : value, page: '1' })}><SelectTrigger aria-label="风险类型"><SelectValue placeholder="全部风险类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部风险类型</SelectItem>{Object.entries(riskLabels).map(([value, label]) => <SelectItem value={value} key={value}>{label}</SelectItem>)}</SelectContent></Select></label><label><span>目标资源</span><Select value={resource || 'all'} onValueChange={value => onChange({ resource: value === 'all' ? '' : value, page: '1' })}><SelectTrigger aria-label="目标资源"><SelectValue placeholder="全部资源" /></SelectTrigger><SelectContent><SelectItem value="all">全部资源</SelectItem><SelectItem value="role">角色</SelectItem><SelectItem value="user">用户</SelectItem></SelectContent></Select></label><label className="mg-risk-keyword"><span>关键字</span><Input value={keyword} onChange={event => onKeywordChange(event.target.value)} placeholder="目标名称" /></label><Button type="submit" variant="outline">应用筛选</Button><Button type="button" variant="ghost" onClick={onReset}><RotateCcw size={16} aria-hidden="true" />重置</Button></form>;
+  const id = useId();
+  return <form className="mg-risk-filters" onSubmit={event => { event.preventDefault(); onChange({ keyword: keyword.trim(), page: '1' }); }}>
+    <label htmlFor={`${id}-kind`}><span>风险类型</span><Select name="kind" value={kind || 'all'} onValueChange={value => onChange({ kind: value === 'all' ? '' : value, page: '1' })}><SelectTrigger id={`${id}-kind`} aria-label="风险类型"><SelectValue placeholder="全部风险类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部风险类型</SelectItem>{Object.entries(riskLabels).map(([value, label]) => <SelectItem value={value} key={value}>{label}</SelectItem>)}</SelectContent></Select></label>
+    <label htmlFor={`${id}-resource`}><span>目标资源</span><Select name="resource" value={resource || 'all'} onValueChange={value => onChange({ resource: value === 'all' ? '' : value, page: '1' })}><SelectTrigger id={`${id}-resource`} aria-label="目标资源"><SelectValue placeholder="全部资源" /></SelectTrigger><SelectContent><SelectItem value="all">全部资源</SelectItem><SelectItem value="role">角色</SelectItem><SelectItem value="user">用户</SelectItem></SelectContent></Select></label>
+    <label className="mg-risk-keyword" htmlFor={`${id}-keyword`}><span>关键字</span><Input id={`${id}-keyword`} name="keyword" value={keyword} onChange={event => onKeywordChange(event.target.value)} placeholder="目标名称" /></label>
+    <Button type="submit" variant="outline">应用筛选</Button><Button type="button" variant="ghost" onClick={onReset}><RotateCcw size={16} aria-hidden="true" />重置</Button>
+  </form>;
 }
 
 function RiskPager({ page, size, total, loading, onPage }: { page: number; size: number; total: number; loading: boolean; onPage: (page: number) => void }) {
