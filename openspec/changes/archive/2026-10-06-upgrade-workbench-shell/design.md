@@ -34,6 +34,10 @@
 
 选择本地源码而不是直接引入成套后台模板，是因为项目已经采用 shadcn/ui 的可定制路线，且业务权限、路由和主题需要保留。选择官方 Radix primitives 而不是手写 Sheet/焦点行为，是为了复用可访问的 modal、dismiss、focus scope 和 tooltip 语义。
 
+实施中的真实浏览器验收发现：新增 Dialog 与已有 AlertDialog 加载了不同版本的 FocusScope 和 DismissableLayer；在未保存编辑页的 Sheet 导航触发确认框并取消后，页面残留 `body` pointer lock。用户选择扩大依赖范围，统一升级全部已引入的 Radix primitives 到兼容发布系列，而不是仅对齐新增包。通过正常依赖声明和锁文件共享浮层核心，不手写清除 body 样式，也不以 overrides 强行替换不同版本的内部模块。其他业务依赖版本保持不变。
+
+统一升级后的依赖树只有 FocusScope `1.2.0` 和 DismissableLayer `1.1.20`。真实复验同时发现旧 Vite 预构建仍包含升级前的重复核心，因此依赖升级后必须重启开发服务器并刷新预构建缓存。加载新依赖后，嵌套确认取消保留选择和 Sheet，确认离开释放 pointer lock 并恢复菜单焦点；不需要修改业务导航守卫或手动清理 body 样式。
+
 ### 2. Sidebar 不做全局图标折叠，分组独立折叠
 
 WorkbenchShell 使用 228px 的 Sidebar，并禁用整体 icon collapse。导航内容使用 SidebarGroup、SidebarMenu 和 Collapsible 组合；每个分组有稳定 ID、标题、图标和经过权限过滤的入口。
@@ -70,10 +74,12 @@ WorkbenchShell 初始化时根据当前 pathname 计算当前分组，将该分�
 
 实现后在 375px、850px、1440px 视口检查布局；用键盘验证菜单按钮、分组按钮、导航入口、Sheet 关闭和焦点恢复；使用至少一个权限受限上下文确认空分组隐藏且没有出现越权入口。现有页面 API 行为不在此变更中重新实现，只验证壳层没有绕过权限或改变路由。
 
+Radix 统一升级后，需要保留嵌套 Sheet／AlertDialog 的可操作性回归：取消未保存确认必须保留编辑选择和 Sheet；确认离开后必须关闭浮层、恢复菜单焦点并释放 pointer lock。同步复验现有 Select、DropdownMenu、Checkbox、RadioGroup、Tooltip 和确认框的键盘及关闭行为；不提交测试中的权限／归属修改。
+
 ## Risks / Trade-offs
 
 - **[中] 官方组件源码与现有 Tailwind/CSS token 可能冲突。** 通过沿用现有语义变量、限定壳层选择器并删除旧导航规则降低风险；不直接复制官方默认颜色。
-- **[中] 新增 Radix primitives 会增加 package-lock 变更。** 只引入 Sidebar 必需依赖，完成后运行前端类型检查、测试和生产构建。
+- **[中] 统一升级 Radix 会影响现有业务浮层。** 检查依赖树中 FocusScope 和 DismissableLayer 的共享情况，补充嵌套确认框回归及现有控件真实交互验收，再运行类型检查、测试和生产构建；不能只凭编译通过判定兼容。
 - **[中] 当前分组允许折叠，可能暂时隐藏当前 active item。** 这是已确认的用户控制取舍；Breadcrumb、页面标题、`aria-current` 和内容焦点仍提供当前页面定位。
 - **[中] 850px 需要 CSS 与移动 Sheet 判定一致。** 使用共享断点常量或同一 850px 约定，避免 CSS 已进入移动布局但 JS 仍渲染桌面导航。
 - **[低] 静态展示分组可能落后于未来权限入口。** 新增入口时必须在同一导航配置中补充分组、标签、图标和权限谓词；不自动从后端菜单树推断展示分组，以避免改变本变更的权限语义。

@@ -63,6 +63,8 @@ minio.exe server D:\WORK\minio\data --console-address ":9001"
 
 正式入口为 `web/index.html`；`web/preview.html` 只是静态视觉参考，不是登录或业务数据入口。应用使用 React、TypeScript、Vite、Tailwind CSS 和基于 Radix UI 的按需 shadcn/ui 组件，npm 版本与依赖以 `web/package.json`、锁文件为准。
 
+工作台入口按“授权核对”“身份与组织”“账户”分组，只显示当前用户可访问的入口，空分组不显示。桌面侧栏固定 228px；850px 及以下使用导航 Sheet。首次挂载只展开当前路由所属分组，后续路由切换不重置用户选择，也不持久化分组状态。未保存编辑的导航确认取消后保留编辑与 Sheet；确认离开后关闭导航并恢复菜单按钮焦点。
+
 在 `web/` 目录执行：
 
 ```powershell
@@ -73,6 +75,8 @@ npm test
 npm run build
 npm run preview
 ```
+
+Radix primitives 使用同一兼容发布系列，Sheet、确认框、Select 等浮层需要共享 FocusScope 和 DismissableLayer。升级依赖后先停止旧的开发服务器，再执行 `npm run dev -- --force` 刷新 Vite 预构建缓存；旧缓存仍可能保留重复的浮层核心，仅安装成功或 HMR 刷新不足以验证嵌套浮层。完整刷新后需要重新登录。
 
 `dev` 启动真实应用，`typecheck` 检查类型，`test` 运行 Vitest，`build` 输出 `web/dist/`，`preview` 仅本地预览构建产物，不是生产服务器。开发代理默认转发 `/api`、`/avatars`、`/docs` 到 `http://127.0.0.1:8080`。后端端口不同时，在启动 Vite 前设置：
 

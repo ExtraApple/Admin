@@ -15,7 +15,7 @@
 - 在 850px 及以下视口使用移动 Sheet 承载导航；Sheet 与桌面共享分组状态，选择入口后关闭并将焦点恢复到菜单按钮。
 - 移动 Sheet 只承载导航，退出操作继续保留在顶部。
 - 使用官方 Breadcrumb 组件统一为“工作台 / 当前页面”两级路径。
-- 按官方组件需要新增 Radix primitives 依赖，并在完成切换后删除旧 sidebar、nav-button 和移动端换行导航样式。
+- 按官方组件需要新增 Radix primitives，并统一升级全部已引入的 Radix primitives 到兼容发布系列，避免 Sheet 与现有业务浮层加载不同的焦点／dismiss 上下文；完成切换后删除旧 sidebar、nav-button 和移动端换行导航样式。
 - **非目标**：不修改后端菜单树、权限码、API、数据模型、业务页面、DataTable、表单、授权风险计算或详情页 Breadcrumb 层级。
 
 ## Capabilities
@@ -31,7 +31,7 @@
 ## Impact
 
 - **前端代码**：`web/src/components/WorkbenchShell.tsx`、`web/src/components/ui/` 中的 Sidebar 相关组件，以及 `web/src/styles.css` 的壳层样式。
-- **依赖**：按官方 Sidebar 组成补充所需 Radix primitives；同步 `web/package.json` 与 `web/package-lock.json`。
+- **依赖**：补充 Sidebar 所需 primitives，并统一升级已有 AlertDialog、Checkbox、DropdownMenu、Label、RadioGroup、Select 和 Slot 等 Radix 依赖；同步 `web/package.json` 与 `web/package-lock.json`，其余业务依赖版本保持不变。
 - **路由/API/权限**：无新增或修改。现有 `canAccessAuthorizationOverview`、`canAccessAuthorizationRisks`、`canAccessModule` 和 React Router 路由继续作为事实来源。
 - **运行状态**：分组展开状态只存在当前 `WorkbenchShell` 挂载周期的 React state，不写入 `localStorage` 或 `sessionStorage`。
-- **验证范围**：375px、850px、1440px 视口；键盘导航、可见焦点、Sheet 开关与焦点恢复、空分组隐藏、active 状态和权限过滤。
+- **验证范围**：375px、850px、1440px 视口；键盘导航、可见焦点、Sheet 开关与焦点恢复、空分组隐藏、active 状态和权限过滤；补充嵌套未保存确认框及现有 Select、DropdownMenu 等业务浮层回归。

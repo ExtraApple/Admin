@@ -1,22 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Network, Shield, ShieldCheck, TriangleAlert, Users, UserRound, LogOut } from 'lucide-react';
+import { ChevronDown, UserRound, LogOut } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
-import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, type ManagementModule } from '@/lib/navigation';
+import { canAccessAuthorizationOverview, canAccessModule, type ManagementModule } from '@/lib/navigation';
+import { getWorkbenchLabel, useWorkbenchNavigation } from '@/lib/workbench-navigation';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarSeparator, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import type { UserContext } from '@/lib/models';
 
-const modules: { key: ManagementModule; name: string; icon: typeof Shield }[] = [
-  { key: 'roles', name: '角色管理', icon: Shield },
-  { key: 'users', name: '用户管理', icon: Users },
-  { key: 'organizations', name: '组织管理', icon: Network },
-];
-function AuthorizationNav({ context }: { context: UserContext }) {
-  return <>{canAccessAuthorizationOverview(context) && <NavLink className="nav-button" to="/authorization-overview"><ShieldCheck size={19} />授权总览</NavLink>}{canAccessAuthorizationRisks(context) && <NavLink className="nav-button" to="/authorization-risks"><TriangleAlert size={19} />风险清单</NavLink>}</>;
-}
+const modules: ManagementModule[] = ['roles', 'users', 'organizations'];
 export function UserAvatar({ id, name }: { id: number; name: string }) {
   const [url, setUrl] = useState('');
   const [failed, setFailed] = useState(false);
@@ -32,15 +29,74 @@ export function UserAvatar({ id, name }: { id: number; name: string }) {
   return <span className="avatar" title={failed ? '头像加载失败' : name}>{url ? <img src={url} alt={`${name}的头像`} /> : <span aria-label={failed ? '头像加载失败' : '头像加载中'}>{name.slice(0, 1) || <UserRound size={18} />}</span>}</span>;
 }
 export function WorkbenchShell() {
-  const session = useSession();
+  const { context } = useSession();
+  const location = useLocation();
+  if (!context) return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}${location.hash}` }} replace />;
+  return <SidebarProvider className="app-shell"><WorkbenchLayout context={context} /></SidebarProvider>;
+}
+
+function WorkbenchLayout({ context }: { context: UserContext }) {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
+  const { setOpenMobile } = useSidebar();
+  const { groups, openGroups, setGroupOpen } = useWorkbenchNavigation(context, location.pathname);
+  const name = context.user.nickname || context.user.username;
+
   useEffect(() => { main.current?.focus(); }, [location.pathname]);
-  if (!session.context) return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}${location.hash}` }} replace />;
-  const { context } = session;
-  const currentModule = modules.find(module => location.pathname.startsWith(`/${module.key}`));
-  const currentLabel = currentModule?.name ?? (location.pathname === '/profile' ? '个人资料' : location.pathname === '/authorization-overview' ? '授权总览' : location.pathname === '/authorization-risks' ? '风险清单' : '访问说明');
-  return <div className="app-shell"><a className="skip-link" href="#main-content">跳转到主要内容</a><aside className="sidebar"><Link className="brand" to="/"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>工作台</small></Link><p className="nav-group">授权与归属</p><nav aria-label="工作台导航"><AuthorizationNav context={context} />{modules.filter(module => canAccessModule(context, module.key)).map(module => <NavLink key={module.key} className="nav-button" to={`/${module.key}`}><module.icon size={19} />{module.name}</NavLink>)}<NavLink className="nav-button" to="/profile"><UserRound size={19} />个人资料</NavLink></nav><div className="sidebar-foot"><strong>{context.user.nickname || context.user.username}</strong><span>仅显示你的可用功能</span></div></aside><div className="workspace"><header className="topbar"><nav className="breadcrumb" aria-label="当前位置"><Link to="/">工作台</Link><span aria-hidden="true">/</span><strong>{currentLabel}</strong></nav><div className="top-actions"><Link className="identity" to="/profile"><UserAvatar id={context.user.id} name={context.user.nickname || context.user.username} /><span>{context.user.nickname || context.user.username}</span></Link><Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} />退出</Link></Button></div></header><main id="main-content" ref={main} tabIndex={-1} className="content"><Outlet /></main></div></div>;
+  // Close only after navigation commits, preserving the Sheet when an unsaved-change guard cancels.
+  useEffect(() => { setOpenMobile(false); }, [location.key, setOpenMobile]);
+
+  return <>
+    <a className="skip-link" href="#main-content">跳转到主要内容</a>
+    <Sidebar className="workbench-sidebar">
+      <SidebarHeader>
+        <Link className="brand" to="/"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>工作台</small></Link>
+      </SidebarHeader>
+      <SidebarContent>
+        <nav aria-label="工作台导航">
+          {groups.map(group => <Collapsible key={group.id} open={openGroups[group.id]} onOpenChange={open => setGroupOpen(group.id, open)} asChild>
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger><span>{group.label}</span><ChevronDown className="workbench-group-chevron" size={16} aria-hidden="true" /></CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent asChild>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {group.items.map(item => <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton asChild>
+                        <NavLink to={item.to} end={group.id !== 'identity-organization'}><item.icon size={19} aria-hidden="true" /><span>{item.label}</span></NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>)}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>)}
+        </nav>
+      </SidebarContent>
+      <SidebarSeparator />
+      <SidebarFooter><strong>{name}</strong><span>仅显示你的可用功能</span></SidebarFooter>
+    </Sidebar>
+    <SidebarInset className="workspace">
+      <header className="topbar">
+        <div className="topbar-location">
+          <SidebarTrigger className="workbench-menu-trigger" />
+          <Breadcrumb aria-label="当前位置">
+            <BreadcrumbList>
+              <BreadcrumbItem><BreadcrumbLink asChild><Link to="/">工作台</Link></BreadcrumbLink></BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem><BreadcrumbPage>{getWorkbenchLabel(location.pathname)}</BreadcrumbPage></BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <div className="top-actions">
+          <Link className="identity" to="/profile" aria-label={`${name}的个人资料`}><UserAvatar id={context.user.id} name={name} /><span>{name}</span></Link>
+          <Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} aria-hidden="true" />退出</Link></Button>
+        </div>
+      </header>
+      <main id="main-content" ref={main} tabIndex={-1} className="content"><Outlet /></main>
+    </SidebarInset>
+  </>;
 }
 export function LogoutPage() {
   const { logout } = useSession();
@@ -56,8 +112,8 @@ export function LogoutPage() {
 export function WorkbenchHome() {
   const { context } = useSession();
   if (canAccessAuthorizationOverview(context)) return <Navigate to="/authorization-overview" replace />;
-  const first = modules.find(module => canAccessModule(context, module.key));
-  return first ? <Navigate to={`/${first.key}`} replace /> : <NoManagementPage />;
+  const first = modules.find(module => canAccessModule(context, module));
+  return first ? <Navigate to={`/${first}`} replace /> : <NoManagementPage />;
 }
 export function NoManagementPage() {
   const { reloadContext } = useSession();
