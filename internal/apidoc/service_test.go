@@ -2,8 +2,12 @@ package apidoc_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"admin/internal/apidoc"
@@ -12,9 +16,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type metadataFake struct{ entries []apidoc.Metadata }
+type metadataFake struct {
+	entries []apidoc.Metadata
+	err     error
+}
 
 func (fake metadataFake) Snapshot(context.Context) ([]apidoc.Metadata, error) {
+	if fake.err != nil {
+		return nil, fake.err
+	}
 	return append([]apidoc.Metadata(nil), fake.entries...), nil
 }
 
@@ -67,6 +77,60 @@ func TestDocumentUsesRouteCatalogAndMetadataSnapshot(t *testing.T) {
 	}
 	if document["servers"].([]map[string]string)[0]["url"] != "https://admin.test" {
 		t.Fatal("server URL was not applied")
+	}
+}
+
+func TestOpenAPIHandlerHidesMetadataGenerationFailure(t *testing.T) {
+	const (
+		internalCause = "database password=secret generator=private"
+		secretMarker  = "metadata-secret-marker"
+	)
+	catalog, err := routecatalog.New([]routecatalog.Descriptor{{
+		Method: http.MethodGet, Path: "/api/widgets", Access: routecatalog.Public,
+		Handler: func(*gin.Context) {}, Name: "Widgets", Group: "widgets", DefaultAuditCategory: "widgets",
+		OpenAPI: routecatalog.Operation{
+			Summary: "Widgets", Request: routecatalog.RequestBody{Kind: routecatalog.NoBody},
+			Responses: map[int]routecatalog.Response{http.StatusOK: {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(widgetResponse{})}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("build Route Catalog: %v", err)
+	}
+	service := apidoc.New(catalog, metadataFake{err: errors.New(internalCause + " " + secretMarker)}, apidoc.Config{})
+	router := gin.New()
+	router.GET("/docs/openapi.json", service.OpenAPI)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil))
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("OpenAPI failure status = %d, want 500; body=%s", response.Code, response.Body.String())
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode OpenAPI failure envelope: %v; body=%s", err, response.Body.String())
+	}
+	if len(envelope) != 4 {
+		t.Fatalf("OpenAPI failure envelope fields = %#v, want exactly four fields", envelope)
+	}
+	for _, field := range []string{"code", "error_code", "msg", "data"} {
+		if _, ok := envelope[field]; !ok {
+			t.Fatalf("OpenAPI failure envelope missing %q: %#v", field, envelope)
+		}
+	}
+	var code int
+	if err := json.Unmarshal(envelope["code"], &code); err != nil || code != http.StatusInternalServerError {
+		t.Fatalf("OpenAPI failure code = %s, want 500", envelope["code"])
+	}
+	var errorCode string
+	if err := json.Unmarshal(envelope["error_code"], &errorCode); err != nil || errorCode != "HTTP_INTERNAL_ERROR" {
+		t.Fatalf("OpenAPI failure error_code = %s, want HTTP_INTERNAL_ERROR", envelope["error_code"])
+	}
+	if string(envelope["data"]) != "null" {
+		t.Fatalf("OpenAPI failure data = %s, want null", envelope["data"])
+	}
+	if body := response.Body.String(); strings.Contains(body, internalCause) || strings.Contains(body, secretMarker) {
+		t.Fatalf("OpenAPI failure leaked internal error: %s", body)
 	}
 }
 

@@ -1,0 +1,15 @@
+OpenAPI failure HTTP smoke
+
+Entry: temporary testsupport/openapi-failure-smoke/main.go
+Handler: real apidoc.Service.OpenAPI
+Request: GET /docs/openapi.json over a local net/http server
+Metadata source: controlled failure with injected test-only marker
+
+Observed:
+url=http://127.0.0.1:64904/docs/openapi.json
+status=500
+body={"code":500,"error_code":"HTTP_INTERNAL_ERROR","msg":"internal server error","data":null}
+fields=4
+leak=false
+
+The temporary smoke entry was removed after this run. No MySQL, Redis, MinIO, or production data was modified.

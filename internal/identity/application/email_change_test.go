@@ -137,16 +137,41 @@ func timePointer() *time.Time {
 }
 
 func TestUpdateByAdminRejectsEmailField(t *testing.T) {
-	repository := &managementRepositoryFake{userRepositoryFake: userRepositoryFake{user: domain.User{ID: 42, Email: "target@example.com", Status: 1}}}
-	service := application.NewUserService(repository, passwordFake{}, &transactionFake{}, &accessManagementFake{scope: domain.UserScope{UserIDs: []uint{42}}})
+	verifiedAt := timePointer()
+	repository := &managementRepositoryFake{userRepositoryFake: userRepositoryFake{user: domain.User{
+		ID:              42,
+		Nickname:        "before",
+		Role:            "reviewer",
+		Status:          1,
+		Email:           "target@example.com",
+		PendingEmail:    "pending@example.com",
+		EmailVerifiedAt: verifiedAt,
+	}}}
+	transactions := &transactionFake{}
+	access := &accessManagementFake{scope: domain.UserScope{UserIDs: []uint{42}}}
+	service := application.NewUserService(repository, passwordFake{}, transactions, access)
 
-	_, err := service.UpdateByAdmin(context.Background(), 7, 42, application.AdminUpdateUserRequest{Email: "new@example.com"})
+	status := 0
+	_, err := service.UpdateByAdmin(context.Background(), 7, 42, application.AdminUpdateUserRequest{
+		Nickname: "after",
+		Email:    "new@example.com",
+		Role:     "editor",
+		Status:   &status,
+	})
 	if err == nil {
 		t.Fatal("UpdateByAdmin() accepted an email field")
 	}
 	details, _ := application.DetailsOf(err)
-	if len(details.Fields) != 1 || details.Fields[0].Field != "email" {
+	if len(details.Fields) != 1 || details.Fields[0].Field != "email" || details.Fields[0].ErrorCode != "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE" {
 		t.Fatalf("validation fields = %#v", details.Fields)
+	}
+	if repository.user.Nickname != "before" || repository.user.Role != "reviewer" || repository.user.Status != 1 ||
+		repository.user.Email != "target@example.com" || repository.user.PendingEmail != "pending@example.com" ||
+		repository.user.EmailVerifiedAt != verifiedAt || repository.changes != (application.UserChanges{}) {
+		t.Fatalf("admin email rejection changed user state: user=%#v changes=%#v", repository.user, repository.changes)
+	}
+	if transactions.calls != 0 || access.incremented != nil {
+		t.Fatalf("admin email rejection touched transaction/access state: transactions=%d invalidated=%v", transactions.calls, access.incremented)
 	}
 }
 

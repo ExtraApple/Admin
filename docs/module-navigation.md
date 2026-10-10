@@ -38,7 +38,7 @@
 - Messaging RabbitMQ、Outbox 和 DLQ Recorder 处置见 [`runbooks/messaging.md`](runbooks/messaging.md)。
 - 工作台启动、代理、生产 SPA 回退和原生响应入口见 [根 README](../README.md#管理工作台)；隔离运行环境见 [`runbooks/configuration.md`](runbooks/configuration.md#工作台隔离联调环境)。
 - 真实用户归属读模型在 `internal/identity/application/admin_users.go`；用户定向角色写入由 Authorization 拥有，组织写入在 `internal/organization/user_memberships.go`。页面不得跨越这两个所有权或通过整组覆盖模拟逐人修改。
-- 工作台实施规格与响应契约联合验收分别见 [`build-admin-workbench`](../openspec/changes/build-admin-workbench/) 和 [`standardize-api-response-contract`](../openspec/changes/standardize-api-response-contract/)；代码存在与验收通过分开记录。
+- 工作台实施规格与响应契约联合验收分别见 [`build-admin-workbench`](../openspec/changes/archive/2026-10-01-build-admin-workbench/) 和 [`standardize-api-response-contract`](../openspec/changes/archive/2026-10-01-standardize-api-response-contract/)；代码存在与验收通过分开记录。
 
 Route Descriptor 是业务 HTTP 入口的唯一声明。新增或修改接口时，同时更新 Handler、访问等级、默认权限码、审计分类和完整 OpenAPI operation；App 从 Route Catalog Snapshot 统一执行 Gin 注册、启动 Seed、API/权限同步和文档生成。
 

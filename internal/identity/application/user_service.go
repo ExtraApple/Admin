@@ -200,23 +200,12 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 		value := request.Nickname
 		changes.Nickname = &value
 	}
-	if request.Email != "" {
-		exists, err := service.users.EmailExists(ctx, request.Email, targetID)
-		if err != nil {
-			return domain.User{}, NewError(CodeInternalError, err)
-		}
-		if exists {
-			return domain.User{}, NewError(CodeConflict, nil)
-		}
-		value := request.Email
-		changes.Email = &value
-	}
 	if request.Role != "" {
 		value := request.Role
 		changes.Role = &value
 	}
 	changes.Status = request.Status
-	if changes.Nickname == nil && changes.Email == nil && changes.Role == nil && changes.Status == nil {
+	if changes.Nickname == nil && changes.Role == nil && changes.Status == nil {
 		return domain.User{}, NewError(CodeValidationInvalid, nil)
 	}
 	if err := service.transactions.Run(ctx, func(tx context.Context) error {

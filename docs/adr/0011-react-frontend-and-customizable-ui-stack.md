@@ -8,7 +8,7 @@
 
 Admin 将在根目录 `web/` 建立管理端，以用户、角色和组织授权管理为首期场景。当前 `web/preview.html` 是覆盖角色、用户、组织、登录／注册及关键状态的可点击静态样稿，只使用示例数据、不连接后端，不是正式前端应用。角色详情以权限、已分配菜单和数据范围的并列授权剖面为设计重点；成套后台模板或组件库的默认外观不应取代这套设计。
 
-前端还须遵守 [`standardize-api-response-contract` 的前端及联合验收要求](../../openspec/changes/standardize-api-response-contract/tasks.md)：集中解析业务响应、按稳定错误码本地化、展示字段级错误和登录锁定状态，并为下载、头像与原始 OpenAPI 响应保留非信封路径。选型不改变这些契约或后端职责。
+前端还须遵守 [`standardize-api-response-contract` 的前端及联合验收要求](../../openspec/changes/archive/2026-10-01-standardize-api-response-contract/tasks.md)：集中解析业务响应、按稳定错误码本地化、展示字段级错误和登录锁定状态，并为下载、头像与原始 OpenAPI 响应保留非信封路径。选型不改变这些契约或后端职责。
 
 ## 决策
 
@@ -27,4 +27,4 @@ Admin 将在根目录 `web/` 建立管理端，以用户、角色和组织授权
 - **Element Plus** 提供成套管理控件，但属于 Vue 生态，且其整体使用方式不符合本次选型偏好；shadcn/ui 更便于保持已审核的页面设计。
 - **仅用 Radix UI 自建所有控件** 提供最大控制权，但会增加通用按钮、表单控件及交互样式的维护工作；shadcn/ui 提供可按需调整的组件源码。
 
-该路线要求项目维护引入后的组件源码与主题变量；复杂表格、表单错误及响应状态仍须按业务契约自行组合和验证。现有实现采用 npm、React Router 和 Radix 组件，版本由 `web/package.json` 与 `web/package-lock.json` 固定；入口在 `web/src/App.tsx`，集中 Client 在 `web/src/lib/api.ts`。实现与联合验收门禁见 [`build-admin-workbench`](../../openspec/changes/build-admin-workbench/)；开发、部署及内存会话限制见 [README](../../README.md#管理工作台)。
+该路线要求项目维护引入后的组件源码与主题变量；复杂表格、表单错误及响应状态仍须按业务契约自行组合和验证。现有实现采用 npm、React Router 和 Radix 组件，版本由 `web/package.json` 与 `web/package-lock.json` 固定；入口在 `web/src/App.tsx`，集中 Client 在 `web/src/lib/api.ts`。实现与联合验收门禁见 [`build-admin-workbench`](../../openspec/changes/archive/2026-10-01-build-admin-workbench/)；开发、部署及内存会话限制见 [README](../../README.md#管理工作台)。

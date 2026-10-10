@@ -93,7 +93,7 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 #### Scenario: OpenAPI 生成失败
 - **WHEN** `GET /docs/openapi.json` 在成功文档提交前无法生成文档
 - **THEN** 系统返回 HTTP 500 四字段 JSON 错误信封
-- **AND** `error_code` SHALL 为稳定技术错误码
+- **AND** `error_code` SHALL 为稳定技术错误码 `HTTP_INTERNAL_ERROR`
 - **AND** 响应 SHALL NOT 包含内部 Metadata、数据库或生成器错误
 
 #### Scenario: 关闭自动化 API 文档
