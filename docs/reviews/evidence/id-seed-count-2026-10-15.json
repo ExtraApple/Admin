@@ -1,0 +1,156 @@
+{
+  "id": "ID-SEED-COUNT",
+  "verified_on": "2026-10-15",
+  "baseline_commit": "c4b96ce1d64daede23a8d867d0a990e1c5887c04",
+  "classification": "confirmed_current_contract_violation",
+  "owner": "Identity",
+  "governing_requirement": {
+    "file": "openspec/specs/rbac/spec.md",
+    "lines": "90-93",
+    "scenario": "已存在启用超级管理员",
+    "expectation": "不创建新的超级管理员，且不重置现有超级管理员密码"
+  },
+  "evidence_format": "Curated, sanitized observations from the unchanged original main program, real HTTP/MySQL and native Delve. Not a raw debugger transcript.",
+  "environment": {
+    "os": "Windows amd64",
+    "go": "1.25.0",
+    "mysql": "8.0.19",
+    "transaction_isolation": "REPEATABLE-READ",
+    "redis": "8.0.5",
+    "minio": "existing native executable, isolated temporary data",
+    "schema": "admin_seed_count_3dc1545b3295",
+    "temporary_directory": "C:\\Users\\Rog\\AppData\\Local\\Temp\\admin-seed-count-s09oe04r",
+    "backend_port": 28081,
+    "redis_port": 26381,
+    "minio_ports": [
+      29001,
+      29101
+    ],
+    "delve_port": 28881,
+    "delve": "1.26.3",
+    "binary": "unchanged original main.go, built with -gcflags=all=-N -l",
+    "new_go_probe": false,
+    "shared_admin_schema_migrated_seeded_or_written": false
+  },
+  "source_path": [
+    "main.go:11",
+    "internal/app/seed.go:44-56",
+    "internal/app/seeddata/seed.go:40",
+    "internal/identity/adapters/gorm/seed.go:25-30,43-49,65-76"
+  ],
+  "normal_restart_control": {
+    "existing_enabled_admin": true,
+    "configured_password_differs_from_original": true,
+    "active_admin_count": 1,
+    "password_hash_unchanged": true,
+    "original_password_login_http": 200,
+    "new_configuration_password_login_http": 401,
+    "new_configuration_password_error": "AUTHN_CREDENTIALS_INVALID",
+    "access_version": 7,
+    "startup_reached_http": true
+  },
+  "single_query_failure": {
+    "preconditions": {
+      "user": {
+        "id": 1,
+        "username": "seed_count_admin",
+        "status": 1,
+        "deleted": false
+      },
+      "admin_role": {
+        "id": 1,
+        "code": "admin",
+        "status": 1,
+        "deleted": false
+      },
+      "user_roles": [
+        {
+          "user_id": 1,
+          "role_id": 1
+        }
+      ],
+      "active_admin_count": 1,
+      "access_version": 7
+    },
+    "pre_count_breakpoint": "internal/identity/adapters/gorm/seed.go:75",
+    "injection": "After migration and earlier Seed stages, hold users WRITE lock in the owned schema; identify and KILL QUERY only the active-admin Count; release lock before subsequent username/binding reads. No KILL CONNECTION, global outage, variable mutation, forced return or source modification.",
+    "target_connection_id": 22,
+    "processlist_command": "Execute",
+    "waiting_state": "Waiting for table metadata lock",
+    "target_sql": "SELECT count(*) FROM `users` JOIN user_roles ON user_roles.user_id = users.id WHERE user_roles.role_id = 1 AND users.status = 1 AND users.deleted_at IS NULL",
+    "mysql_error": {
+      "code": 1317,
+      "sqlstate": "70100",
+      "message": "Query execution was interrupted",
+      "observed_log": "2026/10/15 20:38:58 D:/WORK/GO/admin/internal/identity/adapters/gorm/seed.go:75 Error 1317 (70100): Query execution was interrupted"
+    },
+    "post_count_breakpoint": "internal/identity/adapters/gorm/seed.go:76",
+    "count": 0,
+    "original_tx_error": "nil",
+    "restore_branch_breakpoint": "internal/identity/adapters/gorm/seed.go:65",
+    "subsequent_username_and_binding_reads_succeeded": true,
+    "successful_transaction_commit_breakpoint": "internal/app/seed.go:56",
+    "post_commit": {
+      "user": {
+        "id": 1,
+        "username": "seed_count_admin",
+        "status": 1,
+        "deleted": false
+      },
+      "admin_role": {
+        "id": 1,
+        "code": "admin",
+        "status": 1,
+        "deleted": false
+      },
+      "user_roles": [
+        {
+          "user_id": 1,
+          "role_id": 1
+        }
+      ],
+      "active_admin_count": 1,
+      "access_version": 7
+    },
+    "password_hash_changed": true,
+    "original_password_login_http": 401,
+    "original_password_error": "AUTHN_CREDENTIALS_INVALID",
+    "new_configuration_password_login_http": 200,
+    "startup_reached_http": true
+  },
+  "session_boundary": {
+    "access_version_unchanged": true,
+    "old_access_token_probe_http": 401,
+    "old_access_token_probe_error": "AUTHN_TOKEN_INVALID",
+    "old_access_token_already_expired_at_observation": true,
+    "conclusion": "No claim that an old token remains accepted after this reset; the expired-token result is not such evidence."
+  },
+  "scope_limits": [
+    "Observed one real MySQL statement-interruption path, not every database error.",
+    "hasUserRoleInTx also drops Count.Error in source, but its failure was not injected or confirmed.",
+    "No production incident frequency, remote exploitability, complete Identity/Seed audit or repair claim.",
+    "Existing normal Seed/SQLite/history evidence supports only its applicable normal paths and does not substitute for this fault.",
+    "Debugger device launch/attach did not provide usable execution; successful evidence uses native Delve CLI with explicit owned working directory.",
+    "No product, tests, main specifications, CONTEXT, ADR or OpenSpec change artifacts modified; no tests/lint/formatters executed for this narrow verification."
+  ],
+  "teardown": {
+    "status": "complete",
+    "completed_on": "2026-10-15",
+    "owned_schema_dropped": "admin_seed_count_3dc1545b3295",
+    "owned_schema_absent_readback": true,
+    "owned_process_ids_absent": [29556, 12800, 39172, 13196, 28332, 39136],
+    "owned_ports_closed": {
+      "28081": true,
+      "26381": true,
+      "29001": true,
+      "29101": true,
+      "28881": true
+    },
+    "temporary_directory_removed": "C:\\Users\\Rog\\AppData\\Local\\Temp\\admin-seed-count-s09oe04r",
+    "temporary_directory_absent": true,
+    "redis_shutdown": "SHUTDOWN NOSAVE",
+    "remaining_native_debugger_client_terminated_before_directory_removal": true,
+    "shared_admin_schema_written": false,
+    "secrets_persisted_in_review_evidence": false
+  }
+}
