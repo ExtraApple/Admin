@@ -135,6 +135,8 @@
 ### Requirement: Token 实时失效
 系统 SHALL 使用 Authorization 持有的用户授权版本使权限和用户状态变更后的旧 Token 失效，并通过稳定认证错误契约拒绝无效会话。
 
+Access认证 SHALL 将“唯一授权版本行缺失”分类为不可验证会话，而非内部故障；仅该分类映射为认证拒绝。数据库连接、查询或其他真实基础设施失败 SHALL 继续返回安全5xx，不泄露底层信息。
+
 #### Scenario: Token 版本一致
 - **WHEN** 已认证请求携带用途为 Access Token 的有效 JWT
 - **AND** JWT 中的 `token_version` 等于 `user_access_versions.version`
@@ -182,13 +184,27 @@
 #### Scenario: 认证时授权版本缺失
 - **WHEN** 非登录初始化流程校验 Token 时找不到 `user_access_versions`
 - **THEN** 系统拒绝该 Token
-- **AND** 系统返回 HTTP 401 和稳定认证错误码
+- **AND** Access请求返回 HTTP 401 和 `AUTHN_TOKEN_INVALID`，Refresh按其既有稳定拒绝契约处理
 - **AND** 系统不跳过授权版本检查
 
 #### Scenario: 权限相关变更提升版本
 - **WHEN** 用户密码、用户状态、角色分配、角色权限、角色菜单、菜单记录或组织成员归属发生影响登录态的变更
 - **THEN** 系统通过 `EnsureAndIncrement` 提升受影响用户的授权版本
 - **AND** 这些用户已持有的旧 Access Token 和 Refresh Token 在下一次使用时失效
+
+#### Scenario: Access缺版本不补行
+- **WHEN** 用途/签名/有效期/用户状态合法的Access JWT对应user_access_versions行不存在
+- **THEN** 系统 SHALL 返回HTTP 401和AUTHN_TOKEN_INVALID
+- **AND** 非登录认证不得Ensure、跳过版本检查、读取旧users.token_version或签发新Token
+
+#### Scenario: Access读取真实基础设施失败
+- **WHEN** Access认证读取版本发生数据库连接或查询故障而不是已确认缺行
+- **THEN** 系统 SHALL 返回安全的既有内部错误5xx，不伪装成凭据无效或成功
+- **AND** 不得回退其他存储或创建版本
+
+#### Scenario: Refresh缺行保持既有结果
+- **WHEN** 有效Refresh JWT的唯一授权版本行缺失
+- **THEN** 系统 SHALL 继续返回HTTP 401与AUTHN_REFRESH_TOKEN_INVALID，且不签发Token
 
 ### Requirement: 登出黑名单
 系统 SHALL 通过 Redis 黑名单使已登出的 access token 失效。

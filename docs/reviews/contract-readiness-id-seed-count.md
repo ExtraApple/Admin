@@ -8,7 +8,9 @@
 
 本次仅核实这一条条件路径；没有扩展 A1 其他风险，没有改产品、测试、主规格、CONTEXT 或 ADR，没有创建 change／proposal／design／tasks／delta spec。[当前有限审计计划](contract-readiness.md#c6-当前执行计划)继续有效。
 
-**后续规划状态**：本项现已根据用户另行授权创建[修复change](../../openspec/changes/fix-admin-seed-query-error-handling/proposal.md)，尚未实施。本文保留定向核实时的运行事实与停止点，不将后续工件创建追写成当时已修复；全批清单见[C6当前计划](contract-readiness.md#c6-当前执行计划)。
+**后续实施状态（2026-10-16）**：用户另行授权的[修复 change](../../openspec/changes/archive/2026-10-20-fix-admin-seed-query-error-handling/proposal.md)已实现并完成定向验收，当时尚未同步主规格或归档。两处 Count 均保留原始错误并停止本阶段；三个相关包回归通过。原 `main.go` 的真实 MySQL 单条 active-admin Count 中断返回1317，程序退出2且未监听HTTP，密码／身份／绑定／版本不变，Finalize回滚而前序API同步提交保留；撤除故障后同配置正常启动，原密码仍有效。第二处绑定读取故障由独立SQLite存储边界回归覆盖，不冒充第二次原生MySQL故障。新增[去敏验收记录](evidence/id-seed-count-fix-2026-10-16.json)与历史JSON分开保存；本文其余内容保留2026-10-15审计事实与停止点。其他风险及全批进度见[C6当前计划](contract-readiness.md#c6-当前执行计划)。
+
+**后续规格／归档状态（2026-10-20）**：该修复已随本批完成主规格智能同步并归档；上方change链接已迁移到归档位置。此记录不修改原审计事实、历史JSON或其他候选风险的分类。
 
 ## 现行依据
 

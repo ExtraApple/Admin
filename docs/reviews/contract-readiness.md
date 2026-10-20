@@ -134,13 +134,13 @@ required 漏装配、缺注解、注解拼写错误、类型别名、位置参�
 - **判据**仍是现行主规格及适用承诺。已确认缺陷、具体候选、语义问题和证据状态继续分列；不得为使实现看似一致而直接降低现行要求。
 - 原10个规格及Auth余项保留为来源清单，不再按SHALL数量或所有场景逐项跑完衡量本轮进度；新增相关规格仍只沿被触及的契约核对。范围外保留“未覆盖”，不冒充全量完成。
 - 只维护当前风险清单、具体问题与适用证据索引；复用[首轮报告](contract-readiness-c6b-authorization-writes.md)、[RBAC矩阵](contract-readiness-rbac.md)、[Navigation矩阵](contract-readiness-menu-management.md)和[去敏证据](evidence/c6b-authorization-writes-2026-10-14.json)。现有原文快照留作历史基线，不再默认复制整套规格或重跑已有适用证据。
-- **当前授权边界（2026-10-15）**：用户在定向核实后另行授权，为已核实缺陷及明确裁定的新目标创建独立change和全部实施工件，清单见下方D节。本次只生成proposal、design、delta specs、tasks，不实施产品、不改测试或当前主规格；实施另由`/opsx:apply`启动。A1其余风险及A2/A3不因创建工件而开始或完成。
+- **当前授权边界（2026-10-17）**：用户已另行授权按依赖顺序执行下方D节change，有具体业务或设计问题再询问。ID-SEED-COUNT及C1-C6已实现并完成局部验收；关联保护新目标也已本地实施并定向验收，其余新目标待实施。用户随后明确授权按依赖需要同步已实施且验收通过的前置规格，当前已同步C1-C4和关联保护目标；仍不自动归档、commit或push。A1其余风险及A2/A3不因实施这些change而开始或完成。
 
 ### A. 有限风险审计
 
 | 顺序 / 状态 | 明确纳入的风险范围 | 交付与不扩大范围 |
 | --- | --- | --- |
-| A0 已有结果，保留 | 首轮已核实C1-C6及G/D证据边界 | 不重跑已确认反例以重新确认，不把已有局部通过扩成整入口通过；六项仍未修复 |
+| A0 已有结果，保留 | 首轮已核实C1-C6及G/D证据边界 | 不重跑已确认反例以重新确认，不把已有局部通过扩成整入口通过；C1-C6均已有后续定向修复，不表示整个C6审计完成 |
 | A1 仅Seed单项已核实，其余待核对 | Seed查询单步失败的凭据保护；当前Access Snapshot与API授权；角色启停／权限变化；all/self/org/org_and_children/custom及定位祖先的范围拒绝；配置菜单与用户可见菜单分离；密码／禁用／软删恢复的旧Token边界 | ID-SEED-COUNT已取得原程序／真实MySQL单条故障证据；其余先复用源码、现存测试和历史记录，缺关键证明才定向取证。不新建精准失效算法，不把版本CAS局部证明当全部并发通过 |
 | A2 A1结论登记后，待核对 | 文件访问与对象／元数据持久化失败；消息当前受众与撤销可见性；审计记录脱敏和范围查询 | 只查已有装配与现行承诺。头像／消息图片仅沿具体跨模块风险触及时纳入；不新增统一文件领域、未来RabbitMQ／Consumer／投影能力或跨存储全局事务 |
 | A3 A2结论登记后，待核对 | Route Catalog声明与实际业务路由／访问级别；App技术路由单列；真实组合根与关键依赖；代表性成功、4xx、5xx、未匹配API及原生响应 | 使用结构矩阵与代表性HTTP，不逐端点全量验收；文档／配置只记录会误导调用、部署或后续工具的事实偏差，不借机统一重写全部文档或错误码 |
@@ -151,64 +151,86 @@ required 漏装配、缺注解、注解拼写错误、类型别名、位置参�
 
 ### B. 独立缺陷记录
 
-以下C编号仅指[首轮实际审计](contract-readiness-c6b-authorization-writes.md)的局部编号，不是早期接线审计的同名批次。本表只给出处理建议，不表示已修复；对应change见D节，创建工件不等于已经实施。
+以下C编号仅指[首轮实际审计](contract-readiness-c6b-authorization-writes.md)的局部编号，不是早期接线审计的同名批次。本表保留处理建议，当前实施进度见D节；创建工件本身不等于已经实施。
 
 | 处理顺序 | 已核实问题 | 理由与限界 |
 | --- | --- | --- |
-| 凭据完整性单列 | ID-SEED-COUNT：单条存在性读取失败后重置既有启用admin密码 | 已违反现行不重置密码承诺；仅核实MySQL 1317路径，不推断所有数据库错误或远程可利用性 |
-| 先处理正常业务／事实完整性 | C5管理员用户PUT被邮箱规则互锁；C3菜单与绑定API改码失配；C4组织并发成环 | 合法操作被阻断或持久化事实损坏；C3的配置失配不直接夸大为已验证越权 |
-| 再处理状态与输入契约 | C2显式status0变1；C1混合原始API ID0被忽略 | 已有明确反例，按当前入口修正；不扩大为所有集合／所有零值问题 |
-| 单列错误语义 | C6缺授权版本行的Access请求500而非401 | 当前仍拒绝请求，不是已证明认证绕过；缺行与真正基础设施故障须区分 |
+| 凭据完整性单列 | ID-SEED-COUNT：单条存在性读取失败后重置既有启用admin密码；2026-10-16已完成定向修复 | 已违反现行不重置密码承诺；修复验收覆盖原程序MySQL 1317拒绝启动／阶段回滚／恢复，第二处Count以SQLite错误回归补足；不推断所有数据库错误或远程可利用性 |
+| 先处理正常业务／事实完整性 | C5管理员用户PUT邮箱互锁、C3菜单与直接绑定API改码失配、C4组织并发成环均已完成定向修复 | 合法操作被阻断或持久化事实损坏；C3仅覆盖已有直接绑定与既有解析，不扩为S3全图传播；C4统一拓扑协议但不包含I4失效集合 |
+| 再处理状态与输入契约 | C2显式status0变1、C1混合原始API ID0被忽略均已完成定向修复 | 已有明确反例，按当前入口修正；不扩大为所有集合／所有零值问题 |
+| 单列错误语义 | C6缺授权版本行的Access请求500而非401，已完成定向修复 | 缺行现返回401 `AUTHN_TOKEN_INVALID`且不补行；真实版本查询错误仍安全500。原问题不是已证明认证绕过，也不代表其他认证风险已完成 |
 
-审计完成不要求先修完这些问题；修复也不必等待全部规格审计结束。本次已按用户授权创建D节工件，实施仍需另行启动。新增发现只有满足现行依据、适用前提、具体偏差及适用证据才进入本表；ID-SEED-COUNT按原ID单列，首轮C1-C6编号不重排，均未修复。
+审计完成不要求先修完这些问题；修复也不必等待全部规格审计结束。用户现已启动D节的顺序实施。新增发现只有满足现行依据、适用前提、具体偏差及适用证据才进入本表；ID-SEED-COUNT按原ID单列且已完成局部修复，首轮C1-C6编号不重排，六项均已有局部修复验收，不扩为整轮审计完成。
 
 ### C. 新目标与候选设计的当前去向
 
 | 保留的已讨论目标 | 当前处理 |
 | --- | --- |
 | 精确到不多失效任何用户、隐式admin／多层间接依赖、组织移动枚举子树内外读者并失效 | 此次将I1/I5成员差量、I4有限层级依赖分别建change；不生成全局最小集合／最终有效权限diff引擎，I3复杂图精度仍留候选池；现行不得漏失效的承诺不降低 |
-| 无变化不失效、纯昵称不失效、合法可选字段显式空值清空 | 已分别创建配置no-op、成员差量、昵称及属性清空目标工件；规则未撤销，产品仍未实施、未发布 |
+| 无变化不失效、纯昵称不失效、合法可选字段显式空值清空 | 昵称、属性清空、配置no-op及成员差量目标均已实施并定向验收。规则未撤销，实施不代表生产发布 |
 | 角色／菜单展示配置真实变化仍失效 | 配置no-op目标保留已裁定N3，不把最终有效权限相同当豁免；不由此扩成所有字段／所有模块的统一会话策略 |
-| 更强的跨入口保护、软删／引用清理、custom引用拒删及绑定／删除规则 | 已为P/R/R6的明确前提建立关联保护与引用生命周期change；不把静态风险、未执行组合或全部入口统一计为旧缺陷或验收完成 |
-| API权限同步整请求原子性、复杂多菜单传播／自动码及未知parent_path处理 | F2已单独建原子同步目标；S3复杂传播／授权迁移／空码组合、S4未知parent_path、S5全局同步用途统一仍不纳入，遇到具体阻塞再讨论 |
+| 更强的跨入口保护、软删／引用清理、custom引用拒删及绑定／删除规则 | P2-P6／R1-R3关联保护和R4-R6引用生命周期均已本地实施并定向验收；生命周期新增证据保留真实交错、反例修正及局部覆盖。不把这些新目标追认成旧缺陷或整个C6完成 |
+| API权限同步整请求原子性、复杂多菜单传播／自动码及未知parent_path处理 | F2已实施并完成定向验收，保留逐API版本触发；S3复杂传播／授权迁移／空码组合、S4未知parent_path、S5全局同步用途统一仍不纳入，遇到具体阻塞再讨论 |
 
 本次选入的目标已在相应proposal/design说明用户问题、必要性、最小范围与验收；工件完成不等于已实施。未选或仍未决的设计没有撤销，也不作为当前审计必须全部完成的门槛。
 
-### D. 本次已创建的变更（2026-10-15，未实施）
+### D. 已创建的变更与实施进度
 
-本批15个change均位于`openspec/changes/<name>/`，每项已生成`proposal.md`、`design.md`、按能力拆分的delta specs和未勾选`tasks.md`；共25份delta spec。只登记规划工件，不把CLI工件完成解释为产品任务完成。
+本批15个change于2026-10-15创建，均位于`openspec/changes/<name>/`，每项已生成`proposal.md`、`design.md`、按能力拆分的delta specs和`tasks.md`；共25份delta spec。截至2026-10-18，ID-SEED-COUNT及C1-C6七项缺陷、关联保护／引用生命周期／F2／S1／S2／配置no-op／成员差量／I4八个新目标均已实现并完成各自定向验收；按依赖需要已同步C1-C5、关联保护、引用生命周期及S1目标，Seed、C6、F2、S2、配置no-op、成员差量及I4 delta尚未同步，全部未归档。详见各项tasks和运行证据；这是本批已裁定范围完成，不扩大为整个C6、全部历史数据或生产发布完成。
+
+**2026-10-20核验后补证完成**：[整批核验报告](openspec-implementation-verification-2026-10-20.md)原有W1列表排序／分页、W2登录初始化失败、W3 Refresh拒绝矩阵三类证据缺口，已由既有S1／关联保护／C6 change第7节的10项补证关闭。当前205/205；三个owner分别15/15、18/18、16/16。[新去敏证据](evidence/authorization-followup-2026-10-20.json)包含真实原程序分页／空数组、三类Login版本SQL故障及恢复对照、真实JWT Refresh拒绝和存储不变性。定向／全Go、真实MySQL及OpenSpec严格门禁通过，自建运行资源已清理；历史JSON不改，产品代码／规格语义不变。生命周期／配置no-op等重复场景复用owner结果，不重复建测试或change；不把补证完成扩大为整个C6、生产发布或已自动归档。
 
 #### 现行承诺下已核实缺陷
 
 | 来源 | Change |
 | --- | --- |
-| ID-SEED-COUNT：Seed读取失败误恢复密码 | [fix-admin-seed-query-error-handling](../../openspec/changes/fix-admin-seed-query-error-handling/proposal.md) |
-| C5：管理端用户PUT邮箱规则互锁 | [fix-admin-user-update-validation](../../openspec/changes/fix-admin-user-update-validation/proposal.md) |
-| C1：菜单API原始零ID被过滤 | [fix-menu-api-binding-id-validation](../../openspec/changes/fix-menu-api-binding-id-validation/proposal.md) |
-| C2：创建菜单显式停用变启用 | [fix-menu-create-status-preservation](../../openspec/changes/fix-menu-create-status-preservation/proposal.md) |
-| C3：菜单侧改码与直接绑定API失配 | [fix-menu-api-code-consistency](../../openspec/changes/fix-menu-api-code-consistency/proposal.md) |
-| C4：组织并发移动成环 | [fix-concurrent-organization-moves](../../openspec/changes/fix-concurrent-organization-moves/proposal.md) |
-| C6：Access缺版本行错误分类 | [fix-access-version-auth-error-classification](../../openspec/changes/fix-access-version-auth-error-classification/proposal.md) |
+| ID-SEED-COUNT：Seed读取失败误恢复密码；已实施／定向验收通过，主规格已同步，已归档 | [fix-admin-seed-query-error-handling](../../openspec/changes/archive/2026-10-20-fix-admin-seed-query-error-handling/proposal.md)；[新验收证据](evidence/id-seed-count-fix-2026-10-16.json) |
+| C5：管理端用户PUT邮箱规则互锁；已实施／定向验收通过，主规格已同步，已归档 | [fix-admin-user-update-validation](../../openspec/changes/archive/2026-10-20-fix-admin-user-update-validation/proposal.md)；[新验收证据](evidence/c5-admin-user-update-fix-2026-10-16.json) |
+| C1：菜单API原始零ID被过滤；已实施／定向验收通过，主规格已同步，已归档 | [fix-menu-api-binding-id-validation](../../openspec/changes/archive/2026-10-20-fix-menu-api-binding-id-validation/proposal.md)；[新验收证据](evidence/c1-menu-api-ids-fix-2026-10-16.json) |
+| C2：创建菜单显式停用变启用；已实施／定向验收通过，主规格已同步，已归档 | [fix-menu-create-status-preservation](../../openspec/changes/archive/2026-10-20-fix-menu-create-status-preservation/proposal.md)；[新验收证据](evidence/c2-menu-create-status-fix-2026-10-16.json) |
+| C3：菜单侧改码与直接绑定API失配；已实施／定向验收通过，主规格已同步，已归档 | [fix-menu-api-code-consistency](../../openspec/changes/archive/2026-10-20-fix-menu-api-code-consistency/proposal.md)；[新验收证据](evidence/c3-menu-api-code-fix-2026-10-16.json) |
+| C4：组织并发移动成环；已实施／定向验收通过，主规格已同步，已归档 | [fix-concurrent-organization-moves](../../openspec/changes/archive/2026-10-20-fix-concurrent-organization-moves/proposal.md)；[新验收证据](evidence/c4-organization-moves-fix-2026-10-17.json) |
+| C6：Access缺版本行错误分类；原产品已验收，新增W2/W3补证完成（16/16），主规格已同步，已归档 | [fix-access-version-auth-error-classification](../../openspec/changes/archive/2026-10-20-fix-access-version-auth-error-classification/tasks.md)；[原验收](evidence/c6-access-version-auth-fix-2026-10-17.json)；[W2/W3补证](evidence/authorization-followup-2026-10-20.json) |
 
 #### 已裁定、尚未发布的新目标
 
 | 目标来源与最小范围 | Change |
 | --- | --- |
-| P2-P6／R1-R3：关联输入与保护前提 | [enforce-protected-authorization-assignments](../../openspec/changes/enforce-protected-authorization-assignments/proposal.md) |
-| R4-R6：引用清理、custom阻删及提交顺序 | [enforce-authorization-reference-lifecycle](../../openspec/changes/enforce-authorization-reference-lifecycle/proposal.md) |
-| N1配置／N3／N6配置：合法无变化不失效 | [preserve-sessions-on-noop-configuration](../../openspec/changes/preserve-sessions-on-noop-configuration/proposal.md) |
-| I1／I5／N1成员／N2／R6.e5：成员差量和CAS | [invalidate-only-changed-memberships](../../openspec/changes/invalidate-only-changed-memberships/proposal.md) |
-| F2：API权限同步整请求全成全败 | [make-api-permission-sync-atomic](../../openspec/changes/make-api-permission-sync-atomic/proposal.md) |
-| S1：可选授权属性显式清空 | [support-explicit-authorization-field-clearing](../../openspec/changes/support-explicit-authorization-field-clearing/proposal.md) |
-| S2／N4／Identity N6：昵称与同值资料豁免 | [preserve-sessions-on-nickname-updates](../../openspec/changes/preserve-sessions-on-nickname-updates/proposal.md) |
-| I4：组织移动的有限层级范围依赖 | [invalidate-organization-hierarchy-dependents](../../openspec/changes/invalidate-organization-hierarchy-dependents/proposal.md) |
+| P2-P6／R1-R3：关联输入与保护前提；原产品已验收、主规格已同步，W1角色权限排序补证完成（18/18），已归档 | [enforce-protected-authorization-assignments](../../openspec/changes/archive/2026-10-20-enforce-protected-authorization-assignments/tasks.md)；[原目标验收](evidence/protected-authorization-assignments-2026-10-17.json)；[W1补证](evidence/authorization-followup-2026-10-20.json) |
+| R4-R6：引用清理、custom阻删及提交顺序；已实施／定向验收通过，主规格已同步、已归档 | [enforce-authorization-reference-lifecycle](../../openspec/changes/archive/2026-10-20-enforce-authorization-reference-lifecycle/proposal.md)；[生命周期验收证据](evidence/authorization-reference-lifecycle-2026-10-18.json) |
+| N1配置／N3／N6配置：合法无变化不失效；已实施／定向验收通过，主规格已同步、已归档 | [preserve-sessions-on-noop-configuration](../../openspec/changes/archive/2026-10-20-preserve-sessions-on-noop-configuration/proposal.md)；[配置no-op验收](evidence/configuration-noop-2026-10-18.json) |
+| I1／I5／N1成员／N2／R6.e5：成员差量和CAS；已实施／定向验收通过，主规格已同步、已归档 | [invalidate-only-changed-memberships](../../openspec/changes/archive/2026-10-20-invalidate-only-changed-memberships/proposal.md)；[成员差量验收](evidence/membership-delta-2026-10-18.json) |
+| F2：API权限同步整请求全成全败；已实施／定向验收通过，主规格已同步、已归档 | [make-api-permission-sync-atomic](../../openspec/changes/archive/2026-10-20-make-api-permission-sync-atomic/proposal.md)；[整请求验收证据](evidence/api-permission-sync-atomic-2026-10-18.json) |
+| S1：可选授权属性显式清空；原产品已验收、主规格已同步，W1角色／权限列表补证完成（15/15），已归档 | [support-explicit-authorization-field-clearing](../../openspec/changes/archive/2026-10-20-support-explicit-authorization-field-clearing/tasks.md)；[原字段清空验收](evidence/authorization-field-clearing-2026-10-18.json)；[W1补证](evidence/authorization-followup-2026-10-20.json) |
+| S2／N4／Identity N6：昵称与同值资料豁免；已实施／定向验收通过，主规格已同步、已归档 | [preserve-sessions-on-nickname-updates](../../openspec/changes/archive/2026-10-20-preserve-sessions-on-nickname-updates/proposal.md)；[昵称会话验收](evidence/nickname-sessions-2026-10-18.json) |
+| I4：组织移动的有限层级范围依赖；已实施／定向验收通过，主规格已同步、已归档 | [invalidate-organization-hierarchy-dependents](../../openspec/changes/archive/2026-10-20-invalidate-organization-hierarchy-dependents/proposal.md)；[90条观察与十二对交错](evidence/organization-hierarchy-dependents-2026-10-18.json) |
 
 **实施与发布顺序**：每项design/tasks分别列功能整合前置与同名Requirement发布基线，不能把15项当作任意顺序独立归档。例如昵称目标先经过C5；C3的菜单联动正文保留C1；保护／生命周期先于消费其前提的差量与no-op目标；I4复用C4的稳定拓扑。后续delta包含前置完整正文，若主规格另有变化仍须合并保留，不能用旧全文覆盖已发布规则。
+
+**前置规格同步记录（2026-10-16）**：用户授权仅按依赖需要同步已验收前置。C1已合并到`menu-management`的「菜单 API 联动」，补充原始ID校验正文及混合0、合法重复、内部调用三个场景，保留其他条款；`openspec validate --specs --strict --json --no-interactive`通过18项、失败0。此同步未归档change，未改历史JSON／条款快照，为C3的task 1.1提供已完成基线。
+
+**按需前置同步补充（2026-10-17）**：为实施关联保护目标，C3已合并到`menu-management`同一「菜单 API 联动」Requirement，新增直接联动事务正文及菜单侧改码、联动失败、未绑定改码、显式空码四个场景；C1三个场景及其他现存条款原样保留。全18项主规格严格验证通过；change继续保留，未归档。
+
+**生命周期前置同步（2026-10-17）**：已按授权合并C2菜单创建状态正文及4场景、C4并发防循环正文及4场景，再合并关联保护目标在RBAC／Menu／Organization的3份delta。新增保护Requirement与17个保护场景，保留所有既有场景、C1/C3增量及其他条款；全18项主规格严格验证通过。以上均为已验收前置的独立同步，不归档，不表示生产发布或生命周期任务完成。
+
+**F2前置规格同步（2026-10-18）**：按授权把已验收R4-R6的4份delta合并到RBAC／Menu／Organization／User主规格，保留C1-C4、关联保护及全部其他现存场景；新增生命周期正文、受控清理Requirement与相关场景。全18项主规格严格验证通过，未归档，不表示生产发布。F2随后整合单请求严格目标锁序，按用户本日裁定保留逐API版本触发，不做请求级失效去重。
+
+**昵称目标前置同步（2026-10-18）**：按授权将已验收C5在User「管理员修改用户」Requirement的可选email正文及省略／空／非空混合三个场景合并到主规格，保留全部既有条款、R6归属与受控清理场景。全18项主规格严格检查通过；C5 change仍保留，不归档，昵称新策略本身尚待实施验收。
+
+**配置no-op前置同步（2026-10-18）**：按授权将已验收S1的角色description、权限group及菜单可选属性存在性规则和八个场景合并到RBAC／Menu主规格，保留C1-C5、关联保护、引用生命周期及其他既有正文与场景。全18项主规格严格检查通过；S1 change仍保留，未归档，不表示配置no-op已经实施或生产发布。
+
+**整批规格同步（2026-10-20）**：用户授权同步全部15个已完成change的25份delta。按各design声明的依赖逐Requirement合并到`auth`、`rbac`、`user-management`、`menu-management`、`organization-management`、`api-management`六份主规格；原8项已同步前置幂等保留，补齐其余7项。合计新增1个Requirement、修改17个既有Requirement、新增41个Scenario；六份主规格原有267个场景名称全部保留，未删除或重命名条款／场景，未修改25份delta或历史JSON。
+
+本次合并保留缺版本401与真实故障5xx的区分、Seed读取失败保护、纯昵称／合法no-op豁免、成员差量及CAS、I4范围根事实依赖、F2整请求原子性与逐API版本触发。旧场景的“清空再重建”按配置完整替换语义与no-op条件合并，不将配置写入扩成未经裁定的差量持久化要求。批量严格校验15个change＋18份主规格通过，最终18份主规格再次严格校验通过；六个能力均由真实`openspec show --type spec --json`解析，核对Requirement／Scenario数量。基于已审阅重叠条款的二次语义合并dry-run为零变更，无同名重复，未被delta触及的Requirement正文和规格前言保持不变。全部change仍活跃、205/205任务完成，未归档、commit或push；规格同步不等于生产部署，后续归档仍须保留当前合并结果，不能以旧全文覆盖。
+
+**整批归档（2026-10-20）**：用户另行授权归档全部15项。各change工件均完成、任务合计205/205；已按声明依赖通过`openspec archive <name> --yes --skip-specs`归档到`openspec/changes/archive/2026-10-20-<name>/`。此前25份delta已完成智能同步，因此归档明确跳过重复规格更新，六份合并后的主规格保持原样；未关闭校验。全部`.openspec.yaml`及delta保留，85份主要工件／元数据仅有计划内的归档相对链接调整，上表指向现有归档位置。归档后真实CLI活跃列表为空，18份主规格严格校验通过，39处迁移链接的文件目标均存在。上方各日期的“未同步／未归档”仍是当时历史状态，不表示当前待办。未执行commit或push，归档不等于生产部署或整个C6完成。
+
+
 
 **未纳入项**：纯证据缺口、A1其余审计、A2/A3、S3/S4/S5未决语义和全局最小失效算法保持原状态。不为它们创建假修复change，不因本批工件齐备而关闭C6。
 
 
-**本批工件验证**：`openspec validate --changes --strict --json --no-interactive`通过全部15项，失败0；逐项`openspec status --change <name>`均为4/4工件完成。交付检查核对25份delta的能力映射、完整Requirement保留与发布依赖无环，193项实施任务均未勾选；本次未执行产品测试或应用任务。
+**工件创建时的验证（2026-10-15，历史记录）**：`openspec validate --changes --strict --json --no-interactive`通过全部15项，失败0；逐项`openspec status --change <name>`均为4/4工件完成。交付检查核对25份delta的能力映射、完整Requirement保留与发布依赖无环；创建时193项实施任务均未勾选，未执行产品测试或应用任务。后续实施与验收单独记录，不将这次历史工件检查冒充产品验证。
 
 ### 审计停止条件
 
