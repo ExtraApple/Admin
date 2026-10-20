@@ -38,13 +38,17 @@ type membersEnvelope struct {
 
 func Routes(service *Service) []routecatalog.Descriptor {
 	handler := &httpHandler{service: service}
+	members := organizationRoute(http.MethodPost, "/api/admin/organizations/:id/users", "Assign Organization Members", "admin.organizations.id.users.post", handler.assignUsers, AssignUsersRequest{}, nil)
+	members.OpenAPI.Description = "完整替换组织成员目标，全部原始目标与实际移除对象仍须满足范围、存在和保护前提。只增删差量并使实际新增／移除用户失效，保留成员的joined_at及版本；合法等价集合不提升版本，不额外失效其他范围数据读取者。已有本人／受保护关系仅可原样保留。"
+	update := organizationRoute(http.MethodPut, "/api/admin/organizations/:id", "Update Organization Unit", "admin.organizations.id.put", handler.updateUnit, UpdateUnitRequest{}, unitResponse{})
+	update.OpenAPI.Description = "真正变更parent_id时，按锁定父图比较新旧祖先链，只使具有适用org_and_children角色且所属范围根边界变化的用户失效；共同祖先、移动子树自身范围根不计入，其他all角色或最终合并范围相同不抵消该依赖。依赖读取、父边更新和去重用户版本同事务提交；仅显示字段或相同父级不触发此层级失效。"
 	return []routecatalog.Descriptor{
 		organizationRoute(http.MethodGet, "/api/admin/organizations", "List Organization Units", "admin.organizations.get", handler.listUnits, nil, listEnvelope{}),
 		organizationRoute(http.MethodGet, "/api/admin/organizations/tree", "Get Organization Tree", "admin.organizations.tree.get", handler.tree, nil, treeEnvelope{}),
 		organizationRoute(http.MethodPost, "/api/admin/organizations", "Create Organization Unit", "admin.organizations.post", handler.createUnit, CreateUnitRequest{}, unitResponse{}),
-		organizationRoute(http.MethodPut, "/api/admin/organizations/:id", "Update Organization Unit", "admin.organizations.id.put", handler.updateUnit, UpdateUnitRequest{}, unitResponse{}),
+		update,
 		organizationRoute(http.MethodDelete, "/api/admin/organizations/:id", "Delete Organization Unit", "admin.organizations.id.delete", handler.deleteUnit, nil, nil),
-		organizationRoute(http.MethodPost, "/api/admin/organizations/:id/users", "Assign Organization Members", "admin.organizations.id.users.post", handler.assignUsers, AssignUsersRequest{}, nil),
+		members,
 		organizationRoute(http.MethodGet, "/api/admin/organizations/:id/users", "List Organization Members", "admin.organizations.id.users.get", handler.users, nil, membersEnvelope{}),
 	}
 }

@@ -1,0 +1,262 @@
+{
+  "recorded_at": "2026-10-17T10:36:17.147472+08:00",
+  "scope": "C6 Access error classification only, not completion of the wider C6 contract audit or unreleased session-invalidation targets.",
+  "historical_evidence_reused_unchanged": [
+    "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json"
+  ],
+  "implementation_boundary": {
+    "identity_caller_owned_reason": "ErrAuthorizationVersionMissing",
+    "app_translation": "errors.Is only on authgorm.ErrAccessVersionNotFound; errors.Join preserves the Authorization wrapper and original cause.",
+    "authenticate": "Only the missing-version reason becomes CodeTokenInvalid; other Snapshot failures remain CodeInternalError.",
+    "storage_refresh_and_http_definitions_changed": false
+  },
+  "native_program": "Original main.go; real captcha/login/JWT; native MySQL plus owned Redis/MinIO in a unique disposable schema. Shared admin schema was not migrated, seeded or written.",
+  "faults": "Only the owned root user version row was deleted, then restored byte-for-byte. A separate owned-only table rename caused the actual version SELECT to fail with MySQL 1146 while users/roles/permissions remained available; rename was restored.",
+  "gates": [
+    {
+      "command": "go test ./internal/identity/... ./internal/authorization/... ./internal/app/...",
+      "exit_code": 0,
+      "observed": "All packages with tests passed, including new missing-version/infrastructure/same-text error-identity regression; objectstorage/password/redis and authorization HTTP have no test files."
+    },
+    {
+      "command": "go build -o <private-owned-runtime>/admin-apply.exe .",
+      "exit_code": 0
+    },
+    {
+      "command": "openspec validate fix-access-version-auth-error-classification --strict --json --no-interactive",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0
+    }
+  ],
+  "native_observations": [
+    {
+      "case": "valid-access-before-targeted-fault",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data_present": true
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "sole-version-row-missing",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_TOKEN_INVALID",
+        "msg": "authentication token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "refresh-with-same-missing-row",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "both-non-login-rejections-did-not-recreate-row",
+      "original_access_still_unexpired": true,
+      "kind": "database_state_observation",
+      "state": {
+        "version_rows_after_access_and_refresh": 0
+      }
+    },
+    {
+      "case": "exact-row-restored-same-access-valid",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data_present": true
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "version-query-only-real-sql-failure",
+      "http": 500,
+      "response": {
+        "code": 500,
+        "error_code": "IDENTITY_INTERNAL_ERROR",
+        "msg": "identity operation failed",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "isolated-query-failure-state",
+      "original_access_still_unexpired": true,
+      "kind": "database_state_observation",
+      "state": {
+        "original_table_absent_after_non_login": true,
+        "preserved_version_rows": "1\t1\t2026-10-17 10:35:03.667\t2026-10-17 10:35:03.667",
+        "public_response_has_no_sql_schema_or_credentials": true,
+        "owned_driver_1146_log_observed": true,
+        "owned_driver_log": [
+          "2026/10/17 10:35:03 D:/WORK/GO/admin/internal/authorization/adapters/gorm/access_version.go:22 Error 1146 (42S02): Table 'admin_apply_c6_b0901a81b722.user_access_versions' doesn't exist"
+        ]
+      }
+    },
+    {
+      "case": "query-restored-same-access-valid",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data_present": true
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "ordinary-version-mismatch",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_TOKEN_INVALID",
+        "msg": "authentication token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "ordinary-refresh-version-mismatch",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "refresh-purpose-used-as-access",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_TOKEN_INVALID",
+        "msg": "authentication token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "disabled-existing-user",
+      "http": 403,
+      "response": {
+        "code": 403,
+        "error_code": "IDENTITY_ACCOUNT_DISABLED",
+        "msg": "account is disabled",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "soft-deleted-user",
+      "http": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_TOKEN_INVALID",
+        "msg": "authentication token is invalid",
+        "data": null
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "all-fixture-faults-removed-original-access-valid",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data_present": true
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    },
+    {
+      "case": "healthy-refresh-after-restoration",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "access_token_present_not_recorded": true,
+        "refresh_token_present_not_recorded": true
+      },
+      "original_access_still_unexpired": true,
+      "kind": "original_main_http"
+    }
+  ],
+  "live_openapi": {
+    "status": 200,
+    "user_info_documented_responses": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "413",
+      "415",
+      "422",
+      "429",
+      "500",
+      "503"
+    ],
+    "refresh_documented_responses": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "413",
+      "415",
+      "422",
+      "429",
+      "500",
+      "503"
+    ],
+    "error_code_and_routes_not_changed": true
+  },
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  },
+  "limits": [
+    "No all-errors-to-401 downgrade, lazy version repair, legacy version fallback or new authentication bypass was introduced.",
+    "Ordinary version mismatch, refresh-purpose misuse, disabled and soft-deleted user behavior were exercised; this is not a complete authentication audit.",
+    "No production migration, deployment, archive, commit or push was performed."
+  ]
+}

@@ -1,0 +1,3081 @@
+{
+  "scope": "OpenSpec W1/W2/W3 evidence follow-up only; no new product semantics",
+  "runtime": {
+    "program": "compiled unmodified repository main.go",
+    "configuration": "owned private directory, not repository config",
+    "database": "new owned admin_followup_* schema; shared admin untouched",
+    "redis": "privately extracted Redis 8.0.5 packages, no global installation",
+    "object_storage": "existing MinIO binary with separate owned data directory",
+    "transport": "real HTTP, captcha, JWT, MySQL and Redis"
+  },
+  "cases": [
+    {
+      "case_id": "W1-roles-pagination",
+      "owner_change": "support-explicit-authorization-field-clearing",
+      "fixture": [
+        {
+          "id": 5001,
+          "sort": 30
+        },
+        {
+          "id": 5002,
+          "sort": 10
+        },
+        {
+          "id": 5003,
+          "sort": 10
+        },
+        {
+          "id": 5004,
+          "sort": 20
+        },
+        {
+          "id": 5005,
+          "sort": 10
+        }
+      ],
+      "baseline_sort_1000_ids": [
+        1,
+        2
+      ],
+      "expected_all_ids": [
+        5002,
+        5003,
+        5005,
+        5004,
+        5001,
+        1,
+        2
+      ],
+      "expected_total": 7,
+      "pages": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=1&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 5002,
+                  "name": "Followup role 2",
+                  "code": "followup-role-2",
+                  "description": "",
+                  "sort": 10,
+                  "status": 1,
+                  "data_scope": "self"
+                },
+                {
+                  "id": 5003,
+                  "name": "Followup role 3",
+                  "code": "followup-role-3",
+                  "description": "",
+                  "sort": 10,
+                  "status": 1,
+                  "data_scope": "self"
+                }
+              ],
+              "total": 7,
+              "page": 1,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=2&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 5005,
+                  "name": "Followup role 5",
+                  "code": "followup-role-5",
+                  "description": "",
+                  "sort": 10,
+                  "status": 1,
+                  "data_scope": "self"
+                },
+                {
+                  "id": 5004,
+                  "name": "Followup role 4",
+                  "code": "followup-role-4",
+                  "description": "",
+                  "sort": 20,
+                  "status": 1,
+                  "data_scope": "self"
+                }
+              ],
+              "total": 7,
+              "page": 2,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=3&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 5001,
+                  "name": "Followup role 1",
+                  "code": "followup-role-1",
+                  "description": "",
+                  "sort": 30,
+                  "status": 1,
+                  "data_scope": "self"
+                },
+                {
+                  "id": 1,
+                  "name": "超级管理员",
+                  "code": "admin",
+                  "description": "系统最高权限角色",
+                  "sort": 1000,
+                  "status": 1,
+                  "data_scope": "all"
+                }
+              ],
+              "total": 7,
+              "page": 3,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=4&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 2,
+                  "name": "普通用户",
+                  "code": "user",
+                  "description": "系统默认普通用户角色",
+                  "sort": 1000,
+                  "status": 1,
+                  "data_scope": "self"
+                }
+              ],
+              "total": 7,
+              "page": 4,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=8&size=1",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [],
+              "total": 7,
+              "page": 8,
+              "size": 1
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles?page=9&size=1",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [],
+              "total": 7,
+              "page": 9,
+              "size": 1
+            }
+          }
+        }
+      ],
+      "exact_page_sequences_match": true
+    },
+    {
+      "case_id": "W1-permissions-pagination",
+      "owner_change": "support-explicit-authorization-field-clearing",
+      "fixture": [
+        {
+          "id": 6001,
+          "sort": 30
+        },
+        {
+          "id": 6002,
+          "sort": 10
+        },
+        {
+          "id": 6003,
+          "sort": 10
+        },
+        {
+          "id": 6004,
+          "sort": 20
+        },
+        {
+          "id": 6005,
+          "sort": 10
+        }
+      ],
+      "baseline_sort_1000_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105
+      ],
+      "expected_all_ids": [
+        6002,
+        6003,
+        6005,
+        6004,
+        6001,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105
+      ],
+      "expected_total": 110,
+      "pages": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=1&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 6002,
+                  "name": "Followup permission 2",
+                  "code": "followup.list.2",
+                  "group": "",
+                  "sort": 10
+                },
+                {
+                  "id": 6003,
+                  "name": "Followup permission 3",
+                  "code": "followup.list.3",
+                  "group": "",
+                  "sort": 10
+                }
+              ],
+              "total": 110,
+              "page": 1,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=2&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 6005,
+                  "name": "Followup permission 5",
+                  "code": "followup.list.5",
+                  "group": "",
+                  "sort": 10
+                },
+                {
+                  "id": 6004,
+                  "name": "Followup permission 4",
+                  "code": "followup.list.4",
+                  "group": "",
+                  "sort": 20
+                }
+              ],
+              "total": 110,
+              "page": 2,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=3&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 6001,
+                  "name": "Followup permission 1",
+                  "code": "followup.list.1",
+                  "group": "",
+                  "sort": 30
+                },
+                {
+                  "id": 1,
+                  "name": "GET /api/admin/dict-types",
+                  "code": "admin.dict-types.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 3,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=4&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 2,
+                  "name": "POST /api/admin/dict-types",
+                  "code": "admin.dict-types.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 3,
+                  "name": "PUT /api/admin/dict-types/:id",
+                  "code": "admin.dict-types.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 4,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=5&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 4,
+                  "name": "DELETE /api/admin/dict-types/:id",
+                  "code": "admin.dict-types.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 5,
+                  "name": "GET /api/admin/dict-items",
+                  "code": "admin.dict-items.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 5,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=6&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 6,
+                  "name": "POST /api/admin/dict-items",
+                  "code": "admin.dict-items.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 7,
+                  "name": "PUT /api/admin/dict-items/:id",
+                  "code": "admin.dict-items.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 6,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=7&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 8,
+                  "name": "DELETE /api/admin/dict-items/:id",
+                  "code": "admin.dict-items.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 9,
+                  "name": "GET /api/admin/organizations",
+                  "code": "admin.organizations.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 7,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=8&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 10,
+                  "name": "GET /api/admin/organizations/tree",
+                  "code": "admin.organizations.tree.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 11,
+                  "name": "POST /api/admin/organizations",
+                  "code": "admin.organizations.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 8,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=9&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 12,
+                  "name": "PUT /api/admin/organizations/:id",
+                  "code": "admin.organizations.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 13,
+                  "name": "DELETE /api/admin/organizations/:id",
+                  "code": "admin.organizations.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 9,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=10&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 14,
+                  "name": "POST /api/admin/organizations/:id/users",
+                  "code": "admin.organizations.id.users.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 15,
+                  "name": "GET /api/admin/organizations/:id/users",
+                  "code": "admin.organizations.id.users.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 10,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=11&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 16,
+                  "name": "PUT /api/admin/users/:id/organizations",
+                  "code": "admin.users.id.organizations.put",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 17,
+                  "name": "GET /api/admin/menus",
+                  "code": "admin.menus.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 11,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=12&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 18,
+                  "name": "POST /api/admin/menus",
+                  "code": "admin.menus.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 19,
+                  "name": "PUT /api/admin/menus/:id",
+                  "code": "admin.menus.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 12,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=13&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 20,
+                  "name": "DELETE /api/admin/menus/:id",
+                  "code": "admin.menus.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 21,
+                  "name": "POST /api/admin/menus/sync",
+                  "code": "admin.menus.sync.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 13,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=14&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 22,
+                  "name": "POST /api/admin/menus/:id/apis",
+                  "code": "admin.menus.id.apis.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 23,
+                  "name": "GET /api/admin/menus/:id/apis",
+                  "code": "admin.menus.id.apis.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 14,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=15&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 24,
+                  "name": "POST /api/admin/roles/:id/menus",
+                  "code": "admin.roles.id.menus.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 25,
+                  "name": "GET /api/admin/roles/:id/menus",
+                  "code": "admin.roles.id.menus.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 15,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=16&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 26,
+                  "name": "GET /api/admin/api-groups",
+                  "code": "admin.api-groups.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 27,
+                  "name": "GET /api/admin/api-methods",
+                  "code": "admin.api-methods.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 16,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=17&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 28,
+                  "name": "GET /api/admin/apis",
+                  "code": "admin.apis.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 29,
+                  "name": "POST /api/admin/apis",
+                  "code": "admin.apis.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 17,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=18&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 30,
+                  "name": "PUT /api/admin/apis/:id",
+                  "code": "admin.apis.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 31,
+                  "name": "DELETE /api/admin/apis/:id",
+                  "code": "admin.apis.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 18,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=19&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 32,
+                  "name": "POST /api/admin/apis/:id/menu-button",
+                  "code": "admin.apis.id.menu-button.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 33,
+                  "name": "POST /api/admin/apis/sync",
+                  "code": "admin.apis.sync.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 19,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=20&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 34,
+                  "name": "POST /api/admin/apis/sync-permissions",
+                  "code": "admin.apis.sync-permissions.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 35,
+                  "name": "GET /api/admin/apis/:id",
+                  "code": "admin.apis.id.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 20,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=21&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 36,
+                  "name": "POST /api/user/messages/private",
+                  "code": "user.messages.private.post",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 37,
+                  "name": "GET /api/user/messages",
+                  "code": "user.messages.get",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 21,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=22&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 38,
+                  "name": "GET /api/user/messages/unread-count",
+                  "code": "user.messages.unread-count.get",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 39,
+                  "name": "GET /api/user/messages/:id",
+                  "code": "user.messages.id.get",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 22,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=23&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 40,
+                  "name": "PUT /api/user/messages/:id/read",
+                  "code": "user.messages.id.read.put",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 41,
+                  "name": "DELETE /api/user/messages/:id/inbox",
+                  "code": "user.messages.id.inbox.delete",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 23,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=24&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 42,
+                  "name": "POST /api/user/messages/:id/revoke",
+                  "code": "user.messages.id.revoke.post",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 43,
+                  "name": "POST /api/user/messages/images",
+                  "code": "user.messages.images.post",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 24,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=25&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 44,
+                  "name": "GET /api/user/messages/:id/images/:image_id",
+                  "code": "user.messages.id.images.image_id.get",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 45,
+                  "name": "POST /api/user/messages/ws-ticket",
+                  "code": "user.messages.ws-ticket.post",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 25,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=26&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 46,
+                  "name": "GET /api/user/messages/ws",
+                  "code": "user.messages.ws.get",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 47,
+                  "name": "GET /api/admin/messages",
+                  "code": "admin.messages.broadcast.manage",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 26,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=27&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 48,
+                  "name": "POST /api/admin/messages/:id/revoke",
+                  "code": "admin.messages.revoke.all",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 49,
+                  "name": "GET /api/admin/announcements",
+                  "code": "admin.messages.announcement.manage",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 27,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=28&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 50,
+                  "name": "GET /api/admin/message-categories",
+                  "code": "admin.messages.category.manage",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 51,
+                  "name": "GET /api/admin/message-outboxes",
+                  "code": "admin.messages.outbox.replay",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 28,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=29&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 52,
+                  "name": "GET /api/admin/message-dead-letters",
+                  "code": "admin.messages.dead-letter.manage",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 53,
+                  "name": "GET /api/admin/authorization-overview",
+                  "code": "admin.authorization.overview.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 29,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=30&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 54,
+                  "name": "GET /api/admin/authorization-risks",
+                  "code": "admin.authorization.risks.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 55,
+                  "name": "GET /api/admin/roles",
+                  "code": "admin.roles.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 30,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=31&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 56,
+                  "name": "GET /api/admin/roles/:id",
+                  "code": "admin.roles.id.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 57,
+                  "name": "PUT /api/admin/users/:id/roles",
+                  "code": "admin.users.id.roles.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 31,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=32&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 58,
+                  "name": "POST /api/admin/roles",
+                  "code": "admin.roles.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 59,
+                  "name": "PUT /api/admin/roles/:id",
+                  "code": "admin.roles.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 32,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=33&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 60,
+                  "name": "DELETE /api/admin/roles/:id",
+                  "code": "admin.roles.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 61,
+                  "name": "POST /api/admin/roles/:id/users",
+                  "code": "admin.roles.id.users.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 33,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=34&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 62,
+                  "name": "GET /api/admin/roles/:id/users",
+                  "code": "admin.roles.id.users.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 63,
+                  "name": "POST /api/admin/roles/:id/data-scope",
+                  "code": "admin.roles.id.data-scope.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 34,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=35&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 64,
+                  "name": "GET /api/admin/roles/:id/data-scope",
+                  "code": "admin.roles.id.data-scope.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 65,
+                  "name": "GET /api/admin/permissions",
+                  "code": "admin.permissions.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 35,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=36&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 66,
+                  "name": "POST /api/admin/permissions",
+                  "code": "admin.permissions.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 67,
+                  "name": "PUT /api/admin/permissions/:id",
+                  "code": "admin.permissions.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 36,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=37&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 68,
+                  "name": "DELETE /api/admin/permissions/:id",
+                  "code": "admin.permissions.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 69,
+                  "name": "GET /api/admin/permission-codes",
+                  "code": "admin.permission-codes.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 37,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=38&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 70,
+                  "name": "POST /api/admin/permissions/sync",
+                  "code": "admin.permissions.sync.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 71,
+                  "name": "POST /api/admin/roles/:id/permissions",
+                  "code": "admin.roles.id.permissions.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 38,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=39&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 72,
+                  "name": "GET /api/admin/roles/:id/permissions",
+                  "code": "admin.roles.id.permissions.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 73,
+                  "name": "GET /api/admin/permission-groups",
+                  "code": "admin.permission-groups.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 39,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=40&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 74,
+                  "name": "POST /api/admin/permission-groups",
+                  "code": "admin.permission-groups.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 75,
+                  "name": "PUT /api/admin/permission-groups/:id",
+                  "code": "admin.permission-groups.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 40,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=41&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 76,
+                  "name": "DELETE /api/admin/permission-groups/:id",
+                  "code": "admin.permission-groups.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 77,
+                  "name": "GET /api/user/context",
+                  "code": "user.context.get",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 41,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=42&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 78,
+                  "name": "GET /api/user/info",
+                  "code": "user.info.get",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 79,
+                  "name": "PUT /api/user/info",
+                  "code": "user.info.put",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 42,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=43&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 80,
+                  "name": "PUT /api/user/password",
+                  "code": "user.password.put",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 81,
+                  "name": "POST /api/user/email-verifications",
+                  "code": "user.email-verifications.post",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 43,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=44&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 82,
+                  "name": "POST /api/user/email-verifications/confirm",
+                  "code": "user.email-verifications.confirm.post",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 83,
+                  "name": "POST /api/user/avatar",
+                  "code": "user.avatar.post",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 44,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=45&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 84,
+                  "name": "DELETE /api/user/avatar",
+                  "code": "user.avatar.delete",
+                  "group": "user",
+                  "sort": 1000
+                },
+                {
+                  "id": 85,
+                  "name": "POST /api/user/logout",
+                  "code": "user.logout.post",
+                  "group": "user",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 45,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=46&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 86,
+                  "name": "PUT /api/admin/users/:id",
+                  "code": "admin.users.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 87,
+                  "name": "DELETE /api/admin/users/:id",
+                  "code": "admin.users.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 46,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=47&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 88,
+                  "name": "PUT /api/admin/users/:id/status",
+                  "code": "admin.users.id.status.put",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 89,
+                  "name": "PUT /api/admin/users/:id/kick",
+                  "code": "admin.users.id.kick.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 47,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=48&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 90,
+                  "name": "GET /api/admin/users",
+                  "code": "admin.users.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 91,
+                  "name": "GET /api/admin/users/:id",
+                  "code": "admin.users.id.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 48,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=49&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 92,
+                  "name": "POST /api/admin/files",
+                  "code": "admin.files.post",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 93,
+                  "name": "GET /api/admin/files",
+                  "code": "admin.files.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 49,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=50&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 94,
+                  "name": "GET /api/admin/files/:id",
+                  "code": "admin.files.id.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 95,
+                  "name": "PUT /api/admin/files/:id",
+                  "code": "admin.files.id.put",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 50,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=51&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 96,
+                  "name": "DELETE /api/admin/files/:id",
+                  "code": "admin.files.id.delete",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 97,
+                  "name": "GET /api/admin/files/:id/download",
+                  "code": "admin.files.id.download.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 51,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=52&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 98,
+                  "name": "GET /api/admin/files/:id/preview",
+                  "code": "admin.files.id.preview.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 99,
+                  "name": "POST /api/admin/files/:id/revalidate",
+                  "code": "admin.files.id.revalidate.post",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 52,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=53&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 100,
+                  "name": "GET /api/admin/files-browse",
+                  "code": "admin.files-browse.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 101,
+                  "name": "GET /api/admin/audit-logs",
+                  "code": "admin.audit-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 53,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=54&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 102,
+                  "name": "GET /api/admin/login-logs",
+                  "code": "admin.login-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 103,
+                  "name": "GET /api/admin/operation-logs",
+                  "code": "admin.operation-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 54,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=55&size=2",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 104,
+                  "name": "GET /api/admin/permission-logs",
+                  "code": "admin.permission-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 105,
+                  "name": "GET /api/admin/data-access-logs",
+                  "code": "admin.data-access-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 55,
+              "size": 2
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=37&size=3",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [
+                {
+                  "id": 104,
+                  "name": "GET /api/admin/permission-logs",
+                  "code": "admin.permission-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                },
+                {
+                  "id": 105,
+                  "name": "GET /api/admin/data-access-logs",
+                  "code": "admin.data-access-logs.get",
+                  "group": "admin",
+                  "sort": 1000
+                }
+              ],
+              "total": 110,
+              "page": 37,
+              "size": 3
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=111&size=1",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [],
+              "total": 110,
+              "page": 111,
+              "size": 1
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/permissions?page=112&size=1",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "list": [],
+              "total": 110,
+              "page": 112,
+              "size": 1
+            }
+          }
+        }
+      ],
+      "exact_page_sequences_match": true
+    },
+    {
+      "case_id": "W1-assigned-permissions",
+      "owner_change": "enforce-protected-authorization-assignments",
+      "assignment_insert_order": [
+        6001,
+        6005,
+        6004,
+        6002
+      ],
+      "unrelated_permission_assigned_to_other_role": 6003,
+      "expected_ids": [
+        6002,
+        6005,
+        6004,
+        6001
+      ],
+      "responses": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles/5002/permissions",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": [
+              {
+                "id": 6002,
+                "name": "Followup permission 2",
+                "code": "followup.list.2",
+                "group": "",
+                "sort": 10
+              },
+              {
+                "id": 6005,
+                "name": "Followup permission 5",
+                "code": "followup.list.5",
+                "group": "",
+                "sort": 10
+              },
+              {
+                "id": 6004,
+                "name": "Followup permission 4",
+                "code": "followup.list.4",
+                "group": "",
+                "sort": 20
+              },
+              {
+                "id": 6001,
+                "name": "Followup permission 1",
+                "code": "followup.list.1",
+                "group": "",
+                "sort": 30
+              }
+            ]
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/api/admin/roles/5004/permissions",
+            "authorization": "valid administrator Access JWT [redacted]"
+          },
+          "status": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": []
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "W2-login-ensure-create-failure",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 500,
+      "response": {
+        "code": 500,
+        "error_code": "IDENTITY_INTERNAL_ERROR",
+        "msg": "identity operation failed",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_and_captcha": "valid owned fixture; redacted"
+      },
+      "target_user_id": 2,
+      "fault": "owned version table BEFORE INSERT SQLSTATE 45000; only target login active",
+      "versions_before": {
+        "1": 1
+      },
+      "versions_after": {
+        "1": 1
+      },
+      "all_13_protected_projections_unchanged": true,
+      "identity_digest_before": "e7e27520bae7a956da4fb2414a1d007503765162688f5747bce1738fb870121e",
+      "identity_digest_after": "e7e27520bae7a956da4fb2414a1d007503765162688f5747bce1738fb870121e"
+    },
+    {
+      "case_id": "W2-login-ensure-create-fault-removed-control",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "access_token": "[redacted]",
+          "refresh_token": "[redacted]",
+          "user": {
+            "id": 2,
+            "status": 1
+          }
+        }
+      },
+      "target_user_id": 2,
+      "verified_issued_claims": {
+        "access": {
+          "user_id": 2,
+          "token_version": 1,
+          "token_type": "access",
+          "exp": 1792469449
+        },
+        "refresh": {
+          "user_id": 2,
+          "token_version": 1,
+          "token_type": "refresh",
+          "exp": 1792473049
+        }
+      },
+      "initialized_version": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    },
+    {
+      "case_id": "W2-login-ensure-read-failure",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 500,
+      "response": {
+        "code": 500,
+        "error_code": "IDENTITY_INTERNAL_ERROR",
+        "msg": "identity operation failed",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_and_captcha": "valid owned fixture; redacted"
+      },
+      "target_user_id": 3,
+      "fault": "owned version table temporarily renamed; real Ensure SELECT MySQL 1146",
+      "versions_before": {
+        "1": 1,
+        "2": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1
+      },
+      "all_13_protected_projections_unchanged": true,
+      "identity_digest_before": "0a5911e67cda309bbc4c5fa2c5a5efc22d8bfe9c8a93398665330951ef143638",
+      "identity_digest_after": "0a5911e67cda309bbc4c5fa2c5a5efc22d8bfe9c8a93398665330951ef143638"
+    },
+    {
+      "case_id": "W2-login-ensure-read-fault-removed-control",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "access_token": "[redacted]",
+          "refresh_token": "[redacted]",
+          "user": {
+            "id": 3,
+            "status": 1
+          }
+        }
+      },
+      "target_user_id": 3,
+      "verified_issued_claims": {
+        "access": {
+          "user_id": 3,
+          "token_version": 1,
+          "token_type": "access",
+          "exp": 1792469451
+        },
+        "refresh": {
+          "user_id": 3,
+          "token_version": 1,
+          "token_type": "refresh",
+          "exp": 1792473051
+        }
+      },
+      "initialized_version": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    },
+    {
+      "case_id": "W2-login-snapshot-read-after-successful-ensure",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 500,
+      "response": {
+        "code": 500,
+        "error_code": "IDENTITY_INTERNAL_ERROR",
+        "msg": "identity operation failed",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_and_captcha": "valid owned fixture; redacted"
+      },
+      "target_user_id": 4,
+      "phase_barrier": {
+        "actual_blocked_mysql_statements": [
+          "11\tWaiting for table metadata lock\tSELECT `roles`.`id`,`roles`.`created_at`,`roles`.`updated_at`,`roles`.`deleted_at`,`roles`.`name`,`roles`.`code`,`roles`.`description`,`roles`.`sort`,`roles`.`status`,`roles`.`data_scope` FROM `roles` JOIN user_roles ON user_roles.role_id = roles.id WHERE (user_roles.user_id = 4 AND roles.status = 1) AND `roles`.`deleted_at` IS NULL ORDER BY roles.sort asc, roles.id asc"
+        ],
+        "version_1_observed_committed_before_rename": true,
+        "order": "Ensure commit -> real Snapshot roles SELECT waits at table lock -> rename only owned version table -> release roles -> real Current SELECT fails MySQL 1146"
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1
+      },
+      "versions_observed_after_ensure": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1
+      },
+      "versions_after_failure": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1
+      },
+      "changed_protected_tables": [
+        "user_access_versions"
+      ],
+      "identity_digest_before": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "identity_digest_after": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "no_login_wide_rollback_requirement": true
+    },
+    {
+      "case_id": "W2-login-snapshot-fault-removed-control",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "access_token": "[redacted]",
+          "refresh_token": "[redacted]",
+          "user": {
+            "id": 4,
+            "status": 1
+          }
+        }
+      },
+      "target_user_id": 4,
+      "verified_issued_claims": {
+        "access": {
+          "user_id": 4,
+          "token_version": 1,
+          "token_type": "access",
+          "exp": 1792469519
+        },
+        "refresh": {
+          "user_id": 4,
+          "token_version": 1,
+          "token_type": "refresh",
+          "exp": 1792473119
+        }
+      },
+      "retained_initialized_version": 1,
+      "request": {
+        "method": "POST",
+        "path": "/api/login",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    },
+    {
+      "case_id": "W3-valid-refresh-control",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "access_token": "[redacted]",
+          "refresh_token": "[redacted]"
+        }
+      },
+      "target_user_id": 5,
+      "verified_issued_claims": {
+        "access": {
+          "user_id": 5,
+          "token_version": 1,
+          "token_type": "access",
+          "exp": 1792469530
+        },
+        "refresh": {
+          "user_id": 5,
+          "token_version": 1,
+          "token_type": "refresh",
+          "exp": 1792473130
+        }
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    },
+    {
+      "case_id": "W3-refresh-malformed",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "refresh_token": "[malformed fixture redacted]"
+      },
+      "premises": {
+        "format_invalid": true
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "all_13_protected_projections_unchanged": true
+    },
+    {
+      "case_id": "W3-refresh-expired",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "refresh_token": "[expired fixture redacted]"
+      },
+      "premises": {
+        "valid_signature": true,
+        "purpose": "refresh",
+        "historically_expired": true,
+        "sleep_used": false
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "all_13_protected_projections_unchanged": true
+    },
+    {
+      "case_id": "W3-refresh-access-purpose",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "refresh_token": "[access-purpose fixture redacted]"
+      },
+      "premises": {
+        "valid_signature": true,
+        "unexpired": true,
+        "purpose": "access",
+        "actual_successful_login_access_token": true
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "all_13_protected_projections_unchanged": true
+    },
+    {
+      "case_id": "W3-refresh-absent-user-version-present",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "target_user_id": 5,
+      "premises": {
+        "same_previously_successful_refresh_token": true,
+        "valid_signature": true,
+        "unexpired": true,
+        "purpose": "refresh",
+        "physically_absent_user": true
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1
+      },
+      "all_13_protected_projections_unchanged": true,
+      "identity_digest_before": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "identity_digest_after": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    },
+    {
+      "case_id": "W3-refresh-absent-user-version-absent",
+      "owner_change": "fix-access-version-auth-error-classification",
+      "status": 401,
+      "response": {
+        "code": 401,
+        "error_code": "AUTHN_REFRESH_TOKEN_INVALID",
+        "msg": "refresh token is invalid",
+        "data": null
+      },
+      "target_user_id": 5,
+      "premises": {
+        "same_previously_successful_refresh_token": true,
+        "valid_signature": true,
+        "unexpired": true,
+        "purpose": "refresh",
+        "physically_absent_user": true
+      },
+      "versions_before": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1
+      },
+      "versions_after": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1
+      },
+      "all_13_protected_projections_unchanged": true,
+      "identity_digest_before": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "identity_digest_after": "2c1db3847d31ec48ed531c90119fff4479b69bb0818a5e7497d7e16f23e46929",
+      "request": {
+        "method": "POST",
+        "path": "/api/refresh",
+        "credentials_captcha_or_token": "valid or case-specific owned fixture [redacted]"
+      }
+    }
+  ],
+  "regressions": {
+    "lists": {
+      "file": "internal/authorization/adapters/gorm/repository_test.go",
+      "tests": [
+        "TestRepositoryListsRolePagesInSortAndIDOrder",
+        "TestRepositoryListsPermissionPagesInSortAndIDOrder",
+        "TestRepositoryListsAssignedPermissionsInSortAndIDOrder"
+      ],
+      "boundary": "Real SQLite/public owner repository; actual HTTP separately recorded"
+    },
+    "sessions": {
+      "file": "internal/identity/application/session_regressions_test.go",
+      "tests": [
+        "TestLoginInitializesAndUsesPersistedAuthorizationVersion",
+        "TestLoginVersionStorageFailuresReturnSafeInternalWithoutTokens",
+        "TestRefreshRejectsMalformedExpiredAndAccessTokensWithoutChangingVersions",
+        "TestRefreshRejectsValidTokenForAbsentUserWithoutInitializingVersion"
+      ],
+      "boundary": "Real SQLite AccessVersions/identity/bcrypt/JWT through public application service; test-local authorization adapter does not prove App bridge/roles wiring. Actual original-main native cases cover that boundary."
+    }
+  },
+  "gates": {
+    "focused_go": {
+      "command": "go test ./internal/authorization/adapters/gorm ./internal/identity/application -count=1",
+      "passed": true,
+      "wall_seconds": 21.59
+    },
+    "full_go": {
+      "command": "go test -count=1 ./...",
+      "passed": true,
+      "wall_seconds": 131.1,
+      "app_package_seconds": 105.413
+    },
+    "real_mysql": {
+      "command": "go test -tags=mysql_integration ./... -run ^TestMySQL -count=1",
+      "passed": true,
+      "wall_seconds": 16.66,
+      "output": "?   \tadmin\t[no test files]\nok  \tadmin/internal/apidoc\t2.376s [no tests to run]\nok  \tadmin/internal/apimetadata/adapters/gorm\t2.375s [no tests to run]\nok  \tadmin/internal/apimetadata/adapters/http\t3.275s [no tests to run]\nok  \tadmin/internal/apimetadata/application\t2.515s [no tests to run]\n?   \tadmin/internal/apimetadata/domain\t[no test files]\nok  \tadmin/internal/app\t10.967s\nok  \tadmin/internal/app/seeddata\t3.381s [no tests to run]\nok  \tadmin/internal/audit\t0.452s [no tests to run]\nok  \tadmin/internal/audit/adapters/gorm\t1.083s [no tests to run]\nok  \tadmin/internal/audit/adapters/http\t2.173s [no tests to run]\nok  \tadmin/internal/authorization/adapters/gorm\t1.058s [no tests to run]\n?   \tadmin/internal/authorization/adapters/http\t[no test files]\nok  \tadmin/internal/authorization/application\t3.377s [no tests to run]\nok  \tadmin/internal/authorization/domain\t0.446s [no tests to run]\nok  \tadmin/internal/dictionary\t4.488s [no tests to run]\nok  \tadmin/internal/files\t3.375s [no tests to run]\nok  \tadmin/internal/files/adapters/gorm\t3.729s\n?   \tadmin/internal/files/adapters/http\t[no test files]\n?   \tadmin/internal/files/adapters/objectstorage\t[no test files]\nok  \tadmin/internal/files/application\t3.376s [no tests to run]\n?   \tadmin/internal/files/domain\t[no test files]\nok  \tadmin/internal/identity\t1.044s [no tests to run]\nok  \tadmin/internal/identity/adapters/gorm\t2.151s [no tests to run]\nok  \tadmin/internal/identity/adapters/http\t3.443s [no tests to run]\nok  \tadmin/internal/identity/adapters/jwt\t1.750s [no tests to run]\nok  \tadmin/internal/identity/adapters/mail\t0.747s [no tests to run]\n?   \tadmin/internal/identity/adapters/objectstorage\t[no test files]\n?   \tadmin/internal/identity/adapters/password\t[no test files]\n?   \tadmin/internal/identity/adapters/redis\t[no test files]\nok  \tadmin/internal/identity/application\t2.290s [no tests to run]\nok  \tadmin/internal/identity/domain\t0.666s [no tests to run]\nok  \tadmin/internal/messaging\t1.017s [no tests to run]\n?   \tadmin/internal/messaging/adapters\t[no test files]\nok  \tadmin/internal/messaging/adapters/gorm\t2.814s\nok  \tadmin/internal/messaging/adapters/http\t2.847s [no tests to run]\nok  \tadmin/internal/messaging/adapters/rabbitmq\t0.889s [no tests to run]\nok  \tadmin/internal/messaging/adapters/redis\t0.784s [no tests to run]\nok  \tadmin/internal/messaging/application\t1.787s\nok  \tadmin/internal/messaging/domain\t0.784s [no tests to run]\nok  \tadmin/internal/navigation\t3.120s [no tests to run]\nok  \tadmin/internal/organization\t3.538s\nok  \tadmin/internal/platform/cache\t0.552s [no tests to run]\nok  \tadmin/internal/platform/config\t0.345s [no tests to run]\nok  \tadmin/internal/platform/database\t2.244s [no tests to run]\nok  \tadmin/internal/platform/httpresponse\t3.372s [no tests to run]\nok  \tadmin/internal/platform/logging\t0.534s [no tests to run]\nok  \tadmin/internal/platform/objectstorage\t1.190s [no tests to run]\nok  \tadmin/internal/platform/rabbitmq\t0.878s [no tests to run]\nok  \tadmin/internal/routecatalog\t1.300s [no tests to run]\nok  \tadmin/internal/uploadsecurity\t0.877s [no tests to run]\nok  \tadmin/testsupport\t2.915s [no tests to run]\nok  \tadmin/testsupport/testutil\t3.321s"
+    },
+    "openspec": {
+      "command": "openspec validate --all --strict --json --no-interactive",
+      "passed": true,
+      "changes_passed": 15,
+      "main_specs_passed": 18,
+      "failed": 0,
+      "unrelated_info": "Existing internal-messaging long Requirement INFO only"
+    }
+  },
+  "cleanup": {
+    "schema_removed": true,
+    "owned_processes_stopped": true,
+    "owned_ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true
+    },
+    "private_directory_and_dependency_cache_removed": true,
+    "preexisting_minio_binary_preserved": true
+  },
+  "W1_read_invariance": {
+    "table_digests_before": {
+      "users": "d079e226748834b37c1df5f1137974a03d810cb2cf18a8aa274bf69bf7be6e2e",
+      "roles": "be8ca0a43245a4f2603a024af5bd0571f5a2c0ae92acf34c7048f53601b274f6",
+      "permissions": "78cf9dbc2be795b0f3f1fb349e2c1a36009246b5fd2e0adb8f2561000e99cea4",
+      "organizations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "menus": "0919da6e45ea0de33103f7524e3f66545ef29c0babe00ea8f80e74b436615902",
+      "apis": "e47fc726807f2b661f6602bf431c848838fb4b4b2d397ec0b155978e8d2bc9d0",
+      "user_roles": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad",
+      "role_permissions": "40a0624452a60d9e41dac4564c8ea790c60a9d29fad64f9f9eb3543cd4c9d3e2",
+      "role_menus": "f60d1a4a274e218558d04d6197c3ac05b24384d6964d524b1738370c6b6991d5",
+      "role_data_scopes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "user_organizations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "menu_apis": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "user_access_versions": "b6f1399e96daa00d13573ea984df1748d3dfb04cc87f832bc29ae729c0760720"
+    },
+    "table_digests_after": {
+      "users": "d079e226748834b37c1df5f1137974a03d810cb2cf18a8aa274bf69bf7be6e2e",
+      "roles": "be8ca0a43245a4f2603a024af5bd0571f5a2c0ae92acf34c7048f53601b274f6",
+      "permissions": "78cf9dbc2be795b0f3f1fb349e2c1a36009246b5fd2e0adb8f2561000e99cea4",
+      "organizations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "menus": "0919da6e45ea0de33103f7524e3f66545ef29c0babe00ea8f80e74b436615902",
+      "apis": "e47fc726807f2b661f6602bf431c848838fb4b4b2d397ec0b155978e8d2bc9d0",
+      "user_roles": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad",
+      "role_permissions": "40a0624452a60d9e41dac4564c8ea790c60a9d29fad64f9f9eb3543cd4c9d3e2",
+      "role_menus": "f60d1a4a274e218558d04d6197c3ac05b24384d6964d524b1738370c6b6991d5",
+      "role_data_scopes": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "user_organizations": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "menu_apis": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "user_access_versions": "b6f1399e96daa00d13573ea984df1748d3dfb04cc87f832bc29ae729c0760720"
+    },
+    "all_13_protected_projections_equal": true,
+    "versions_before": {
+      "1": 1
+    },
+    "versions_after": {
+      "1": 1
+    },
+    "fixture_sql_writes_completed_before_read_baseline": true
+  },
+  "setup_notes": [
+    "Initial compound CREATE TRIGGER was rejected by mysql client statement delimiters before any fault login request. Reused the registered owned fixture; re-established its private credential before baselining; replaced setup with a single-statement version INSERT trigger. No product error inferred.",
+    "Registration does not imply an RBAC user_roles row. Before Snapshot baselining, explicitly assigned an ordinary owned fixture role; registration and passed Ensure cases were not replayed."
+  ],
+  "gate_schema_cleanup_confirmed": true,
+  "recorded_at_utc": "2026-10-20T03:15:51.121314+00:00",
+  "historical_evidence_reused_unchanged": [
+    {
+      "path": "docs/reviews/evidence/c6-access-version-auth-fix-2026-10-17.json",
+      "cases": [
+        "refresh-with-same-missing-row",
+        "ordinary-refresh-version-mismatch"
+      ],
+      "scope": "Actual missing-row/no-repair and mismatched-version Refresh rejection, not rerun this session"
+    },
+    {
+      "path": "docs/reviews/evidence/nickname-sessions-2026-10-18.json",
+      "cases": [
+        "explicit-toggle-old-refresh-while-disabled"
+      ],
+      "scope": "Actual disabled-account old Refresh generic401/null data; token is also stale after Toggle. Not claimed as isolated version-valid disabled-token proof or replayed this session."
+    }
+  ],
+  "fault_log_corroboration": {
+    "actual_main_stdout_mysql_1146_occurrences": 2,
+    "specific_version_table_renames_and_phase_barrier_recorded_per_case": true,
+    "raw_private_log_not_published": true
+  },
+  "limits": [
+    "Evidence follow-up only; product code/spec semantics unchanged.",
+    "Not an entire C6 audit, production release, performance test or all-scheduling proof.",
+    "Five new Refresh refusal observations cover malformed, expired, Access-purpose and absent-user with owner version present or absent. Existing missing/mismatch/disabled evidence is referenced with its original boundary.",
+    "W1 before/after table digests exclude audit/log infrastructure; fixture SQL completed before the read-only baseline.",
+    "Three original-main Login storage fault paths and fault-removal controls are distinct from Access request faults."
+  ]
+}

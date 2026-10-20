@@ -60,6 +60,19 @@ func (versions *AccessVersions) EnsureMany(ctx context.Context, userIDs []uint) 
 	return result, nil
 }
 
+// LockExisting stabilizes the ordered batch targets without initializing absent
+// versions or advancing any version for an API that will be skipped.
+func (versions *AccessVersions) LockExisting(ctx context.Context, userIDs []uint) error {
+	ids := uniqueIDs(userIDs)
+	if len(ids) == 0 {
+		return nil
+	}
+	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
+	var records []UserAccessVersion
+	return platformdatabase.FromContext(ctx, versions.db).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id IN ?", ids).Order("user_id asc").Find(&records).Error
+}
+
 func (versions *AccessVersions) EnsureAndIncrement(ctx context.Context, userID uint) (int, error) {
 	db := platformdatabase.FromContext(ctx, versions.db)
 	if _, err := ensureAccessVersion(db, userID); err != nil {

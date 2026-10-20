@@ -1,66 +1,94 @@
 package app
 
 import (
-	"context"
+	authgorm "admin/internal/authorization/adapters/gorm"
 	authapplication "admin/internal/authorization/application"
 	authdomain "admin/internal/authorization/domain"
-	authgorm "admin/internal/authorization/adapters/gorm"
 	identityapplication "admin/internal/identity/application"
 	"admin/internal/organization"
 	platformdatabase "admin/internal/platform/database"
 	"admin/internal/routecatalog"
+	"context"
 )
 
 type organizationComposition struct {
-	routes []routecatalog.Descriptor
+	routes      []routecatalog.Descriptor
 	memberships *organization.UserMembershipService
 }
 
-func newOrganizationComposition(resources Resources, visibility organization.VisibilityProvider, users organization.UserDirectory, authorization *authapplication.Service) organizationComposition {
+func newOrganizationComposition(resources Resources, visibility organization.VisibilityProvider, users organization.UserDirectory, authorization *authapplication.Service, managedUsers identityapplication.UserManagementReader) organizationComposition {
 	repository := organization.NewGORMRepository(resources.DB)
 	hierarchy := organization.NewHierarchy(repository)
 	versions := authgorm.NewAccessVersions(resources.DB)
 	transactions := platformdatabase.NewTransactionRunner(resources.DB)
-	service := organization.NewService(repository, hierarchy, visibility, users, versions, transactions)
-	memberships := organization.NewUserMembershipService(repository, visibility, organizationUserPolicy{authorization: authorization, users: users}, versions, transactions)
+	policy := organizationUserPolicy{authorization: authorization, users: managedUsers}
+	service := organization.NewService(repository, hierarchy, visibility, users, versions, transactions, policy, authorization, organizationHierarchyDependencies{authorization: authorization})
+	memberships := organization.NewUserMembershipService(repository, visibility, policy, versions, transactions)
 	routes := append(organization.Routes(service), organization.UserMembershipRoutes(memberships)...)
 	return organizationComposition{routes: routes, memberships: memberships}
 }
 
+type organizationHierarchyDependencies struct {
+	authorization *authapplication.Service
+}
+
+func (reader organizationHierarchyDependencies) HierarchyDependentUserIDs(ctx context.Context, roots []uint) ([]uint, error) {
+	userIDs, err := reader.authorization.HierarchyDependentUserIDs(ctx, roots)
+	if code, ok := authapplication.CodeOf(err); ok && code == authapplication.CodeConflict {
+		return nil, organization.NewError(organization.CodeConflict, err)
+	}
+	return userIDs, err
+}
+
 type organizationUserPolicy struct {
 	authorization *authapplication.Service
-	users organization.UserDirectory
+	users         identityapplication.UserManagementReader
 }
 
-func (policy organizationUserPolicy) ManagedUser(ctx context.Context, operatorID, targetID uint) (organization.ManagedUser, error) {
-	users, err := policy.users.ListUsersByIDs(ctx, []uint{targetID})
-	if err != nil || len(users) != 1 {
-		return organization.ManagedUser{}, err
+func (policy organizationUserPolicy) ManagedUsers(ctx context.Context, operatorID uint, userIDs []uint) (map[uint]organization.ManagedUser, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
 	}
-	scope, err := policy.authorization.ResolveUserScope(ctx, authdomain.Principal{UserID: operatorID})
+	protected, err := policy.authorization.ProtectedUserIDs(ctx, append(append([]uint{}, userIDs...), operatorID))
 	if err != nil {
-		return organization.ManagedUser{}, err
+		return nil, err
 	}
-	visible := scope.All
-	for _, id := range scope.UserIDs {
-		if id == targetID { visible = true; break }
-	}
-	roles, err := policy.authorization.UserRoleSummaries(ctx, []uint{targetID})
+	users, err := policy.users.ManagementUsersByIDs(ctx, userIDs)
 	if err != nil {
-		return organization.ManagedUser{}, err
+		return nil, err
 	}
-	protected := false
-	for _, role := range roles {
-		if authdomain.IsProtectedRole(role.Code) { protected = true; break }
+	scope, err := policy.authorization.ResolveUserManagementScope(ctx, authdomain.Principal{UserID: operatorID})
+	if err != nil {
+		return nil, err
 	}
-	return organization.ManagedUser{Exists: true, Visible: visible, Protected: protected}, nil
+	facts := make(map[uint]organization.ManagedUser, len(users))
+	for _, user := range users {
+		facts[user.ID] = organization.ManagedUser{Exists: true, Deleted: user.Deleted, Visible: scope.All}
+	}
+	for _, userID := range scope.UserIDs {
+		if user, exists := facts[userID]; exists {
+			user.Visible = true
+			facts[userID] = user
+		}
+	}
+	for _, userID := range protected {
+		if user, exists := facts[userID]; exists {
+			user.Protected = true
+			facts[userID] = user
+		}
+	}
+	return facts, nil
 }
 
-type identityOrganizationReader struct{ memberships *organization.UserMembershipService }
+type identityOrganizationReader struct {
+	memberships *organization.UserMembershipService
+}
 
 func (reader identityOrganizationReader) UserOrganizations(ctx context.Context, operatorID uint, userIDs []uint) ([]identityapplication.UserOrganizationFact, error) {
 	facts, err := reader.memberships.UserOrganizations(ctx, operatorID, userIDs)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	result := make([]identityapplication.UserOrganizationFact, len(facts))
 	for index, fact := range facts {
 		result[index] = identityapplication.UserOrganizationFact{UserID: fact.UserID, ID: fact.OrganizationID, Name: fact.Name, Manageable: fact.Manageable}

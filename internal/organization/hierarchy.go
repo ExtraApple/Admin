@@ -1,6 +1,9 @@
 package organization
 
-import "context"
+import (
+	"context"
+	"sort"
+)
 
 type Hierarchy struct {
 	repository Repository
@@ -77,6 +80,29 @@ func (hierarchy *Hierarchy) AncestorOrganizationIDs(ctx context.Context, organiz
 		}
 	}
 	return uniqueIDs(result), nil
+}
+
+// Only ancestors present on exactly one parent path change their descendant set.
+// The moved node and common ancestors retain the same descendants.
+func changedHierarchyRootIDs(parentByID map[uint]uint, unitID, newParentID uint) []uint {
+	paths := make(map[uint]uint8)
+	for index, parentID := range [2]uint{parentByID[unitID], newParentID} {
+		path := uint8(1 << index)
+		for ancestorID := parentID; ancestorID != 0; ancestorID = parentByID[ancestorID] {
+			if paths[ancestorID]&path != 0 {
+				break
+			}
+			paths[ancestorID] |= path
+		}
+	}
+	result := make([]uint, 0, len(paths))
+	for id, paths := range paths {
+		if id != unitID && paths != 3 {
+			result = append(result, id)
+		}
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left] < result[right] })
+	return result
 }
 
 func uniqueIDs(ids []uint) []uint {

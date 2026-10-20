@@ -260,3 +260,33 @@ func TestRepositoryPhysicallyCleansTerminalEmailCredentialsAfterRetention(t *tes
 		t.Fatalf("recent terminal credential was cleaned: %v", err)
 	}
 }
+
+func TestManagementFactsDistinguishDeletedReferencesWithoutWideningDirectory(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(identitygorm.UserModel{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repository := identitygorm.NewRepository(db)
+	live := domain.User{Username: "disabled-live", Password: "hash", Email: "live@example.test", Status: 0}
+	deleted := domain.User{Username: "deleted", Password: "hash", Email: "deleted@example.test", Status: 1}
+	for _, user := range []*domain.User{&live, &deleted} {
+		if err := repository.Create(ctx, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Model(&identitygorm.UserModel{}).Where("id = ?", live.ID).Update("status", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&identitygorm.UserModel{}, deleted.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	facts, err := repository.ManagementUsersByIDs(ctx, []uint{deleted.ID, live.ID, 999})
+	if err != nil || len(facts) != 2 || facts[0].ID != live.ID || facts[0].Deleted || facts[1].ID != deleted.ID || !facts[1].Deleted {
+		t.Fatalf("management facts = %#v, %v", facts, err)
+	}
+	directory, err := repository.ListUsersByIDs(ctx, []uint{deleted.ID, live.ID})
+	if err != nil || len(directory) != 1 || directory[0].ID != live.ID || directory[0].Status != 0 {
+		t.Fatalf("public directory = %#v, %v", directory, err)
+	}
+}

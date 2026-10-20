@@ -2,12 +2,48 @@ package navigation_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"admin/internal/navigation"
 	platformdatabase "admin/internal/platform/database"
 	"admin/testsupport/testutil"
 )
+
+func TestRepositoryCreateMenuPreservesDisabledStatusAndReturnsPersistedID(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(navigation.Models()...); err != nil {
+		t.Fatalf("migrate navigation models: %v", err)
+	}
+	repository := navigation.NewGORMRepository(db)
+	ctx := context.Background()
+	path := "/disabled-menu"
+	menu := navigation.Menu{
+		Name:           "Disabled menu",
+		Path:           &path,
+		Component:      "settings/disabled",
+		Icon:           "settings",
+		PermissionCode: "settings.disabled",
+		Type:           2,
+		Status:         0,
+	}
+	want := menu
+
+	if err := repository.CreateMenu(ctx, &menu); err != nil {
+		t.Fatalf("create disabled menu: %v", err)
+	}
+	if menu.ID == 0 {
+		t.Fatal("created menu has no usable ID")
+	}
+	want.ID = menu.ID
+	stored, err := repository.FindMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("find created menu by returned ID: %v", err)
+	}
+	if !reflect.DeepEqual(stored, want) {
+		t.Fatalf("persisted menu = %#v; want %#v", stored, want)
+	}
+}
 
 func TestRepositoryOwnsMenuAndRelationshipPersistence(t *testing.T) {
 	db := testutil.OpenIsolatedSQLite(t)

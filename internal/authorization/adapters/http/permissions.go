@@ -17,9 +17,9 @@ type createPermissionRequest struct {
 }
 
 type updatePermissionRequest struct {
-	Name  string `json:"name" binding:"max=100"`
-	Group string `json:"group" binding:"max=50"`
-	Sort  *int   `json:"sort"`
+	Name  *string `json:"name" binding:"omitempty,min=1,max=100"`
+	Group *string `json:"group" binding:"omitempty,max=50"`
+	Sort  *int    `json:"sort"`
 }
 
 type assignPermissionsRequest struct {

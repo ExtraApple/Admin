@@ -1,6 +1,7 @@
 package navigation
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -21,17 +22,37 @@ type seedMenu struct {
 }
 
 // SeedMenus restores Navigation-owned menus and their hierarchy.
-func SeedMenus(tx *gorm.DB) (int, error) {
+func SeedMenus(tx *gorm.DB, lockPermissions func(context.Context, []string) error) (int, error) {
 	created := 0
 	menuIDs := map[string]uint{}
-	for _, item := range defaultMenus() {
+	items := defaultMenus()
+	paths := make([]string, 0, len(items)*2)
+	codes := make([]string, 0, len(items))
+	for _, item := range items {
+		codes = append(codes, strings.TrimSpace(item.PermissionCode))
+		paths = append(paths, item.Path)
+		if item.ParentPath != "" {
+			paths = append(paths, item.ParentPath)
+		}
+	}
+	if err := lockPermissions(tx.Statement.Context, codes); err != nil {
+		return 0, err
+	}
+	// Seed may repair an existing hierarchy whose IDs do not follow definition
+	// order. Acquire every existing target before processing that order.
+	var targets []MenuModel
+	if err := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("path IN ?", paths).Order("id asc").Find(&targets).Error; err != nil {
+		return 0, err
+	}
+	for _, item := range items {
 		parentID := uint(0)
 		if item.ParentPath != "" {
 			if id, ok := menuIDs[item.ParentPath]; ok {
 				parentID = id
 			} else {
 				var parent MenuModel
-				if err := tx.Where("path = ?", item.ParentPath).First(&parent).Error; err != nil {
+				if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("path = ?", item.ParentPath).First(&parent).Error; err != nil {
 					return created, err
 				}
 				parentID = parent.ID
@@ -52,6 +73,31 @@ func SeedMenus(tx *gorm.DB) (int, error) {
 func ensureSeedMenu(tx *gorm.DB, item seedMenu, parentID uint) (MenuModel, bool, error) {
 	var menu MenuModel
 	err := tx.Unscoped().Where("path = ?", item.Path).First(&menu).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return menu, false, err
+	}
+	ids := uniqueUintIDs([]uint{menu.ID, parentID})
+	if len(ids) > 0 {
+		var targets []MenuModel
+		if err := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id IN ?", ids).Order("id asc").Find(&targets).Error; err != nil {
+			return menu, false, err
+		}
+		parentExists := parentID == 0
+		for _, target := range targets {
+			if target.ID == parentID && !target.DeletedAt.Valid {
+				parentExists = true
+			}
+		}
+		if !parentExists {
+			return menu, false, ErrMenuNotFound
+		}
+	}
+	// The first lookup only discovered lock IDs; do not use its RR snapshot as
+	// the state to restore or attach after waiting on a lifecycle target.
+	menu = MenuModel{}
+	err = tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("path = ?", item.Path).First(&menu).Error
 	if err == nil {
 		updates := map[string]any{}
 		if menu.DeletedAt.Valid {
@@ -68,7 +114,7 @@ func ensureSeedMenu(tx *gorm.DB, item seedMenu, parentID uint) (MenuModel, bool,
 			if err := tx.Unscoped().Model(&menu).Updates(updates).Error; err != nil {
 				return menu, false, err
 			}
-			if err := tx.First(&menu, menu.ID).Error; err != nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&menu, menu.ID).Error; err != nil {
 				return menu, false, err
 			}
 		}
@@ -88,11 +134,13 @@ func ensureSeedMenu(tx *gorm.DB, item seedMenu, parentID uint) (MenuModel, bool,
 // SeedAdminRoleMenus grants the protected admin role every known menu.
 func SeedAdminRoleMenus(tx *gorm.DB) (int, error) {
 	var role struct{ ID uint }
-	if err := tx.Table("roles").Where("code = ? AND status = 1", "admin").First(&role).Error; err != nil {
+	if err := tx.Table("roles").Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("code = ? AND status = 1", "admin").First(&role).Error; err != nil {
 		return 0, err
 	}
 	var menuIDs []uint
-	if err := tx.Model(&MenuModel{}).Pluck("id", &menuIDs).Error; err != nil {
+	if err := tx.Model(&MenuModel{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Order("id asc").Pluck("id", &menuIDs).Error; err != nil {
 		return 0, err
 	}
 	created := 0

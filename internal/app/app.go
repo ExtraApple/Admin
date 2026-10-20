@@ -80,10 +80,10 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	}
 	dictionaryRoutes := dictionaryDescriptors(resources)
 	identityCore := newIdentityCore(resources)
-	authorizationApplication := newAuthorizationService(resources, identityCore.directory)
+	authorizationApplication := newAuthorizationService(resources, identityCore.directory, identityCore.repository)
 	routeSource := &catalogRouteSource{}
 	modules := newNavigationComposition(resources, authorizationApplication, routeSource, identityCore.directory)
-	organizationModule := newOrganizationComposition(resources, authorizationOrganizationVisibility{authorization: authorizationApplication}, identityCore.directory, authorizationApplication)
+	organizationModule := newOrganizationComposition(resources, authorizationOrganizationVisibility{authorization: authorizationApplication}, identityCore.directory, authorizationApplication, identityCore.repository)
 	organizationRoutes := organizationModule.routes
 	identityModule, err := newIdentityComposition(resources, conf, authorizationApplication, identityNavigation{navigation: modules.Navigation}, identityCore, identityOrganizationReader{memberships: organizationModule.memberships})
 	if err != nil {

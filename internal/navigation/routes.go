@@ -21,14 +21,14 @@ type menuCreateRequest struct {
 	PermissionCode string `json:"permission_code" binding:"max=100"`
 	Sort           int    `json:"sort"`
 	Type           int    `json:"type"`
-	Status         int    `json:"status"`
+	Status         *int   `json:"status"`
 }
 type menuUpdateRequest struct {
 	ParentID       *uint   `json:"parent_id"`
-	Name           string  `json:"name" binding:"max=100"`
-	Path           string  `json:"path" binding:"max=255"`
-	Component      string  `json:"component" binding:"max=255"`
-	Icon           string  `json:"icon" binding:"max=100"`
+	Name           *string `json:"name" binding:"omitempty,min=1,max=100"`
+	Path           *string `json:"path" binding:"omitempty,max=255"`
+	Component      *string `json:"component" binding:"omitempty,max=255"`
+	Icon           *string `json:"icon" binding:"omitempty,max=100"`
 	PermissionCode *string `json:"permission_code" binding:"omitempty,max=100"`
 	Sort           *int    `json:"sort"`
 	Type           *int    `json:"type"`
@@ -88,15 +88,23 @@ type syncMenusResponse struct {
 
 func Routes(service *Service) []routecatalog.Descriptor {
 	handler := &menuHTTPHandler{service: service}
+	update := navigationRoute(http.MethodPut, "/api/admin/menus/:id", "Update Menu", "admin.menus.id.put", handler.updateMenu, menuUpdateRequest{}, menuResponse{})
+	update.OpenAPI.Description = "未提交的字段保持原值；显式空字符串可清空 icon、component 及满足既有约束的 path，name 不得为空。JSON null 沿既有解析表示未提交。permission_code 继续独立绑定码契约，不表示解绑。完成现有校验后，字段与适用派生事实均同值才不提升版本；真实展示或联动修复仍原子失效，空更新仍拒绝。"
+	syncMenus := navigationRoute(http.MethodPost, "/api/admin/menus/sync", "Sync Menus", "admin.menus.sync.post", handler.syncMenus, syncMenusRequest{}, syncMenusResponse{})
+	syncMenus.OpenAPI.Description = "按既有路径及父级解析规则创建缺失菜单；合法全skip且无派生写入时返回created为0，不提升用户版本。"
+	bindAPIs := navigationRoute(http.MethodPost, "/api/admin/menus/:id/apis", "Assign Menu APIs", "admin.menus.id.apis.post", handler.assignAPIs, assignAPIsRequest{}, nil)
+	bindAPIs.OpenAPI.Description = "先校验全部原始API ID、存在、启用和认证前提；目标集合、最终码及既有规则维护的权限和授权事实均无变化才不重建关联、不提升版本。缺失权限或直接码漂移等修复仍原子提交并处理版本。"
+	roleMenus := navigationRoute(http.MethodPost, "/api/admin/roles/:id/menus", "Assign Role Menus", "admin.roles.id.menus.post", handler.assignRoleMenus, assignMenuRequest{}, nil)
+	roleMenus.OpenAPI.Description = "先满足角色保护及全部原始菜单引用前提，再比较实际显式配置；合法等价集合成功且不重建关联、不提升版本，不按运行时可见性裁剪配置。"
 	return []routecatalog.Descriptor{
 		navigationRoute(http.MethodGet, "/api/admin/menus", "List Menus", "admin.menus.get", handler.listMenus, nil, menuListResponse{}),
 		navigationRoute(http.MethodPost, "/api/admin/menus", "Create Menu", "admin.menus.post", handler.createMenu, menuCreateRequest{}, menuResponse{}),
-		navigationRoute(http.MethodPut, "/api/admin/menus/:id", "Update Menu", "admin.menus.id.put", handler.updateMenu, menuUpdateRequest{}, menuResponse{}),
+		update,
 		navigationRoute(http.MethodDelete, "/api/admin/menus/:id", "Delete Menu", "admin.menus.id.delete", handler.deleteMenu, nil, nil),
-		navigationRoute(http.MethodPost, "/api/admin/menus/sync", "Sync Menus", "admin.menus.sync.post", handler.syncMenus, syncMenusRequest{}, syncMenusResponse{}),
-		navigationRoute(http.MethodPost, "/api/admin/menus/:id/apis", "Assign Menu APIs", "admin.menus.id.apis.post", handler.assignAPIs, assignAPIsRequest{}, nil),
+		syncMenus,
+		bindAPIs,
 		navigationRoute(http.MethodGet, "/api/admin/menus/:id/apis", "List Menu APIs", "admin.menus.id.apis.get", handler.listAPIs, nil, menuAPIResponse{}),
-		navigationRoute(http.MethodPost, "/api/admin/roles/:id/menus", "Assign Role Menus", "admin.roles.id.menus.post", handler.assignRoleMenus, assignMenuRequest{}, nil),
+		roleMenus,
 		navigationRoute(http.MethodGet, "/api/admin/roles/:id/menus", "List Role Menus", "admin.roles.id.menus.get", handler.listRoleMenus, nil, menuListResponse{}),
 	}
 }

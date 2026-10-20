@@ -13,11 +13,27 @@ var supportedMethods = map[string]struct{}{
 	http.MethodPatch: {}, http.MethodDelete: {}, http.MethodOptions: {}, http.MethodHead: {},
 }
 
-type Core struct{ repository Repository }
+type Core struct {
+	repository   Repository
+	transactions TransactionRunner
+	references   PermissionReferenceLocker
+}
 
-func NewCore(repository Repository) *Core { return &Core{repository: repository} }
+func NewCore(repository Repository, transactions TransactionRunner, references PermissionReferenceLocker) *Core {
+	return &Core{repository: repository, transactions: transactions, references: references}
+}
 
 func (core *Core) Create(ctx context.Context, input CreateInput) (domain.API, error) {
+	var created domain.API
+	err := core.transactions.Run(ctx, func(transactionContext context.Context) error {
+		var err error
+		created, err = core.create(transactionContext, input)
+		return err
+	})
+	return created, err
+}
+
+func (core *Core) create(ctx context.Context, input CreateInput) (domain.API, error) {
 	method, err := NormalizeMethod(input.Method)
 	if err != nil {
 		return domain.API{}, err
@@ -56,6 +72,9 @@ func (core *Core) Create(ctx context.Context, input CreateInput) (domain.API, er
 		PermissionCode: strings.TrimSpace(input.PermissionCode),
 		Remark:         strings.TrimSpace(input.Remark), Sort: input.Sort,
 		Status: status, NeedAuth: needAuth, NeedAudit: needAudit,
+	}
+	if err := core.references.LockPermissions(ctx, []string{api.PermissionCode}); err != nil {
+		return domain.API{}, wrapError(err)
 	}
 	if err := core.repository.Create(ctx, &api); err != nil {
 		return domain.API{}, NewError(CodeInternalError, err)
@@ -96,6 +115,14 @@ func (core *Core) LockMany(ctx context.Context, ids []uint) ([]domain.API, error
 	return core.repository.ListByIDsForUpdate(ctx, ids)
 }
 
+func (core *Core) ListByPermissionCode(ctx context.Context, code string) ([]domain.API, error) {
+	return core.repository.ListByPermissionCode(ctx, code)
+}
+
+func (core *Core) LockDependencies(ctx context.Context, ids []uint, codes []string) ([]domain.API, error) {
+	return core.repository.LockDependencies(ctx, ids, codes)
+}
+
 func (core *Core) SetPermissionCode(ctx context.Context, ids []uint, code string) error {
 	return core.repository.SetPermissionCode(ctx, ids, code)
 }
@@ -113,7 +140,22 @@ func (core *Core) Get(ctx context.Context, id uint) (domain.API, error) {
 }
 
 func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domain.API, error) {
-	current, err := core.repository.Find(ctx, id)
+	var updated domain.API
+	err := core.transactions.Run(ctx, func(transactionContext context.Context) error {
+		if input.PermissionCode != nil {
+			if err := core.references.LockPermissions(transactionContext, []string{strings.TrimSpace(*input.PermissionCode)}); err != nil {
+				return wrapError(err)
+			}
+		}
+		var err error
+		updated, err = core.update(transactionContext, id, input)
+		return err
+	})
+	return updated, err
+}
+
+func (core *Core) update(ctx context.Context, id uint, input UpdateInput) (domain.API, error) {
+	current, err := core.Lock(ctx, id)
 	if err != nil {
 		return domain.API{}, wrapError(err)
 	}
@@ -180,7 +222,7 @@ func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domai
 	if err := core.repository.Update(ctx, id, updates); err != nil {
 		return domain.API{}, NewError(CodeInternalError, err)
 	}
-	updated, err := core.repository.Find(ctx, id)
+	updated, err := core.Lock(ctx, id)
 	if err != nil {
 		return domain.API{}, wrapError(err)
 	}
@@ -188,13 +230,15 @@ func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domai
 }
 
 func (core *Core) Delete(ctx context.Context, id uint) error {
-	if _, err := core.repository.Find(ctx, id); err != nil {
-		return wrapError(err)
-	}
-	if err := core.repository.Delete(ctx, id); err != nil {
-		return wrapError(err)
-	}
-	return nil
+	return core.transactions.Run(ctx, func(transactionContext context.Context) error {
+		if _, err := core.Lock(transactionContext, id); err != nil {
+			return wrapError(err)
+		}
+		if err := core.repository.Delete(transactionContext, id); err != nil {
+			return wrapError(err)
+		}
+		return nil
+	})
 }
 
 func (core *Core) Groups(ctx context.Context) ([]domain.GroupOption, error) {

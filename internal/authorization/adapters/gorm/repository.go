@@ -3,6 +3,7 @@ package gormadapter
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"admin/internal/authorization/application"
 	"admin/internal/authorization/domain"
@@ -43,6 +44,54 @@ func (repository *Repository) FindRole(ctx context.Context, roleID uint) (domain
 		return domain.Role{}, mapNotFound(err)
 	}
 	return roleToDomain(record), nil
+}
+
+// LockRole is the shared target-row barrier for role references and lifecycle writes.
+func (repository *Repository) LockRole(ctx context.Context, roleID uint) (domain.Role, error) {
+	var record Role
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, roleID).Error; err != nil {
+		return domain.Role{}, mapNotFound(err)
+	}
+	return roleToDomain(record), nil
+}
+
+func (repository *Repository) LockRoles(ctx context.Context, roleIDs []uint) ([]domain.Role, error) {
+	ids := uniqueIDs(roleIDs)
+	if len(ids) == 0 {
+		return []domain.Role{}, nil
+	}
+	var records []Role
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id IN ?", ids).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	roles := make([]domain.Role, len(records))
+	for index, record := range records {
+		roles[index] = roleToDomain(record)
+	}
+	return roles, nil
+}
+
+func (repository *Repository) CurrentUserRoleReferences(ctx context.Context, userIDs []uint) ([]application.UserRoleReference, error) {
+	ids := uniqueIDs(userIDs)
+	if len(ids) == 0 {
+		return []application.UserRoleReference{}, nil
+	}
+	references := []application.UserRoleReference{}
+	err := repository.connection(ctx).Model(&UserRole{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("user_id, role_id").Where("user_id IN ?", ids).
+		Order("user_id asc, role_id asc").Find(&references).Error
+	return references, err
+}
+
+func (repository *Repository) OrganizationReferenceRoleIDs(ctx context.Context, organizationID uint) ([]uint, error) {
+	var roleIDs []uint
+	err := repository.connection(ctx).Model(&RoleDataScope{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("organization_id = ?", organizationID).
+		Order("role_id asc").Pluck("role_id", &roleIDs).Error
+	return nonNilIDs(roleIDs), err
 }
 
 func (repository *Repository) RoleNameExists(ctx context.Context, name string, exceptID uint) (bool, error) {
@@ -97,7 +146,7 @@ func (repository *Repository) DeleteRole(ctx context.Context, roleID uint) error
 
 func (repository *Repository) UserIDsByRole(ctx context.Context, roleID uint) ([]uint, error) {
 	var ids []uint
-	if err := repository.connection(ctx).Model(&UserRole{}).Where("role_id = ?", roleID).Order("user_id asc").Pluck("user_id", &ids).Error; err != nil {
+	if err := repository.connection(ctx).Model(&UserRole{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("role_id = ?", roleID).Order("user_id asc").Pluck("user_id", &ids).Error; err != nil {
 		return nil, err
 	}
 	return nonNilIDs(ids), nil
@@ -105,7 +154,7 @@ func (repository *Repository) UserIDsByRole(ctx context.Context, roleID uint) ([
 
 func (repository *Repository) RoleIDsByUser(ctx context.Context, userID uint) ([]uint, error) {
 	var roleIDs []uint
-	if err := repository.connection(ctx).Model(&UserRole{}).Where("user_id = ?", userID).Order("role_id asc").Pluck("role_id", &roleIDs).Error; err != nil {
+	if err := repository.connection(ctx).Model(&UserRole{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).Order("role_id asc").Pluck("role_id", &roleIDs).Error; err != nil {
 		return nil, err
 	}
 	return nonNilIDs(roleIDs), nil
@@ -151,33 +200,35 @@ func (repository *Repository) RolePermissionFacts(ctx context.Context, roleIDs [
 	return facts, nil
 }
 
-func (repository *Repository) ReplaceUserRoles(ctx context.Context, userID uint, roleIDs []uint) error {
+func (repository *Repository) ApplyUserRoleChanges(ctx context.Context, userID uint, addedRoleIDs, removedRoleIDs []uint) error {
 	db := repository.connection(ctx)
-	if err := db.Where("user_id = ?", userID).Delete(&UserRole{}).Error; err != nil {
-		return err
+	if len(removedRoleIDs) > 0 {
+		if err := db.Where("user_id = ? AND role_id IN ?", userID, removedRoleIDs).Delete(&UserRole{}).Error; err != nil {
+			return err
+		}
 	}
-	roleIDs = uniqueIDs(roleIDs)
-	if len(roleIDs) == 0 {
+	if len(addedRoleIDs) == 0 {
 		return nil
 	}
-	relations := make([]UserRole, len(roleIDs))
-	for index, roleID := range roleIDs {
+	relations := make([]UserRole, len(addedRoleIDs))
+	for index, roleID := range addedRoleIDs {
 		relations[index] = UserRole{UserID: userID, RoleID: roleID}
 	}
 	return db.Create(&relations).Error
 }
 
-func (repository *Repository) ReplaceRoleUsers(ctx context.Context, roleID uint, userIDs []uint) error {
+func (repository *Repository) ApplyRoleUserChanges(ctx context.Context, roleID uint, addedUserIDs, removedUserIDs []uint) error {
 	db := repository.connection(ctx)
-	if err := db.Where("role_id = ?", roleID).Delete(&UserRole{}).Error; err != nil {
-		return err
+	if len(removedUserIDs) > 0 {
+		if err := db.Where("role_id = ? AND user_id IN ?", roleID, removedUserIDs).Delete(&UserRole{}).Error; err != nil {
+			return err
+		}
 	}
-	ids := uniqueIDs(userIDs)
-	if len(ids) == 0 {
+	if len(addedUserIDs) == 0 {
 		return nil
 	}
-	records := make([]UserRole, len(ids))
-	for index, userID := range ids {
+	records := make([]UserRole, len(addedUserIDs))
+	for index, userID := range addedUserIDs {
 		records[index] = UserRole{UserID: userID, RoleID: roleID}
 	}
 	return db.Create(&records).Error
@@ -215,11 +266,25 @@ func (repository *Repository) RoleDataScope(ctx context.Context, roleID uint) (d
 }
 
 func (repository *Repository) RolesForUser(ctx context.Context, userID uint) ([]domain.Role, error) {
+	return repository.rolesForUser(ctx, userID, false)
+}
+
+func (repository *Repository) CurrentRolesForUser(ctx context.Context, userID uint) ([]domain.Role, error) {
+	return repository.rolesForUser(ctx, userID, true)
+}
+
+func (repository *Repository) rolesForUser(ctx context.Context, userID uint, current bool) ([]domain.Role, error) {
 	var records []Role
-	if err := repository.connection(ctx).Model(&Role{}).
+	query := repository.connection(ctx).Model(&Role{})
+	if current {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"}).Order("roles.id asc")
+	} else {
+		query = query.Order("roles.sort asc, roles.id asc")
+	}
+	if err := query.
 		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
 		Where("user_roles.user_id = ? AND roles.status = ?", userID, 1).
-		Order("roles.sort asc, roles.id asc").Find(&records).Error; err != nil {
+		Find(&records).Error; err != nil {
 		return nil, err
 	}
 	result := make([]domain.Role, len(records))
@@ -230,27 +295,45 @@ func (repository *Repository) RolesForUser(ctx context.Context, userID uint) ([]
 }
 
 func (repository *Repository) CustomOrganizationIDs(ctx context.Context, roleID uint) ([]uint, error) {
+	return repository.customOrganizationIDs(ctx, roleID, false)
+}
+
+func (repository *Repository) CurrentCustomOrganizationIDs(ctx context.Context, roleID uint) ([]uint, error) {
+	return repository.customOrganizationIDs(ctx, roleID, true)
+}
+
+func (repository *Repository) customOrganizationIDs(ctx context.Context, roleID uint, current bool) ([]uint, error) {
 	var ids []uint
-	if err := repository.connection(ctx).Model(&RoleDataScope{}).Where("role_id = ?", roleID).Order("organization_id asc").Pluck("organization_id", &ids).Error; err != nil {
+	query := repository.connection(ctx).Model(&RoleDataScope{})
+	if current {
+		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := query.Where("role_id = ?", roleID).Order("organization_id asc").Pluck("organization_id", &ids).Error; err != nil {
 		return nil, err
 	}
 	return nonNilIDs(ids), nil
 }
 func (repository *Repository) UserIDsByRoleIDs(ctx context.Context, roleIDs []uint) ([]uint, error) {
+	roleIDs = uniqueIDs(roleIDs)
 	if len(roleIDs) == 0 {
 		return []uint{}, nil
 	}
+	// Hold the same role barrier as membership writers before reading dependents.
+	var roles []Role
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", roleIDs).Order("id asc").Find(&roles).Error; err != nil {
+		return nil, err
+	}
 	var ids []uint
-	err := repository.connection(ctx).Model(&UserRole{}).Distinct("user_id").Where("role_id IN ?", roleIDs).Order("user_id asc").Pluck("user_id", &ids).Error
-	return nonNilIDs(ids), err
+	err := repository.connection(ctx).Model(&UserRole{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("role_id IN ?", uniqueIDs(roleIDs)).Order("role_id asc, user_id asc").Pluck("user_id", &ids).Error
+	return uniqueIDs(ids), err
 }
 
 func (repository *Repository) RoleIDsByPermissionCode(ctx context.Context, code string) ([]uint, error) {
 	var ids []uint
-	err := repository.connection(ctx).Model(&RolePermission{}).
-		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id").
+	err := repository.connection(ctx).Model(&RolePermission{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id AND permissions.deleted_at IS NULL").
 		Where("permissions.code = ?", code).Order("role_permissions.role_id asc").Pluck("role_permissions.role_id", &ids).Error
-	return nonNilIDs(ids), err
+	return uniqueIDs(ids), err
 }
 
 func (repository *Repository) LockPermissionByCode(ctx context.Context, code string) (domain.Permission, bool, error) {
@@ -266,6 +349,32 @@ func (repository *Repository) LockPermissionByCode(ctx context.Context, code str
 	return permission, true, err
 }
 
+// LockPermissionsByCodes acquires the complete known code set by target ID before
+// Navigation ensures or merges individual permissions.
+func (repository *Repository) LockPermissionsByCodes(ctx context.Context, codes []string) error {
+	if len(codes) == 0 {
+		return nil
+	}
+	var records []Permission
+	return repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("code IN ?", codes).Order("id asc").Find(&records).Error
+}
+
+// ExistingPermissionCodes reads current owner facts under the batch's permission
+// locks. Including deleted rows distinguishes restoration from a new resource.
+func (repository *Repository) ExistingPermissionCodes(ctx context.Context, codes []string, includeDeleted bool) ([]string, error) {
+	if len(codes) == 0 {
+		return nil, nil
+	}
+	query := repository.connection(ctx).Model(&Permission{}).Clauses(clause.Locking{Strength: "UPDATE"})
+	if includeDeleted {
+		query = query.Unscoped()
+	}
+	var existing []string
+	err := query.Where("code IN ?", codes).Order("id asc").Pluck("code", &existing).Error
+	return existing, err
+}
+
 func (repository *Repository) EnsurePermissionByCode(ctx context.Context, code, name, group string, sort int) (domain.Permission, bool, error) {
 	permissionCode, err := domain.NewPermissionCode(code)
 	if err != nil {
@@ -277,7 +386,7 @@ func (repository *Repository) EnsurePermissionByCode(ctx context.Context, code, 
 	}
 	if found {
 		var record Permission
-		if err := repository.connection(ctx).Unscoped().Where("code = ?", permissionCode.String()).First(&record).Error; err != nil {
+		if err := repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("code = ?", permissionCode.String()).First(&record).Error; err != nil {
 			return domain.Permission{}, false, err
 		}
 		if record.DeletedAt.Valid {
@@ -297,11 +406,19 @@ func (repository *Repository) EnsurePermissionByCode(ctx context.Context, code, 
 
 func (repository *Repository) MergePermissionRoles(ctx context.Context, fromPermissionID, toPermissionID uint) error {
 	db := repository.connection(ctx)
+	for _, permissionID := range uniqueIDs([]uint{fromPermissionID, toPermissionID}) {
+		if _, err := repository.LockPermission(ctx, permissionID); err != nil {
+			return err
+		}
+	}
 	var roles []RolePermission
-	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("permission_id = ?", fromPermissionID).Find(&roles).Error; err != nil {
+	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Where("permission_id = ?", fromPermissionID).Order("role_id asc").Find(&roles).Error; err != nil {
 		return err
 	}
 	for _, role := range roles {
+		if _, err := repository.LockRole(ctx, role.RoleID); err != nil {
+			return err
+		}
 		if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&RolePermission{RoleID: role.RoleID, PermissionID: toPermissionID}).Error; err != nil {
 			return err
 		}
@@ -310,13 +427,16 @@ func (repository *Repository) MergePermissionRoles(ctx context.Context, fromPerm
 }
 
 func (repository *Repository) PermissionHasRoleReferences(ctx context.Context, permissionID uint) (bool, error) {
-	var count int64
-	err := repository.connection(ctx).Model(&RolePermission{}).Where("permission_id = ?", permissionID).Count(&count).Error
-	return count > 0, err
+	var references []RolePermission
+	err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("permission_id = ?", permissionID).Order("role_id asc").Find(&references).Error
+	return len(references) > 0, err
 }
 
 func (repository *Repository) DeletePermissionForNavigation(ctx context.Context, permissionID uint) error {
 	db := repository.connection(ctx)
+	if _, err := repository.LockPermission(ctx, permissionID); err != nil {
+		return err
+	}
 	if err := db.Where("permission_id = ?", permissionID).Delete(&RolePermission{}).Error; err != nil {
 		return err
 	}
@@ -340,6 +460,14 @@ func (repository *Repository) ListPermissions(ctx context.Context, offset, limit
 func (repository *Repository) FindPermission(ctx context.Context, permissionID uint) (domain.Permission, error) {
 	var record Permission
 	if err := repository.connection(ctx).First(&record, permissionID).Error; err != nil {
+		return domain.Permission{}, mapNotFound(err)
+	}
+	return permissionToDomain(record)
+}
+
+func (repository *Repository) LockPermission(ctx context.Context, permissionID uint) (domain.Permission, error) {
+	var record Permission
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, permissionID).Error; err != nil {
 		return domain.Permission{}, mapNotFound(err)
 	}
 	return permissionToDomain(record)
@@ -378,7 +506,7 @@ func (repository *Repository) DeletePermission(ctx context.Context, permissionID
 
 func (repository *Repository) RoleIDsByPermission(ctx context.Context, permissionID uint) ([]uint, error) {
 	var ids []uint
-	if err := repository.connection(ctx).Model(&RolePermission{}).Where("permission_id = ?", permissionID).Order("role_id asc").Pluck("role_id", &ids).Error; err != nil {
+	if err := repository.connection(ctx).Model(&RolePermission{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("permission_id = ?", permissionID).Order("role_id asc").Pluck("role_id", &ids).Error; err != nil {
 		return nil, err
 	}
 	return nonNilIDs(ids), nil
@@ -398,6 +526,16 @@ func (repository *Repository) ReplaceRolePermissions(ctx context.Context, roleID
 		records[index] = RolePermission{RoleID: roleID, PermissionID: permissionID}
 	}
 	return db.Create(&records).Error
+}
+
+// CurrentRolePermissionIDs reads configured references, including any that are
+// not visible through live permission queries, after the caller locks the role.
+func (repository *Repository) CurrentRolePermissionIDs(ctx context.Context, roleID uint) ([]uint, error) {
+	var ids []uint
+	err := repository.connection(ctx).Model(&RolePermission{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("role_id = ?", roleID).Order("permission_id asc").Pluck("permission_id", &ids).Error
+	return nonNilIDs(ids), err
 }
 
 func (repository *Repository) PermissionsByRole(ctx context.Context, roleID uint) ([]domain.Permission, error) {
@@ -544,6 +682,7 @@ func uniqueIDs(ids []uint) []uint {
 		seen[id] = struct{}{}
 		result = append(result, id)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
 }
 

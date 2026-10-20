@@ -28,6 +28,8 @@ func newOverviewService(fixture authorizationFixture, reader application.Authori
 		fixture.users,
 		fixture.versions,
 		reader,
+		fixture.users,
+		fixture.roleMenus,
 	)
 }
 
@@ -37,8 +39,15 @@ func organizationScopeReaderForTest(fixture authorizationFixture) application.Or
 
 type organizationScopeAdapter struct{ fixture authorizationFixture }
 
+func (adapter organizationScopeAdapter) WithLockedHierarchy(ctx context.Context, operation func(context.Context) error) error {
+	return organization.NewScopeReader(adapter.fixture.organizations, organization.NewHierarchy(adapter.fixture.organizations)).WithLockedHierarchy(ctx, operation)
+}
+
 func (adapter organizationScopeAdapter) MemberOrganizationIDs(ctx context.Context, userID uint) ([]uint, error) {
 	return adapter.fixture.organizations.MemberOrganizationIDs(ctx, userID)
+}
+func (adapter organizationScopeAdapter) CurrentMemberOrganizationIDs(ctx context.Context, userID uint) ([]uint, error) {
+	return adapter.fixture.organizations.CurrentMemberOrganizationIDs(ctx, userID)
 }
 func (adapter organizationScopeAdapter) DescendantOrganizationIDs(ctx context.Context, ids []uint) ([]uint, error) {
 	return organization.NewHierarchy(adapter.fixture.organizations).DescendantOrganizationIDs(ctx, ids)
@@ -49,6 +58,13 @@ func (adapter organizationScopeAdapter) ExistingOrganizationIDs(ctx context.Cont
 func (adapter organizationScopeAdapter) MemberUserIDs(ctx context.Context, organizationID uint) ([]uint, error) {
 	return adapter.fixture.organizations.MemberUserIDs(ctx, organizationID)
 }
+func (adapter organizationScopeAdapter) CurrentMemberUserIDs(ctx context.Context, organizationID uint) ([]uint, error) {
+	return adapter.fixture.organizations.CurrentMemberUserIDs(ctx, organizationID)
+}
+
+func (adapter organizationScopeAdapter) CurrentMemberUserIDsByOrganizations(ctx context.Context, organizationIDs []uint) ([]uint, error) {
+	return adapter.fixture.organizations.CurrentMemberUserIDsByOrganizations(ctx, organizationIDs)
+}
 
 func TestListAuthorizationRisksAggregatesRulesAndUsesStableOrdering(t *testing.T) {
 	fixture := newAuthorizationFixture(t)
@@ -57,7 +73,7 @@ func TestListAuthorizationRisksAggregatesRulesAndUsesStableOrdering(t *testing.T
 	if err := fixture.repository.CreateRole(ctx, &admin); err != nil {
 		t.Fatalf("create admin role: %v", err)
 	}
-	if err := fixture.repository.ReplaceRoleUsers(ctx, admin.ID, []uint{1}); err != nil {
+	if err := setFixtureRoleUsers(ctx, fixture.repository, admin.ID, []uint{1}); err != nil {
 		t.Fatalf("assign admin role: %v", err)
 	}
 
@@ -115,7 +131,7 @@ func TestGetAuthorizationOverviewReturnsSummaryTopTenAndEmptySafeArrays(t *testi
 	if err := fixture.repository.CreateRole(ctx, &admin); err != nil {
 		t.Fatalf("create admin role: %v", err)
 	}
-	if err := fixture.repository.ReplaceRoleUsers(ctx, admin.ID, []uint{1}); err != nil {
+	if err := setFixtureRoleUsers(ctx, fixture.repository, admin.ID, []uint{1}); err != nil {
 		t.Fatalf("assign admin role: %v", err)
 	}
 	users := make([]application.AuthorizationOverviewUserFact, 12)
@@ -177,7 +193,7 @@ func TestListAuthorizationRisksValidatesAndFilters(t *testing.T) {
 	if err := fixture.repository.CreateRole(ctx, &admin); err != nil {
 		t.Fatalf("create admin role: %v", err)
 	}
-	if err := fixture.repository.ReplaceRoleUsers(ctx, admin.ID, []uint{1}); err != nil {
+	if err := setFixtureRoleUsers(ctx, fixture.repository, admin.ID, []uint{1}); err != nil {
 		t.Fatalf("assign admin role: %v", err)
 	}
 	reader := &overviewReaderFake{facts: application.AuthorizationOverviewFacts{

@@ -24,10 +24,13 @@ type Repository interface {
 	ExistsMethodPath(context.Context, uint, string, string) (bool, error)
 	ListByIDs(context.Context, []uint) ([]domain.API, error)
 	ListByIDsForUpdate(context.Context, []uint) ([]domain.API, error)
+	ListByPermissionCode(context.Context, string) ([]domain.API, error)
+	LockDependencies(context.Context, []uint, []string) ([]domain.API, error)
 	SetPermissionCode(context.Context, []uint, string) error
 	CountPermissionCode(context.Context, string) (int64, error)
 	FindPolicyByRoute(context.Context, string, string) (domain.Policy, error)
 	FindByMethodPathUnscoped(context.Context, string, string) (domain.API, bool, error)
+	LockRoutes(context.Context, []RouteFact) error
 	Restore(context.Context, uint, map[string]any) error
 	Groups(context.Context) ([]domain.GroupOption, error)
 	Create(context.Context, *domain.API) error

@@ -83,6 +83,26 @@ func (repository *Repository) ListByIDsForUpdate(ctx context.Context, ids []uint
 	return toDomainList(records), nil
 }
 
+func (repository *Repository) ListByPermissionCode(ctx context.Context, code string) ([]domain.API, error) {
+	var records []API
+	if err := repository.connection(ctx).Unscoped().Where("permission_code = ?", code).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return toDomainList(records), nil
+}
+
+func (repository *Repository) LockDependencies(ctx context.Context, ids []uint, codes []string) ([]domain.API, error) {
+	if len(ids) == 0 && len(codes) == 0 {
+		return []domain.API{}, nil
+	}
+	var records []API
+	if err := repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id IN ? OR permission_code IN ?", uniqueIDs(ids), codes).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return toDomainList(records), nil
+}
+
 func (repository *Repository) SetPermissionCode(ctx context.Context, ids []uint, code string) error {
 	ids = uniqueIDs(ids)
 	if len(ids) == 0 {
@@ -92,9 +112,10 @@ func (repository *Repository) SetPermissionCode(ctx context.Context, ids []uint,
 }
 
 func (repository *Repository) CountPermissionCode(ctx context.Context, code string) (int64, error) {
-	var count int64
-	err := repository.connection(ctx).Model(&API{}).Where("permission_code = ?", strings.TrimSpace(code)).Count(&count).Error
-	return count, err
+	var ids []uint
+	err := repository.connection(ctx).Model(&API{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("permission_code = ?", strings.TrimSpace(code)).Order("id asc").Pluck("id", &ids).Error
+	return int64(len(ids)), err
 }
 func (repository *Repository) ListByIDs(ctx context.Context, ids []uint) ([]domain.API, error) {
 	ids = uniqueIDs(ids)
@@ -157,7 +178,8 @@ func (repository *Repository) Create(ctx context.Context, api *domain.API) error
 
 func (repository *Repository) FindByMethodPathUnscoped(ctx context.Context, method, path string) (domain.API, bool, error) {
 	var record API
-	err := repository.connection(ctx).Unscoped().Where("method = ? AND path = ?", method, path).First(&record).Error
+	err := repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("method = ? AND path = ?", method, path).First(&record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.API{}, false, nil
 	}
@@ -165,6 +187,29 @@ func (repository *Repository) FindByMethodPathUnscoped(ctx context.Context, meth
 		return domain.API{}, false, err
 	}
 	return toDomain(record), record.DeletedAt.Valid, nil
+}
+
+// LockRoutes orders all existing sync targets before route-definition order can
+// restore or modify them, including soft-deleted rows.
+func (repository *Repository) LockRoutes(ctx context.Context, facts []application.RouteFact) error {
+	conditions := make([]clause.Expression, 0, len(facts))
+	for _, fact := range facts {
+		method, path := strings.ToUpper(strings.TrimSpace(fact.Method)), strings.TrimSpace(fact.Path)
+		if method == "" || !strings.HasPrefix(path, "/api/") {
+			continue
+		}
+		conditions = append(conditions, clause.And(
+			clause.Eq{Column: "method", Value: method},
+			clause.Eq{Column: "path", Value: path},
+		))
+	}
+	if len(conditions) == 0 {
+		return nil
+	}
+	var ids []uint
+	return repository.connection(ctx).Unscoped().Model(&API{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).Where(clause.Or(conditions...)).
+		Order("id asc").Pluck("id", &ids).Error
 }
 
 func (repository *Repository) Restore(ctx context.Context, id uint, updates map[string]any) error {
@@ -180,7 +225,7 @@ func (repository *Repository) Delete(ctx context.Context, id uint) error {
 }
 
 func toDomain(record API) domain.API {
-	return domain.API{ID: record.ID, Name: record.Name, Method: record.Method, Path: record.Path, Group: record.Group, PermissionCode: record.PermissionCode, Remark: record.Remark, Sort: record.Sort, Status: record.Status, NeedAuth: record.NeedAuth, NeedAudit: record.NeedAudit, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	return domain.API{ID: record.ID, Name: record.Name, Method: record.Method, Path: record.Path, Group: record.Group, PermissionCode: record.PermissionCode, Remark: record.Remark, Sort: record.Sort, Status: record.Status, NeedAuth: record.NeedAuth, NeedAudit: record.NeedAudit, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt, Deleted: record.DeletedAt.Valid}
 }
 func toDomainList(records []API) []domain.API {
 	result := make([]domain.API, len(records))

@@ -14,7 +14,7 @@ import (
 	"admin/internal/routecatalog"
 )
 
-func newAuthorizationService(resources Resources, users authapplication.OverviewUserDirectory) *authapplication.Service {
+func newAuthorizationService(resources Resources, users authapplication.OverviewUserDirectory, managedUsers identityapplication.UserManagementReader) *authapplication.Service {
 	repository := authgorm.NewRepository(resources.DB)
 	organizationRepository := organization.NewGORMRepository(resources.DB)
 	hierarchy := organization.NewHierarchy(organizationRepository)
@@ -33,7 +33,25 @@ func newAuthorizationService(resources Resources, users authapplication.Overview
 		users,
 		versions,
 		overview,
+		authorizationManagedUsers{reader: managedUsers},
+		navigation.NewGORMRepository(resources.DB),
 	)
+}
+
+type authorizationManagedUsers struct {
+	reader identityapplication.UserManagementReader
+}
+
+func (adapter authorizationManagedUsers) ManagementUsersByIDs(ctx context.Context, userIDs []uint) ([]authapplication.ManagedUserFact, error) {
+	records, err := adapter.reader.ManagementUsersByIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	facts := make([]authapplication.ManagedUserFact, len(records))
+	for index, record := range records {
+		facts[index] = authapplication.ManagedUserFact{ID: record.ID, Deleted: record.Deleted}
+	}
+	return facts, nil
 }
 
 var _ authapplication.UserDirectory = (*identityapplication.DirectoryService)(nil)
@@ -72,5 +90,13 @@ type authorizationOrganizationVisibility struct {
 
 func (visibility authorizationOrganizationVisibility) Scope(ctx context.Context, operatorID uint) (organization.OrganizationScope, error) {
 	scope, err := visibility.authorization.ResolveOrganizationScope(ctx, authdomain.Principal{UserID: operatorID})
+	return organization.OrganizationScope{All: scope.All, OrganizationIDs: scope.OrganizationIDs}, err
+}
+
+func (visibility authorizationOrganizationVisibility) CurrentScope(ctx context.Context, operatorID uint) (organization.OrganizationScope, error) {
+	if _, err := visibility.authorization.ProtectedUserIDs(ctx, []uint{operatorID}); err != nil {
+		return organization.OrganizationScope{}, err
+	}
+	scope, err := visibility.authorization.ResolveOrganizationManagementScope(ctx, authdomain.Principal{UserID: operatorID})
 	return organization.OrganizationScope{All: scope.All, OrganizationIDs: scope.OrganizationIDs}, err
 }

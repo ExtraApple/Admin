@@ -1,0 +1,589 @@
+{
+  "change": "fix-menu-api-binding-id-validation",
+  "verified_on": "2026-10-16",
+  "status": "implementation_verified_not_archived",
+  "historical_failure_evidence": "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json (C1)",
+  "implementation_files": [
+    "internal/navigation/service.go",
+    "internal/navigation/service_test.go"
+  ],
+  "environment": {
+    "program": "original main.go, native MySQL/Redis/MinIO, real captcha/login/JWT and route permission checks",
+    "new_go_probe": false,
+    "schema": "admin_apply_c1_d446300eef3d",
+    "mysql_and_isolation": "8.0.19\tREPEATABLE-READ",
+    "redis": "8.0.5",
+    "ports": {
+      "http": 28083,
+      "redis": 26383,
+      "minio": 29003,
+      "console": 29103,
+      "delve": 28883
+    },
+    "shared_admin_schema_written": false
+  },
+  "fixtures": {
+    "menu_id": 11,
+    "valid_api": "1\tGET\t/api/dicts/:type_code/items",
+    "public_metadata_id": 128,
+    "public_metadata_path": "/api/c1-public-fixture",
+    "public_metadata_note": "Owned SQL fixture with actual persisted status=1 and need_auth=0; no claim that this metadata-only fixture has an installed business HTTP handler.",
+    "ordinary_member_id": 2,
+    "role_id": 3,
+    "existing_single_valid_binding_http": 200
+  },
+  "checks": {
+    "command": "go test ./internal/navigation ./internal/apimetadata/... ./internal/app",
+    "exit_code": 0,
+    "output": [
+      "ok admin/internal/navigation 3.840s",
+      "ok admin/internal/apimetadata/adapters/gorm 1.473s",
+      "ok admin/internal/apimetadata/adapters/http 1.900s",
+      "ok admin/internal/apimetadata/application 1.543s",
+      "? admin/internal/apimetadata/domain [no test files]",
+      "ok admin/internal/app 52.214s"
+    ],
+    "direct_service_regression": "Mixed valid ID and zero returns NAV_VALIDATION_INVALID and existing menu/API binding remains unchanged through public Service reads. Existing duplicate-valid-ID service coverage passed.",
+    "regression_limit": "SQLite Navigation fixture with existing API/authorization collaborators; not native cross-module atomicity proof."
+  },
+  "projection_observation": {
+    "tables_and_order": {
+      "menus": "id",
+      "apis": "id",
+      "menu_apis": "menu_id,api_id",
+      "permissions": "id",
+      "role_permissions": "role_id,permission_id",
+      "user_access_versions": "user_id"
+    },
+    "method": "For each request, SELECT a table label plus every column, sorted by the stated primary/composite key, using utf8mb4 raw tab-separated output. Compare complete row arrays in memory; record counts and SHA-256 of UTF-8 rows joined by LF plus one trailing LF. No user password/JWT table is included.",
+    "baseline": {
+      "menus": {
+        "row_count": 11,
+        "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+      },
+      "apis": {
+        "row_count": 127,
+        "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+      },
+      "menu_apis": {
+        "row_count": 1,
+        "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+      },
+      "permissions": {
+        "row_count": 106,
+        "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+      },
+      "role_permissions": {
+        "row_count": 106,
+        "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+      },
+      "user_access_versions": {
+        "row_count": 2,
+        "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+      }
+    },
+    "all_rejected_requests_compared_full_rows": true
+  },
+  "refusals": [
+    {
+      "case": "mixed-valid-and-zero",
+      "api_ids": [
+        1,
+        0
+      ],
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    },
+    {
+      "case": "only-zero",
+      "api_ids": [
+        0
+      ],
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    },
+    {
+      "case": "empty-list",
+      "api_ids": [],
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    },
+    {
+      "case": "mixed-valid-and-missing",
+      "api_ids": [
+        1,
+        10128
+      ],
+      "http": 404,
+      "response": {
+        "code": 404,
+        "error_code": "NAV_NOT_FOUND",
+        "msg": "navigation resource was not found",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    },
+    {
+      "case": "disabled-api",
+      "api_ids": [
+        1
+      ],
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "cbca4b3493576837c93bbfba83e579a91a0f3374fb7d0ce09e5a8e2a6f2204a0"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "cbca4b3493576837c93bbfba83e579a91a0f3374fb7d0ce09e5a8e2a6f2204a0"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    },
+    {
+      "case": "mixed-valid-and-public",
+      "api_ids": [
+        1,
+        128
+      ],
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "before": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 11,
+          "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+        },
+        "apis": {
+          "row_count": 127,
+          "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+        },
+        "menu_apis": {
+          "row_count": 1,
+          "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+        },
+        "permissions": {
+          "row_count": 106,
+          "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+        },
+        "role_permissions": {
+          "row_count": 106,
+          "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+        },
+        "user_access_versions": {
+          "row_count": 2,
+          "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+        }
+      },
+      "all_six_full_table_projections_equal": true
+    }
+  ],
+  "duplicate_success": {
+    "request_api_ids": [
+      1,
+      1
+    ],
+    "post_http": 200,
+    "binding_get_http": 200,
+    "stored_relation": "11\t1",
+    "stored_menu_api_codes": "c1.duplicate\tc1.duplicate",
+    "response": {
+      "code": 200,
+      "error_code": "",
+      "msg": "success",
+      "data": [
+        {
+          "id": 1,
+          "name": "List enabled Dictionary Items",
+          "method": "GET",
+          "path": "/api/dicts/:type_code/items",
+          "group": "dict",
+          "permission_code": "c1.duplicate",
+          "remark": "",
+          "sort": 0,
+          "status": 1,
+          "need_auth": 1,
+          "need_audit": 1
+        }
+      ]
+    },
+    "before": {
+      "menus": {
+        "row_count": 11,
+        "sha256": "195567ec259c9a397386b56d591186b424f272e42f0d4d294e1ac6aa50cac248"
+      },
+      "apis": {
+        "row_count": 127,
+        "sha256": "9cd93540cf83695e655482d9b72aef5c7953aedee3bb08515c8bc5df74689ebe"
+      },
+      "menu_apis": {
+        "row_count": 1,
+        "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+      },
+      "permissions": {
+        "row_count": 106,
+        "sha256": "ab6256a571e3a9bd89c3da8f76d419b51c4ea409ce831e6de2310d35b6f98139"
+      },
+      "role_permissions": {
+        "row_count": 106,
+        "sha256": "42c6893c3c97bc284a12ed42a41eb0754aded28a034c728e80c96a32e31293c1"
+      },
+      "user_access_versions": {
+        "row_count": 2,
+        "sha256": "a682d609f1b501148ba7be8e1b6d9ddd2701901dd98d9aab82dffaaadb3d2124"
+      }
+    },
+    "after": {
+      "menus": {
+        "row_count": 11,
+        "sha256": "36dd462f0f32c2b8082615bde594c25b77062b77fe8c93a0aa1c7a67a5458513"
+      },
+      "apis": {
+        "row_count": 127,
+        "sha256": "fb458c07338cdd56743f3e1aae8538f899942b5fb8edc93612069050a24762ca"
+      },
+      "menu_apis": {
+        "row_count": 1,
+        "sha256": "9542f34ee9bbb520c1eef70cba1ef49a06a7064f112167ff9488e787babd2899"
+      },
+      "permissions": {
+        "row_count": 106,
+        "sha256": "9173feb0169c6ce026d8c822448d26b08fd28c80a4e24f1dd1d7a0a4802594a8"
+      },
+      "role_permissions": {
+        "row_count": 106,
+        "sha256": "4a79e622a9d3c472306b70f58168af9b93d3a773471d9dd8ccf326408fa73939"
+      },
+      "user_access_versions": {
+        "row_count": 2,
+        "sha256": "a8fa6dbbde66fefdfb8b7c927ced124108235746f6c79984c79516d6fcfeac08"
+      }
+    },
+    "member_version_after": 3,
+    "single_relation_for_duplicate_input": true
+  },
+  "limits": [
+    "Known C1 failing-before evidence was reused, not rerun on the old program.",
+    "Only menu API raw input validation is changed; no global unique helper, root-parent rule or empty-unbind policy was changed.",
+    "This is not a complete API/menu synchronization, concurrent-write or every-failure-stage audit.",
+    "No main-spec synchronization, archive, commit or push was performed."
+  ],
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  }
+}

@@ -1,0 +1,319 @@
+{
+  "change": "fix-menu-create-status-preservation",
+  "verified_on": "2026-10-16",
+  "status": "implementation_verified_not_archived",
+  "historical_failure_evidence": "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json (C2)",
+  "implementation_files": [
+    "internal/navigation/types.go",
+    "internal/navigation/routes.go",
+    "internal/navigation/service.go",
+    "internal/navigation/repository.go",
+    "internal/navigation/service_test.go",
+    "internal/navigation/repository_test.go"
+  ],
+  "environment": {
+    "program": "original main.go, native MySQL/Redis/MinIO, real captcha/login/JWT and route permissions",
+    "new_go_probe": false,
+    "schema": "admin_apply_c2_47be4e7027ed",
+    "mysql_and_isolation": "8.0.19\tREPEATABLE-READ",
+    "redis": "8.0.5",
+    "gorm": "v1.31.1",
+    "ports": {
+      "http": 28083,
+      "redis": 26383,
+      "minio": 29003,
+      "console": 29103,
+      "delve": 28883
+    },
+    "shared_admin_schema_written": false
+  },
+  "checks": {
+    "command": "go test ./internal/navigation ./internal/apimetadata/... ./internal/app/...",
+    "exit_code": 0,
+    "output": [
+      "ok admin/internal/navigation 3.724s",
+      "ok admin/internal/apimetadata/adapters/gorm (cached)",
+      "ok admin/internal/apimetadata/adapters/http (cached)",
+      "ok admin/internal/apimetadata/application (cached)",
+      "? admin/internal/apimetadata/domain [no test files]",
+      "ok admin/internal/app 49.158s",
+      "ok admin/internal/app/seeddata 3.072s"
+    ],
+    "permanent_regressions": [
+      "Service creation presence/default/disabled/enabled/invalid numeric state, real SQLite MenuTree readback and assigned-user visibility",
+      "Repository zero-status create and complete public FindMenu readback using the actual returned ID"
+    ],
+    "regression_limit": "SQLite/fake authorization tests establish only their local storage/caller behavior; native smoke establishes the real composed HTTP and backend transaction behavior below."
+  },
+  "state_default_in_mysql_ddl": "1",
+  "normal_creations": [
+    {
+      "case": "explicit-disabled",
+      "request": {
+        "name": "C2 disabled",
+        "path": "/c2-disabled",
+        "type": 2,
+        "status": 0,
+        "permission_code": "c2.disabled"
+      },
+      "post_http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 11,
+          "parent_id": 0,
+          "name": "C2 disabled",
+          "path": "/c2-disabled",
+          "component": "",
+          "icon": "",
+          "permission_code": "c2.disabled",
+          "sort": 0,
+          "type": 2,
+          "status": 0
+        }
+      },
+      "stored_id_status_created_updated": "11\t0\t2026-10-16 21:04:07.432\t2026-10-16 21:04:07.432",
+      "returned_id_lookup_http": 200,
+      "configuration_tree_status": 0,
+      "admin_context_http": 200,
+      "visible_in_admin_context": false
+    },
+    {
+      "case": "omitted",
+      "request": {
+        "name": "C2 omitted",
+        "path": "/c2-omitted",
+        "type": 2
+      },
+      "post_http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 12,
+          "parent_id": 0,
+          "name": "C2 omitted",
+          "path": "/c2-omitted",
+          "component": "",
+          "icon": "",
+          "permission_code": "",
+          "sort": 0,
+          "type": 2,
+          "status": 1
+        }
+      },
+      "stored_id_status_created_updated": "12\t1\t2026-10-16 21:04:07.597\t2026-10-16 21:04:07.597",
+      "returned_id_lookup_http": 200,
+      "configuration_tree_status": 1,
+      "admin_context_http": 200,
+      "visible_in_admin_context": true
+    },
+    {
+      "case": "explicit-enabled",
+      "request": {
+        "name": "C2 enabled",
+        "path": "/c2-enabled",
+        "type": 2,
+        "status": 1,
+        "permission_code": "c2.enabled"
+      },
+      "post_http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 13,
+          "parent_id": 0,
+          "name": "C2 enabled",
+          "path": "/c2-enabled",
+          "component": "",
+          "icon": "",
+          "permission_code": "c2.enabled",
+          "sort": 0,
+          "type": 2,
+          "status": 1
+        }
+      },
+      "stored_id_status_created_updated": "13\t1\t2026-10-16 21:04:07.721\t2026-10-16 21:04:07.721",
+      "returned_id_lookup_http": 200,
+      "configuration_tree_status": 1,
+      "admin_context_http": 200,
+      "visible_in_admin_context": true
+    },
+    {
+      "case": "invalid-numeric",
+      "request": {
+        "name": "C2 invalid",
+        "path": "/c2-invalid",
+        "type": 2,
+        "status": 2
+      },
+      "post_http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 14,
+          "parent_id": 0,
+          "name": "C2 invalid",
+          "path": "/c2-invalid",
+          "component": "",
+          "icon": "",
+          "permission_code": "",
+          "sort": 0,
+          "type": 2,
+          "status": 1
+        }
+      },
+      "stored_id_status_created_updated": "14\t1\t2026-10-16 21:04:07.832\t2026-10-16 21:04:07.832",
+      "returned_id_lookup_http": 200,
+      "configuration_tree_status": 1,
+      "admin_context_http": 200,
+      "visible_in_admin_context": true
+    }
+  ],
+  "ordinary_user_visibility": {
+    "http": 200,
+    "assigned_menu_ids": [
+      11,
+      13
+    ],
+    "both_permission_codes_present": true,
+    "visible_menu_ids": [
+      13
+    ],
+    "disabled_excluded": true,
+    "enabled_positive_control_present": true
+  },
+  "other_defaults": {
+    "fresh_seed_id_status": "1\t1\n2\t1\n3\t1\n4\t1\n5\t1\n6\t1\n7\t1\n8\t1\n9\t1\n10\t1",
+    "sync": {
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "created": 1
+        }
+      },
+      "stored_id_status_nonnull_created_updated": "15\t1\t1\t1"
+    },
+    "button_generation": {
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 16,
+          "parent_id": 13,
+          "name": "C2 Generated Default",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "dicts.type_code.items.get",
+          "sort": 1,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "stored_id_status_nonnull_created_updated": "16\t1\t1\t1"
+    }
+  },
+  "mid_version_failure_and_recovery": {
+    "constraint": "CHECK (version <= 8), owned schema only",
+    "before": {
+      "menus": "1\t2026-10-16 21:04:06.849\t2026-10-16 21:04:06.849\tNULL\t0\t系统管理\t/system\tLayout\tSettings\t\t10\t1\t1\n2\t2026-10-16 21:04:06.851\t2026-10-16 21:04:06.851\tNULL\t1\t用户管理\t/system/users\tsystem/users/index\tUsers\tadmin.users.get\t10\t2\t1\n3\t2026-10-16 21:04:06.851\t2026-10-16 21:04:06.851\tNULL\t1\t角色管理\t/system/roles\tsystem/roles/index\tShield\tadmin.roles.get\t20\t2\t1\n4\t2026-10-16 21:04:06.852\t2026-10-16 21:04:06.852\tNULL\t1\t权限管理\t/system/permissions\tsystem/permissions/index\tKeyRound\tadmin.permissions.get\t30\t2\t1\n5\t2026-10-16 21:04:06.853\t2026-10-16 21:04:06.853\tNULL\t1\t菜单管理\t/system/menus\tsystem/menus/index\tMenu\tadmin.menus.get\t40\t2\t1\n6\t2026-10-16 21:04:06.853\t2026-10-16 21:04:06.853\tNULL\t1\tAPI 管理\t/system/apis\tsystem/apis/index\tRoute\tadmin.apis.get\t50\t2\t1\n7\t2026-10-16 21:04:06.854\t2026-10-16 21:04:06.854\tNULL\t1\t字典管理\t/system/dicts\tsystem/dicts/index\tBookOpen\tadmin.dict-types.get\t60\t2\t1\n8\t2026-10-16 21:04:06.855\t2026-10-16 21:04:06.855\tNULL\t1\t组织管理\t/system/organizations\tsystem/organizations/index\tNetwork\tadmin.organizations.get\t70\t2\t1\n9\t2026-10-16 21:04:06.856\t2026-10-16 21:04:06.856\tNULL\t1\t操作日志\t/system/audit-logs\tsystem/audit-logs/index\tFileClock\tadmin.audit-logs.get\t80\t2\t1\n10\t2026-10-16 21:04:06.856\t2026-10-16 21:04:06.856\tNULL\t1\t文件管理\t/system/files\tsystem/files/index\tFolderOpen\tadmin.files.get\t90\t2\t1\n11\t2026-10-16 21:04:07.432\t2026-10-16 21:04:07.432\tNULL\t0\tC2 disabled\t/c2-disabled\t\t\tc2.disabled\t0\t2\t0\n12\t2026-10-16 21:04:07.597\t2026-10-16 21:04:07.597\tNULL\t0\tC2 omitted\t/c2-omitted\t\t\t\t0\t2\t1\n13\t2026-10-16 21:04:07.721\t2026-10-16 21:04:07.721\tNULL\t0\tC2 enabled\t/c2-enabled\t\t\tc2.enabled\t0\t2\t1\n14\t2026-10-16 21:04:07.832\t2026-10-16 21:04:07.832\tNULL\t0\tC2 invalid\t/c2-invalid\t\t\t\t0\t2\t1\n15\t2026-10-16 21:04:38.936\t2026-10-16 21:04:38.936\tNULL\t0\tC2 Sync Default\t/c2-sync\t\t\t\t0\t2\t1\n16\t2026-10-16 21:04:39.101\t2026-10-16 21:04:39.101\tNULL\t13\tC2 Generated Default\tNULL\t\t\tdicts.type_code.items.get\t1\t3\t1",
+      "versions": "1\t7\t2026-10-16 21:04:07.398\t2026-10-16 21:04:07.398\n2\t8\t2026-10-16 21:04:38.917\t2026-10-16 21:04:38.917"
+    },
+    "controlled_wait": {
+      "mysql_thread": 183,
+      "connection": 143,
+      "observed": "183\t143\tuser_access_versions\tPRIMARY\tX,REC_NOT_GAP\tWAITING\t2\tSELECT * FROM `user_access_versions` WHERE user_id = ? ORDER BY `user_access_versions`.`user_id` LIMIT ? FOR UPDATE",
+      "second_user_id": 2
+    },
+    "uncommitted_checkpoint": {
+      "method": "separate session READ UNCOMMITTED, not a committed-state claim",
+      "versions": "1\t8\n2\t8",
+      "new_menu_id_status": "17\t0",
+      "first_user_observed_advanced_7_to_8": true,
+      "second_user_still_8_waiting_before_failing_9": true
+    },
+    "failure_http": 500,
+    "failure_response": {
+      "code": 500,
+      "error_code": "NAV_INTERNAL_ERROR",
+      "msg": "navigation operation failed",
+      "data": null
+    },
+    "native_mysql_error_code": 3819,
+    "after": {
+      "menus": "1\t2026-10-16 21:04:06.849\t2026-10-16 21:04:06.849\tNULL\t0\t系统管理\t/system\tLayout\tSettings\t\t10\t1\t1\n2\t2026-10-16 21:04:06.851\t2026-10-16 21:04:06.851\tNULL\t1\t用户管理\t/system/users\tsystem/users/index\tUsers\tadmin.users.get\t10\t2\t1\n3\t2026-10-16 21:04:06.851\t2026-10-16 21:04:06.851\tNULL\t1\t角色管理\t/system/roles\tsystem/roles/index\tShield\tadmin.roles.get\t20\t2\t1\n4\t2026-10-16 21:04:06.852\t2026-10-16 21:04:06.852\tNULL\t1\t权限管理\t/system/permissions\tsystem/permissions/index\tKeyRound\tadmin.permissions.get\t30\t2\t1\n5\t2026-10-16 21:04:06.853\t2026-10-16 21:04:06.853\tNULL\t1\t菜单管理\t/system/menus\tsystem/menus/index\tMenu\tadmin.menus.get\t40\t2\t1\n6\t2026-10-16 21:04:06.853\t2026-10-16 21:04:06.853\tNULL\t1\tAPI 管理\t/system/apis\tsystem/apis/index\tRoute\tadmin.apis.get\t50\t2\t1\n7\t2026-10-16 21:04:06.854\t2026-10-16 21:04:06.854\tNULL\t1\t字典管理\t/system/dicts\tsystem/dicts/index\tBookOpen\tadmin.dict-types.get\t60\t2\t1\n8\t2026-10-16 21:04:06.855\t2026-10-16 21:04:06.855\tNULL\t1\t组织管理\t/system/organizations\tsystem/organizations/index\tNetwork\tadmin.organizations.get\t70\t2\t1\n9\t2026-10-16 21:04:06.856\t2026-10-16 21:04:06.856\tNULL\t1\t操作日志\t/system/audit-logs\tsystem/audit-logs/index\tFileClock\tadmin.audit-logs.get\t80\t2\t1\n10\t2026-10-16 21:04:06.856\t2026-10-16 21:04:06.856\tNULL\t1\t文件管理\t/system/files\tsystem/files/index\tFolderOpen\tadmin.files.get\t90\t2\t1\n11\t2026-10-16 21:04:07.432\t2026-10-16 21:04:07.432\tNULL\t0\tC2 disabled\t/c2-disabled\t\t\tc2.disabled\t0\t2\t0\n12\t2026-10-16 21:04:07.597\t2026-10-16 21:04:07.597\tNULL\t0\tC2 omitted\t/c2-omitted\t\t\t\t0\t2\t1\n13\t2026-10-16 21:04:07.721\t2026-10-16 21:04:07.721\tNULL\t0\tC2 enabled\t/c2-enabled\t\t\tc2.enabled\t0\t2\t1\n14\t2026-10-16 21:04:07.832\t2026-10-16 21:04:07.832\tNULL\t0\tC2 invalid\t/c2-invalid\t\t\t\t0\t2\t1\n15\t2026-10-16 21:04:38.936\t2026-10-16 21:04:38.936\tNULL\t0\tC2 Sync Default\t/c2-sync\t\t\t\t0\t2\t1\n16\t2026-10-16 21:04:39.101\t2026-10-16 21:04:39.101\tNULL\t13\tC2 Generated Default\tNULL\t\t\tdicts.type_code.items.get\t1\t3\t1",
+      "versions": "1\t7\t2026-10-16 21:04:07.398\t2026-10-16 21:04:07.398\n2\t8\t2026-10-16 21:04:38.917\t2026-10-16 21:04:38.917"
+    },
+    "complete_menu_and_version_rows_equal": true,
+    "statement_history_sql_text": "No matching SQL_TEXT rows were available in the existing history; no server consumers were enabled or changed. Single explicit INSERT/no repair UPDATE is established by implementation, not claimed as an observed SQL count.",
+    "recovery": {
+      "same_request": {
+        "name": "C2 rollback disabled",
+        "path": "/c2-rollback-disabled",
+        "type": 2,
+        "status": 0
+      },
+      "guard_removed": true,
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 18,
+          "parent_id": 0,
+          "name": "C2 rollback disabled",
+          "path": "/c2-rollback-disabled",
+          "component": "",
+          "icon": "",
+          "permission_code": "",
+          "sort": 0,
+          "type": 2,
+          "status": 0
+        }
+      },
+      "stored_status": 0,
+      "returned_id_lookup_http": 200,
+      "versions": "1\t8\n2\t9"
+    }
+  },
+  "pinned_gorm_contract": {
+    "map_insert": "Explicit model-scoped map values and explicit NowFunc timestamps; original MenuModel status default remains unchanged. No compensating UPDATE or lookup.",
+    "mysql_map_id": "int64 via callbacks/create.go:127-158 LastInsertId under model schema",
+    "sqlite_map_id": "uint via RETURNING and schema-aware scan.go allocation/dereference",
+    "official_doc_caveat": "https://gorm.io/docs/create.html generically says maps do not backfill PKs; the pinned v1.31.1 source explicitly does. Both current backend paths are covered; re-evaluate on upgrades."
+  },
+  "limits": [
+    "Historical failing-before C2 evidence reused; no old-program rerun merely to reconfirm.",
+    "The controlled checkpoint uses a separate READ UNCOMMITTED session and is explicitly uncommitted; final equality is checked after rollback.",
+    "The owned version-only CHECK uses different initial version values because MySQL rejects CHECK references to the auto-increment user_id; that fixture-setup rejection is not a product defect.",
+    "No SQL_TEXT statement-count evidence was available from already-enabled history; no shared MySQL consumers or global settings were changed.",
+    "No main-spec synchronization, archive, commit or push was performed."
+  ],
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  }
+}

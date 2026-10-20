@@ -101,7 +101,7 @@ type EmailVerificationRequest struct {
 
 type AdminUpdateUserRequest struct {
 	Nickname string `json:"nickname" binding:"max=100"`
-	Email    string `json:"email" binding:"email"`
+	Email    string `json:"email"`
 	Role     string `json:"role"`
 	Status   *int   `json:"status"`
 }

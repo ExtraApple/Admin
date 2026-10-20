@@ -30,7 +30,7 @@ func TestAuthorizationOverviewAppliesOperatorScopeBeforeSummaryAndRisks(t *testi
 	if err := fixture.repository.CreateRole(ctx, &manager); err != nil {
 		t.Fatalf("create manager role: %v", err)
 	}
-	if err := fixture.repository.ReplaceRoleUsers(ctx, manager.ID, []uint{1}); err != nil {
+	if err := setFixtureRoleUsers(ctx, fixture.repository, manager.ID, []uint{1}); err != nil {
 		t.Fatalf("assign manager role: %v", err)
 	}
 	reader := &overviewReaderFake{facts: application.AuthorizationOverviewFacts{

@@ -1,0 +1,245 @@
+{
+  "change": "fix-admin-user-update-validation",
+  "verified_on": "2026-10-16",
+  "status": "implementation_verified_not_archived",
+  "historical_failure_evidence": "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json (C5)",
+  "implementation_files": [
+    "internal/identity/dto.go",
+    "internal/app/identity_http_test.go"
+  ],
+  "environment": {
+    "original_program": "main.go, go build without runtime code replacement",
+    "new_go_probe": false,
+    "schema": "admin_apply_c5_d5f80b5a61ea",
+    "mysql_and_isolation": "8.0.19\tREPEATABLE-READ",
+    "redis": "8.0.5",
+    "minio": "native Windows executable with owned data",
+    "ports": {
+      "http": 28083,
+      "redis": 26383,
+      "minio": 29003,
+      "console": 29103,
+      "delve": 28883
+    },
+    "shared_admin_schema_written": false,
+    "smtp_enabled": false
+  },
+  "checks": {
+    "command": "go test ./internal/identity/application ./internal/identity/adapters/http ./internal/app",
+    "exit_code": 0,
+    "output": [
+      "ok admin/internal/identity/application 2.203s",
+      "ok admin/internal/identity/adapters/http 3.742s",
+      "ok admin/internal/app 49.663s"
+    ],
+    "permanent_regression": "App HTTP PUT success without email and with empty email; verified/pending email ownership retained; valid/malformed nonempty email rejected atomically with original field code and unchanged version",
+    "regression_limit": "SQLite App fixture uses existing JWT authentication and permission middleware overrides; real authentication, route permission and scope behavior are established separately by the original-main smoke below."
+  },
+  "snapshot_columns": [
+    "id",
+    "username",
+    "nickname",
+    "email",
+    "pending_email",
+    "email_verified_at",
+    "role",
+    "status"
+  ],
+  "normal_requests": [
+    {
+      "case": "omitted-email",
+      "request": {
+        "nickname": "without-email"
+      },
+      "http": 200,
+      "response_user": {
+        "id": 2,
+        "username": "c5_target",
+        "nickname": "without-email",
+        "avatar": "/api/avatars/default",
+        "email": "c5_target@example.test",
+        "pending_email": "pending@example.test",
+        "email_verified": true,
+        "role": "user",
+        "status": 1
+      },
+      "before": {
+        "user": "2\tc5_target\tc5_target\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t1",
+        "access_version": null
+      },
+      "after": {
+        "user": "2\tc5_target\twithout-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t1",
+        "access_version": 2
+      },
+      "email_ownership_preserved": true,
+      "existing_invalidation_behavior_preserved": true
+    },
+    {
+      "case": "empty-email",
+      "request": {
+        "email": "",
+        "nickname": "with-empty-email",
+        "status": 0
+      },
+      "http": 200,
+      "response_user": {
+        "id": 2,
+        "username": "c5_target",
+        "nickname": "with-empty-email",
+        "avatar": "/api/avatars/default",
+        "email": "c5_target@example.test",
+        "pending_email": "pending@example.test",
+        "email_verified": true,
+        "role": "user",
+        "status": 0
+      },
+      "before": {
+        "user": "2\tc5_target\twithout-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t1",
+        "access_version": 2
+      },
+      "after": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      },
+      "email_ownership_preserved": true,
+      "existing_invalidation_behavior_preserved": true
+    }
+  ],
+  "nonempty_email_refusals": [
+    {
+      "email": "replacement@example.test",
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "IDENTITY_VALIDATION_INVALID",
+        "msg": "request validation failed",
+        "data": {
+          "fields": [
+            {
+              "field": "email",
+              "error_code": "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE",
+              "message": "administrator email changes use the identity email flow"
+            }
+          ]
+        }
+      },
+      "before": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      },
+      "after": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      }
+    },
+    {
+      "email": "not-an-email",
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "IDENTITY_VALIDATION_INVALID",
+        "msg": "request validation failed",
+        "data": {
+          "fields": [
+            {
+              "field": "email",
+              "error_code": "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE",
+              "message": "administrator email changes use the identity email flow"
+            }
+          ]
+        }
+      },
+      "before": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      },
+      "after": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      }
+    }
+  ],
+  "guards": [
+    {
+      "case": "self",
+      "http": 422,
+      "error_code": "IDENTITY_VALIDATION_INVALID",
+      "before": {
+        "user": "1\tapply_c5_420e2b\tSeed Apply\tseed-apply@test.local\t\tNULL\tuser\t1",
+        "access_version": 1
+      },
+      "after": {
+        "user": "1\tapply_c5_420e2b\tSeed Apply\tseed-apply@test.local\t\tNULL\tuser\t1",
+        "access_version": 1
+      }
+    },
+    {
+      "case": "protected",
+      "http": 403,
+      "error_code": "IDENTITY_PERMISSION_DENIED",
+      "before": {
+        "user": "3\tc5_protected\tc5_protected\tc5_protected@example.test\t\tNULL\tuser\t1",
+        "access_version": null
+      },
+      "after": {
+        "user": "3\tc5_protected\tc5_protected\tc5_protected@example.test\t\tNULL\tuser\t1",
+        "access_version": null
+      }
+    },
+    {
+      "case": "empty-update",
+      "http": 422,
+      "error_code": "IDENTITY_VALIDATION_INVALID",
+      "before": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      },
+      "after": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      }
+    },
+    {
+      "case": "outside-scope",
+      "same_route_permission_present": true,
+      "scope": "self",
+      "http": 403,
+      "error_code": "IDENTITY_PERMISSION_DENIED",
+      "before": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      },
+      "after": {
+        "user": "2\tc5_target\twith-empty-email\tc5_target@example.test\tpending@example.test\t2026-01-02 03:04:05.000\tuser\t0",
+        "access_version": 3
+      }
+    }
+  ],
+  "generated_openapi": {
+    "request": "PUT /api/admin/users/{id}",
+    "http": 200,
+    "email_schema": {
+      "type": "string"
+    },
+    "email_not_required": true
+  },
+  "limits": [
+    "Historical failing-before C5 proof reused; no old program rerun merely to reconfirm.",
+    "No nickname-only/no-op invalidation exemption was introduced. First successful update created version 2 from a missing row; next update advanced 2 to 3, preserving the existing EnsureAndIncrement semantics.",
+    "No email verification delivery or SMTP behavior was exercised.",
+    "No main-spec synchronization, archive, commit or push was performed."
+  ],
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "change": "fix-admin-seed-query-error-handling",
+  "verified_on": "2026-10-16",
+  "status": "implementation_verified_not_archived",
+  "prior_failure_evidence": "docs/reviews/evidence/id-seed-count-2026-10-15.json",
+  "implementation": {
+    "files": [
+      "internal/identity/adapters/gorm/seed.go",
+      "internal/app/seeddata/seed_test.go"
+    ],
+    "behavior": "Both existence reads propagate their own query errors; Seed preserves credential/identity facts, Finalize rolls back, startup fails before HTTP. No whole-Seed transaction, version maintenance or new retries.",
+    "source_lines": {
+      "active_admin_count": 83,
+      "configured_user_role_count": 91
+    },
+    "new_go_probe": false,
+    "original_program": "main.go with debug-only -gcflags=all=-N -l"
+  },
+  "environment": {
+    "schema": "admin_seed_apply_547d594b7823",
+    "mysql": "8.0.19",
+    "isolation": "REPEATABLE-READ",
+    "redis": "8.0.5",
+    "minio": "existing native Windows executable with owned temporary data",
+    "ports": {
+      "http": 28083,
+      "redis": 26383,
+      "minio": 29003,
+      "minio_console": 29103,
+      "delve": 28883
+    },
+    "shared_admin_schema_written": false
+  },
+  "checks": {
+    "command": "go test ./internal/app/seeddata ./internal/identity/adapters/gorm ./internal/app",
+    "exit_code": 0,
+    "output": [
+      "ok admin/internal/app/seeddata 3.802s",
+      "ok admin/internal/identity/adapters/gorm 1.651s",
+      "ok admin/internal/app 48.489s"
+    ],
+    "regression_seam": "App SeedCatalog and actual SQLite fixture data; one injected database Query error at a time",
+    "regression_cases": [
+      "active-admin users read error preserves original cause and administrator state",
+      "configured-user user_roles read error preserves original cause and administrator state",
+      "failed Finalize restoration rolls back while earlier API/permission synchronization remains",
+      "ordinary configured username without actual admin binding is refused even with legacy users.role=admin",
+      "existing normal/idempotent/restore/no-version Seed coverage passed"
+    ]
+  },
+  "records": [
+    {
+      "case": "fresh-bootstrap",
+      "original_main_started": true,
+      "configured_administrator_created": true,
+      "administrator_id": 1,
+      "version_rows_before_first_login": 0,
+      "fixture_sentinel_version_set_after_seed_before_login": 7,
+      "original_password_login_http": 200
+    },
+    {
+      "case": "normal-restart-control",
+      "original_password_http": 200,
+      "configured_replacement_password_http": 401,
+      "replacement_error": "AUTHN_CREDENTIALS_INVALID",
+      "password_hash_unchanged": true,
+      "access_version": 7,
+      "startup_reached_http": true
+    },
+    {
+      "case": "real-active-admin-count-interruption",
+      "target_connection": 32,
+      "command": "Execute",
+      "wait_state": "Waiting for table metadata lock",
+      "target_sql": "SELECT count(*) FROM `users` JOIN user_roles ON user_roles.user_id = users.id WHERE user_roles.role_id = 1 AND users.status = 1 AND users.deleted_at IS NULL",
+      "mysql_error_code": 1317,
+      "sqlstate": "70100",
+      "observed_mysql_error": "2026/10/16 15:55:27 \u001b[31;1mD:/WORK/GO/admin/internal/identity/adapters/gorm/seed.go:83 \u001b[35;1mError 1317 (70100): Query execution was interrupted",
+      "error_reached_original_main": true,
+      "process_exit_code": 2,
+      "http_listener_absent": true,
+      "before": {
+        "user": "1\tseed_apply_admin\t1\t1",
+        "bindings": "1\t1",
+        "version": "7"
+      },
+      "after": {
+        "user": "1\tseed_apply_admin\t1\t1",
+        "bindings": "1\t1",
+        "version": "7"
+      },
+      "password_hash_unchanged": true,
+      "earlier_stage_api_commit_preserved": true,
+      "finalize_menu_restore_rolled_back": true,
+      "program_variables_mutated": false
+    },
+    {
+      "case": "fault-removed-recovery",
+      "same_configuration_password_b": true,
+      "original_password_http": 200,
+      "configured_password_http": 401,
+      "configured_password_error": "AUTHN_CREDENTIALS_INVALID",
+      "password_hash_unchanged": true,
+      "access_version": 7,
+      "old_unexpired_access_http": 200,
+      "old_refresh_http": 200,
+      "menu_restored_after_successful_finalize": true,
+      "startup_reached_http": true
+    }
+  ],
+  "limits": [
+    "MySQL original-main statement interruption was exercised for active-admin Count only.",
+    "The configured-user binding Count failure is covered by the deterministic SQLite storage-boundary regression, not claimed as another native MySQL 1317 run.",
+    "Historical failing-before evidence was reused, not rerun to reconfirm the known failure.",
+    "No production incident frequency, complete Identity/Seed audit, new retry guarantee or whole-Seed rollback claim.",
+    "No changes were committed, pushed or archived during this implementation."
+  ],
+  "teardown": {
+    "status": "complete",
+    "owned_schema_removed": true,
+    "all_owned_runtime_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "minio_console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "shared_mysql_still_responds": true,
+    "retained_batch_tool_cache": "Read-only downloaded Redis packages and extracted libraries are retained outside the removed runtime directory for subsequent changes; no credentials, runtime data, listeners or schema retained."
+  }
+}

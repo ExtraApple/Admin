@@ -15,6 +15,23 @@ const maxTransactionRetries = 2
 
 type transactionContextKey struct{}
 
+type transactionState struct {
+	connection  *gorm.DB
+	active      bool
+	afterCommit []func()
+}
+
+func (state *transactionState) finish(committed bool) {
+	state.active = false
+	callbacks := state.afterCommit
+	state.afterCommit = nil
+	if committed {
+		for _, callback := range callbacks {
+			callback()
+		}
+	}
+}
+
 // TransactionRunner owns the outermost GORM transaction and joins an existing
 // transaction carried by Context. A retryable outer operation can run up to
 // three times, so it must contain database work only. Callers run cache cleanup
@@ -39,9 +56,14 @@ func (runner *TransactionRunner) Run(ctx context.Context, operation func(context
 
 	var err error
 	for attempt := 0; attempt <= maxTransactionRetries; attempt++ {
+		var transaction *transactionState
 		err = runner.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			return operation(context.WithValue(ctx, transactionContextKey{}, tx))
+			transaction = &transactionState{connection: tx, active: true}
+			return operation(context.WithValue(ctx, transactionContextKey{}, transaction))
 		})
+		if transaction != nil {
+			transaction.finish(err == nil)
+		}
 		if err == nil {
 			return nil
 		}
@@ -63,6 +85,16 @@ func (runner *TransactionRunner) Run(ctx context.Context, operation func(context
 	return err
 }
 
+// AfterCommit defers external work to the successful outermost commit.
+// Failed attempts discard their work; an already committed context runs it now.
+func (runner *TransactionRunner) AfterCommit(ctx context.Context, operation func()) {
+	if transaction, ok := transactionFromContext(ctx); ok {
+		transaction.afterCommit = append(transaction.afterCommit, operation)
+		return
+	}
+	operation()
+}
+
 // RunRepeatableRead commits one non-retryable transaction at MySQL's
 // REPEATABLE READ isolation and carries its connection through Context.
 // The callback must contain database work only; callers perform external side
@@ -78,12 +110,16 @@ func (runner *TransactionRunner) RunRepeatableRead(ctx context.Context, operatio
 	if tx.Error != nil {
 		return tx.Error
 	}
-	transactionCtx := context.WithValue(ctx, transactionContextKey{}, tx)
+	transaction := &transactionState{connection: tx, active: true}
+	transactionCtx := context.WithValue(ctx, transactionContextKey{}, transaction)
 	if err := operation(transactionCtx); err != nil {
 		_ = tx.Rollback().Error
+		transaction.finish(false)
 		return err
 	}
-	return tx.Commit().Error
+	err := tx.Commit().Error
+	transaction.finish(err == nil)
+	return err
 }
 
 func isRetryableMySQLError(err error) bool {
@@ -98,12 +134,12 @@ func isRetryableMySQLError(err error) bool {
 // to the adapter's base connection outside a transaction.
 func FromContext(ctx context.Context, fallback *gorm.DB) *gorm.DB {
 	if tx, ok := transactionFromContext(ctx); ok {
-		return tx.WithContext(ctx)
+		return tx.connection.WithContext(ctx)
 	}
 	return fallback.WithContext(ctx)
 }
 
-func transactionFromContext(ctx context.Context) (*gorm.DB, bool) {
-	tx, ok := ctx.Value(transactionContextKey{}).(*gorm.DB)
-	return tx, ok
+func transactionFromContext(ctx context.Context) (*transactionState, bool) {
+	transaction, ok := ctx.Value(transactionContextKey{}).(*transactionState)
+	return transaction, ok && transaction.active
 }

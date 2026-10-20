@@ -16,15 +16,35 @@ type TransactionRunner interface {
 // OrganizationScopeReader is the smallest organization capability required by
 // authorization data-scope evaluation. It intentionally exposes no persistence type.
 type OrganizationScopeReader interface {
+	WithLockedHierarchy(context.Context, func(context.Context) error) error
 	MemberOrganizationIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberOrganizationIDs(context.Context, uint) ([]uint, error)
 	DescendantOrganizationIDs(context.Context, []uint) ([]uint, error)
 	ExistingOrganizationIDs(context.Context, []uint) ([]uint, error)
 	MemberUserIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberUserIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberUserIDsByOrganizations(context.Context, []uint) ([]uint, error)
 }
 
 // UserDirectory is the identity capability used for password-free role-user responses.
 type UserDirectory interface {
 	ListUsersByIDs(context.Context, []uint) ([]identitydomain.DirectoryUser, error)
+}
+
+// ManagedUserFact contains only the identity facts needed for management writes.
+type ManagedUserFact struct {
+	ID      uint
+	Deleted bool
+}
+
+// UserManagementReader is separate from the public, live-user directory.
+type UserManagementReader interface {
+	ManagementUsersByIDs(context.Context, []uint) ([]ManagedUserFact, error)
+}
+
+// RoleMenuLifecycle lets the relation owner join role deletion's transaction.
+type RoleMenuLifecycle interface {
+	DeleteRoleMenus(context.Context, uint) error
 }
 
 // AccessVersionStore is the authorization-owned invalidation capability consumed

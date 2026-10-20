@@ -76,11 +76,14 @@ func (fake *accessManagementFake) UserScope(context.Context, uint) (domain.UserS
 	}
 	return domain.UserScope{All: true}, nil
 }
+func (fake *accessManagementFake) ManagementUserScope(ctx context.Context, userID uint) (domain.UserScope, error) {
+	return fake.UserScope(ctx, userID)
+}
 func (fake *accessManagementFake) IncrementVersions(_ context.Context, ids []uint) error {
 	fake.incremented = append([]uint(nil), ids...)
 	return nil
 }
-func (fake *accessManagementFake) IsAdministrator(context.Context, uint) (bool, error) {
+func (fake *accessManagementFake) IsProtectedUser(context.Context, uint, uint) (bool, error) {
 	return fake.administrator, nil
 }
 func TestUserServiceChangesPasswordAndInvalidatesAccessVersion(t *testing.T) {

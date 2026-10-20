@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"admin/testsupport/testutil"
 	gormadapter "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/apimetadata/application"
 	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
 )
 
 type routeSourceFake struct {
@@ -26,7 +26,7 @@ func TestServiceSyncRoutesPreservesExistingMetadataAndReturnsOnlyCreated(t *test
 		t.Fatalf("migrate API Metadata: %v", err)
 	}
 	repository := gormadapter.NewRepository(db)
-	core := application.NewCore(repository)
+	core := application.NewCore(repository, platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
 	ctx := context.Background()
 	needAudit := 0
 	existing, err := core.Create(ctx, application.CreateInput{Name: "Operator Name", Method: "GET", Path: "/api/admin/users", Group: "operator", PermissionCode: "operator.custom", NeedAudit: &needAudit})
@@ -46,7 +46,7 @@ func TestServiceSyncRoutesPreservesExistingMetadataAndReturnsOnlyCreated(t *test
 		{Method: "DELETE", Path: "/api/admin/users/:id", Name: "Delete User", Group: "user", PermissionControlled: true, DefaultPermissionCode: "admin.users.id.delete", NeedAudit: true},
 		{Method: "GET", Path: "/api/public", Name: "Public", Group: "public"},
 	}}
-	service := application.NewService(core, nil, application.WithRouteSource(platformdatabase.NewTransactionRunner(db), source))
+	service := application.NewService(core, nil, application.WithRouteSource(source))
 	created, err := service.SyncRoutes(ctx)
 	if err != nil {
 		t.Fatalf("sync routes: %v", err)
@@ -73,7 +73,7 @@ func TestServiceSyncRoutesFiltersNonAPIPathsAndRepairsRefresh(t *testing.T) {
 		t.Fatalf("migrate API Metadata: %v", err)
 	}
 	repository := gormadapter.NewRepository(db)
-	core := application.NewCore(repository)
+	core := application.NewCore(repository, platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
 	ctx := context.Background()
 	wrongAuth := 1
 	refresh, err := core.Create(ctx, application.CreateInput{Name: "Refresh", Method: "POST", Path: "/api/refresh", NeedAuth: &wrongAuth, PermissionCode: "admin.refresh"})
@@ -85,7 +85,7 @@ func TestServiceSyncRoutesFiltersNonAPIPathsAndRepairsRefresh(t *testing.T) {
 		{Method: "GET", Path: "/docs", Name: "Docs"},
 		{Method: "POST", Path: "/api/refresh", Name: "Catalog Refresh", Authenticated: true, PermissionControlled: true, DefaultPermissionCode: "admin.refresh"},
 	}}
-	service := application.NewService(core, nil, application.WithRouteSource(platformdatabase.NewTransactionRunner(db), source))
+	service := application.NewService(core, nil, application.WithRouteSource(source))
 	created, err := service.SyncRoutes(ctx)
 	if err != nil {
 		t.Fatalf("sync routes: %v", err)

@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 
 	"admin/internal/authorization/domain"
@@ -21,10 +23,12 @@ type Service struct {
 	users         UserDirectory
 	versions      AccessVersionStore
 	overview      AuthorizationOverviewReader
+	managedUsers  UserManagementReader
+	roleMenus     RoleMenuLifecycle
 }
 
-func NewService(repository Repository, transactions TransactionRunner, organizations OrganizationScopeReader, users UserDirectory, versions AccessVersionStore, overview AuthorizationOverviewReader) *Service {
-	return &Service{repository: repository, transactions: transactions, organizations: organizations, users: users, versions: versions, overview: overview}
+func NewService(repository Repository, transactions TransactionRunner, organizations OrganizationScopeReader, users UserDirectory, versions AccessVersionStore, overview AuthorizationOverviewReader, managedUsers UserManagementReader, roleMenus RoleMenuLifecycle) *Service {
+	return &Service{repository: repository, transactions: transactions, organizations: organizations, users: users, versions: versions, overview: overview, managedUsers: managedUsers, roleMenus: roleMenus}
 }
 
 // EnsureAccessVersion initializes a user's authorization version without invalidating existing tokens.
@@ -42,9 +46,9 @@ type CreateRoleRequest struct {
 }
 
 type UpdateRoleRequest struct {
-	Name        string
-	Code        string
-	Description string
+	Name        *string
+	Code        *string
+	Description *string
 	Sort        *int
 	Status      *int
 	DataScope   string
@@ -119,80 +123,113 @@ func (service *Service) CreateRole(ctx context.Context, request CreateRoleReques
 }
 
 func (service *Service) UpdateRole(ctx context.Context, roleID uint, request UpdateRoleRequest) (domain.Role, error) {
-	role, err := service.repository.FindRole(ctx, roleID)
+	var role domain.Role
+	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		operation := func(tx context.Context) error {
+			var err error
+			role, err = service.repository.LockRole(tx, roleID)
+			if err != nil {
+				return roleError(err)
+			}
+			if domain.IsProtectedRole(role.Code) {
+				return NewError(CodeConflict, nil)
+			}
+			if request.Name == nil && request.Code == nil && request.Description == nil && request.Sort == nil && request.Status == nil && request.DataScope == "" {
+				return NewError(CodeValidationInvalid, nil)
+			}
+			current := role
+			if request.Name != nil {
+				if strings.TrimSpace(*request.Name) == "" {
+					return NewError(CodeValidationInvalid, nil)
+				}
+				exists, err := service.repository.RoleNameExists(tx, *request.Name, roleID)
+				if err != nil {
+					return wrapError(err)
+				}
+				if exists {
+					return NewError(CodeConflict, nil)
+				}
+				role.Name = *request.Name
+			}
+			if request.Code != nil {
+				if strings.TrimSpace(*request.Code) == "" {
+					return NewError(CodeValidationInvalid, nil)
+				}
+				exists, err := service.repository.RoleCodeExists(tx, *request.Code, roleID)
+				if err != nil {
+					return wrapError(err)
+				}
+				if exists {
+					return NewError(CodeConflict, nil)
+				}
+				role.Code = *request.Code
+			}
+			if request.Description != nil {
+				role.Description = *request.Description
+			}
+			if request.Sort != nil {
+				role.Sort = *request.Sort
+			}
+			if request.Status != nil {
+				role.Status = *request.Status
+			}
+			if request.DataScope != "" {
+				role.DataScope, err = domain.ParseDataScope(request.DataScope)
+				if err != nil || role.DataScope == domain.DataScopeCustom {
+					return NewError(CodeValidationInvalid, err)
+				}
+			}
+			scopeChanged := false
+			if request.DataScope != "" {
+				organizationIDs, err := service.repository.CurrentCustomOrganizationIDs(tx, roleID)
+				if err != nil {
+					return wrapError(err)
+				}
+				scopeChanged = role.DataScope != current.DataScope || len(organizationIDs) != 0
+			}
+			if role == current && !scopeChanged {
+				return nil
+			}
+			if role != current {
+				if err := service.repository.UpdateRole(tx, role); err != nil {
+					return wrapError(err)
+				}
+			}
+			if scopeChanged {
+				if err := service.repository.ReplaceRoleDataScope(tx, roleID, role.DataScope, nil); err != nil {
+					return wrapError(err)
+				}
+			}
+			return service.incrementRoleUsers(tx, roleID)
+		}
+		if request.DataScope != "" {
+			return service.organizations.WithLockedHierarchy(tx, operation)
+		}
+		return operation(tx)
+	})
 	if err != nil {
-		return domain.Role{}, roleError(err)
-	}
-	if domain.IsProtectedRole(role.Code) {
-		return domain.Role{}, NewError(CodeConflict, nil)
-	}
-	if request.Name != "" {
-		role.Name = request.Name
-	}
-	if request.Code != "" {
-		role.Code = request.Code
-	}
-	if request.Description != "" {
-		role.Description = request.Description
-	}
-	if request.Sort != nil {
-		role.Sort = *request.Sort
-	}
-	if request.Status != nil {
-		role.Status = *request.Status
-	}
-	if request.DataScope != "" {
-		role.DataScope, err = domain.ParseDataScope(request.DataScope)
-		if err != nil {
-			return domain.Role{}, NewError(CodeValidationInvalid, err)
+		if _, ok := CodeOf(err); ok {
+			return domain.Role{}, err
 		}
-		if role.DataScope == domain.DataScopeCustom {
-			return domain.Role{}, NewError(CodeValidationInvalid, nil)
-		}
+		return domain.Role{}, wrapError(err)
 	}
-	if request.Name == "" && request.Code == "" && request.Description == "" && request.Sort == nil && request.Status == nil && request.DataScope == "" {
-		return domain.Role{}, NewError(CodeValidationInvalid, nil)
-	}
-	if request.Name != "" {
-		exists, err := service.repository.RoleNameExists(ctx, request.Name, roleID)
-		if err != nil {
-			return domain.Role{}, wrapError(err)
-		}
-		if exists {
-			return domain.Role{}, NewError(CodeConflict, nil)
-		}
-	}
-	if request.Code != "" {
-		exists, err := service.repository.RoleCodeExists(ctx, request.Code, roleID)
-		if err != nil {
-			return domain.Role{}, wrapError(err)
-		}
-		if exists {
-			return domain.Role{}, NewError(CodeConflict, nil)
-		}
-	}
-	if err := service.transactions.Run(ctx, func(tx context.Context) error {
-		if err := service.repository.UpdateRole(tx, role); err != nil {
-			return err
-		}
-		return service.incrementRoleUsers(tx, roleID)
-	}); err != nil {
-		return domain.Role{}, NewError(CodeInternalError, err)
-	}
-	return service.repository.FindRole(ctx, roleID)
+	return role, nil
 }
 
 func (service *Service) DeleteRole(ctx context.Context, roleID uint) error {
-	role, err := service.repository.FindRole(ctx, roleID)
-	if err != nil {
-		return roleError(err)
-	}
-	if domain.IsProtectedRole(role.Code) {
-		return NewError(CodeConflict, nil)
-	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
+		role, err := service.repository.LockRole(tx, roleID)
+		if err != nil {
+			return roleError(err)
+		}
+		if domain.IsProtectedRole(role.Code) {
+			return NewError(CodeConflict, nil)
+		}
 		userIDs, err := service.repository.UserIDsByRole(tx, roleID)
 		if err != nil {
+			return err
+		}
+		if err := service.roleMenus.DeleteRoleMenus(tx, roleID); err != nil {
 			return err
 		}
 		if err := service.repository.DeleteRole(tx, roleID); err != nil {
@@ -202,19 +239,83 @@ func (service *Service) DeleteRole(ctx context.Context, roleID uint) error {
 	})
 }
 
-func (service *Service) AssignUsersToRole(ctx context.Context, roleID uint, userIDs []uint) error {
-	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return NewError(CodeNotFound, err)
+func (service *Service) AssignUsersToRole(ctx context.Context, operatorID, roleID uint, userIDs []uint) error {
+	if operatorID == 0 {
+		return NewError(CodeInvalidUser, nil)
 	}
+	for _, userID := range userIDs {
+		if userID == 0 {
+			return NewError(CodeInvalidUser, nil)
+		}
+	}
+	targetIDs := uniqueIDs(userIDs)
 	return service.transactions.Run(ctx, func(tx context.Context) error {
 		oldIDs, err := service.repository.UserIDsByRole(tx, roleID)
 		if err != nil {
-			return err
-		}
-		if err := service.repository.ReplaceRoleUsers(tx, roleID, userIDs); err != nil {
 			return NewError(CodeInternalError, err)
 		}
-		return service.incrementUsers(tx, append(oldIDs, userIDs...))
+		for _, userID := range oldIDs {
+			if userID == 0 {
+				return NewError(CodeInvalidUser, nil)
+			}
+		}
+		// A full replacement must also validate every user it will remove.
+		checkedIDs := uniqueIDs(append(oldIDs, targetIDs...))
+		identityIDs := uniqueIDs(append(checkedIDs, operatorID))
+		users, err := service.managedUsers.ManagementUsersByIDs(tx, identityIDs)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		existing := make(map[uint]ManagedUserFact, len(users))
+		for _, user := range users {
+			existing[user.ID] = user
+		}
+		for _, userID := range checkedIDs {
+			user, exists := existing[userID]
+			// Only actually removed old members may use deleted identity facts.
+			if !exists || (user.Deleted && containsID(targetIDs, userID)) {
+				return NewError(CodeInvalidUser, nil)
+			}
+		}
+		roles, protected, _, err := service.lockUserRoleTargets(tx, identityIDs, []uint{roleID}, nil)
+		if err != nil {
+			if err == ErrNotFound {
+				return roleError(err)
+			}
+			return err
+		}
+		if domain.IsProtectedRole(roles[roleID].Code) {
+			return NewError(CodeConflict, nil)
+		}
+		currentIDs, err := service.repository.UserIDsByRole(tx, roleID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if !sameIDs(currentIDs, oldIDs) {
+			return NewError(CodeConflict, nil)
+		}
+		scope, err := service.ResolveUserManagementScope(tx, domain.Principal{UserID: operatorID})
+		if err != nil {
+			return err
+		}
+		for _, userID := range checkedIDs {
+			if userID == 0 || userID == operatorID || (!scope.All && !containsID(scope.UserIDs, userID)) {
+				return NewError(CodeInvalidUser, nil)
+			}
+		}
+		for _, userID := range checkedIDs {
+			if containsID(protected, userID) {
+				return NewError(CodeConflict, nil)
+			}
+		}
+		added, removed := membershipChanges(currentIDs, targetIDs)
+		if len(added) == 0 && len(removed) == 0 {
+			return nil
+		}
+		if err := service.repository.ApplyRoleUserChanges(tx, roleID, added, removed); err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		return service.incrementUsers(tx, append(added, removed...))
 	})
 }
 func (service *Service) SetUserRoles(ctx context.Context, operatorID, targetUserID uint, request UpdateUserRolesRequest) (int, error) {
@@ -233,6 +334,7 @@ func (service *Service) SetUserRoles(ctx context.Context, operatorID, targetUser
 
 	version := 0
 	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		version = 0
 		current, err := service.versions.Ensure(tx, targetUserID)
 		if err != nil {
 			return NewError(CodeInternalError, err)
@@ -240,42 +342,47 @@ func (service *Service) SetUserRoles(ctx context.Context, operatorID, targetUser
 		if current != request.ExpectedAccessVersion {
 			return NewError(CodeConflict, nil)
 		}
-		scope, err := service.ResolveUserScope(tx, domain.Principal{UserID: operatorID})
+		users, err := service.managedUsers.ManagementUsersByIDs(tx, uniqueIDs([]uint{operatorID, targetUserID}))
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		found := false
+		for _, user := range users {
+			if user.ID == targetUserID && !user.Deleted {
+				found = true
+			}
+		}
+		if !found {
+			return NewError(CodeInvalidUser, nil)
+		}
+		roles, protected, currentRoles, err := service.lockUserRoleTargets(tx, []uint{operatorID, targetUserID}, roleIDs, nil)
+		if err != nil {
+			if err == ErrNotFound {
+				return NewError(CodeValidationInvalid, err)
+			}
+			return err
+		}
+		for _, roleID := range roleIDs {
+			if domain.IsProtectedRole(roles[roleID].Code) {
+				return NewError(CodeConflict, nil)
+			}
+		}
+		scope, err := service.ResolveUserManagementScope(tx, domain.Principal{UserID: operatorID})
 		if err != nil {
 			return err
 		}
 		if !scope.All && !containsID(scope.UserIDs, targetUserID) {
 			return NewError(CodeInvalidUser, nil)
 		}
-		users, err := service.users.ListUsersByIDs(tx, []uint{targetUserID})
-		if err != nil {
-			return NewError(CodeInternalError, err)
+		if containsID(protected, targetUserID) {
+			return NewError(CodeConflict, nil)
 		}
-		if len(users) != 1 || users[0].ID != targetUserID {
-			return NewError(CodeInvalidUser, nil)
+		added, removed := membershipChanges(currentRoles[targetUserID], roleIDs)
+		if len(added) == 0 && len(removed) == 0 {
+			version = current
+			return nil
 		}
-		currentRoles, err := service.repository.UserRoleSummaries(tx, []uint{targetUserID})
-		if err != nil {
-			return NewError(CodeInternalError, err)
-		}
-		for _, assignment := range currentRoles {
-			if domain.IsProtectedRole(assignment.Code) {
-				return NewError(CodeConflict, nil)
-			}
-		}
-		for _, roleID := range roleIDs {
-			role, err := service.repository.FindRole(tx, roleID)
-			if errors.Is(err, ErrNotFound) {
-				return NewError(CodeValidationInvalid, err)
-			}
-			if err != nil {
-				return NewError(CodeInternalError, err)
-			}
-			if domain.IsProtectedRole(role.Code) {
-				return NewError(CodeConflict, nil)
-			}
-		}
-		if err := service.repository.ReplaceUserRoles(tx, targetUserID, roleIDs); err != nil {
+		if err := service.repository.ApplyUserRoleChanges(tx, targetUserID, added, removed); err != nil {
 			return NewError(CodeInternalError, err)
 		}
 		version, err = service.versions.EnsureAndIncrement(tx, targetUserID)
@@ -291,6 +398,64 @@ func (service *Service) SetUserRoles(ctx context.Context, operatorID, targetUser
 		return 0, NewError(CodeInternalError, err)
 	}
 	return version, nil
+}
+
+// lockUserRoleTargets gathers before locking, then rejects changed dependencies
+// rather than acquiring a newly discovered lower-ID role out of order.
+func (service *Service) lockUserRoleTargets(ctx context.Context, userIDs, targetIDs, inspectionIDs []uint) (map[uint]domain.Role, []uint, map[uint][]uint, error) {
+	userIDs = uniqueIDs(userIDs)
+	references := make(map[uint][]uint, len(userIDs))
+	roleIDs := append(append([]uint{}, targetIDs...), inspectionIDs...)
+	for _, userID := range userIDs {
+		ids, err := service.repository.RoleIDsByUser(ctx, userID)
+		if err != nil {
+			return nil, nil, nil, NewError(CodeInternalError, err)
+		}
+		references[userID] = ids
+		roleIDs = append(roleIDs, ids...)
+	}
+	referencedRoles := make(map[uint]bool)
+	for _, ids := range references {
+		for _, roleID := range ids {
+			referencedRoles[roleID] = true
+		}
+	}
+	roles := make(map[uint]domain.Role, len(roleIDs))
+	for _, roleID := range uniqueIDs(roleIDs) {
+		role, err := service.repository.LockRole(ctx, roleID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) && containsID(targetIDs, roleID) {
+				return nil, nil, nil, ErrNotFound
+			}
+			// Historical references to absent/deleted roles do not become live
+			// custom scopes. Missing current user-role dependencies still conflict.
+			if errors.Is(err, ErrNotFound) && !referencedRoles[roleID] && containsID(inspectionIDs, roleID) {
+				continue
+			}
+			if errors.Is(err, ErrNotFound) {
+				return nil, nil, nil, NewError(CodeConflict, err)
+			}
+			return nil, nil, nil, NewError(CodeInternalError, err)
+		}
+		roles[roleID] = role
+	}
+	var protected []uint
+	for _, userID := range userIDs {
+		current, err := service.repository.RoleIDsByUser(ctx, userID)
+		if err != nil {
+			return nil, nil, nil, NewError(CodeInternalError, err)
+		}
+		if !sameIDs(current, references[userID]) {
+			return nil, nil, nil, NewError(CodeConflict, nil)
+		}
+		for _, roleID := range current {
+			if domain.IsProtectedRole(roles[roleID].Code) {
+				protected = append(protected, userID)
+				break
+			}
+		}
+	}
+	return roles, protected, references, nil
 }
 
 func (service *Service) RoleUsers(ctx context.Context, roleID uint) ([]identitydomain.DirectoryUser, error) {
@@ -316,31 +481,48 @@ func (service *Service) AssignRoleDataScope(ctx context.Context, roleID uint, sc
 	if err != nil {
 		return NewError(CodeValidationInvalid, err)
 	}
-	role, err := service.repository.FindRole(ctx, roleID)
-	if err != nil {
-		return NewError(CodeNotFound, err)
+	if scope != domain.DataScopeCustom && len(organizationIDs) != 0 {
+		return NewError(CodeValidationInvalid, nil)
 	}
-	if domain.IsProtectedRole(role.Code) {
-		return NewError(CodeConflict, nil)
+	for _, organizationID := range organizationIDs {
+		if organizationID == 0 {
+			return NewError(CodeValidationInvalid, nil)
+		}
 	}
 	organizationIDs = uniqueIDs(organizationIDs)
-	if scope == domain.DataScopeCustom {
-		if len(organizationIDs) == 0 {
-			return NewError(CodeValidationInvalid, nil)
-		}
-		existing, err := service.organizations.ExistingOrganizationIDs(ctx, organizationIDs)
-		if err != nil {
-			return NewError(CodeInternalError, err)
-		}
-		if !sameIDs(existing, organizationIDs) {
-			return NewError(CodeValidationInvalid, nil)
-		}
+	if scope == domain.DataScopeCustom && len(organizationIDs) == 0 {
+		return NewError(CodeValidationInvalid, nil)
 	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
-		if err := service.repository.ReplaceRoleDataScope(tx, roleID, scope, organizationIDs); err != nil {
-			return err
-		}
-		return service.incrementRoleUsers(tx, roleID)
+		return service.organizations.WithLockedHierarchy(tx, func(tx context.Context) error {
+			role, err := service.repository.LockRole(tx, roleID)
+			if err != nil {
+				return roleError(err)
+			}
+			if domain.IsProtectedRole(role.Code) {
+				return NewError(CodeConflict, nil)
+			}
+			if scope == domain.DataScopeCustom {
+				existing, err := service.organizations.ExistingOrganizationIDs(tx, organizationIDs)
+				if err != nil {
+					return NewError(CodeInternalError, err)
+				}
+				if !sameIDs(existing, organizationIDs) {
+					return NewError(CodeValidationInvalid, nil)
+				}
+			}
+			currentIDs, err := service.repository.CurrentCustomOrganizationIDs(tx, roleID)
+			if err != nil {
+				return err
+			}
+			if role.DataScope == scope && slices.Equal(currentIDs, organizationIDs) {
+				return nil
+			}
+			if err := service.repository.ReplaceRoleDataScope(tx, roleID, scope, organizationIDs); err != nil {
+				return err
+			}
+			return service.incrementRoleUsers(tx, roleID)
+		})
 	})
 }
 
@@ -359,8 +541,8 @@ type CreatePermissionRequest struct {
 }
 
 type UpdatePermissionRequest struct {
-	Name  string
-	Group string
+	Name  *string
+	Group *string
 	Sort  *int
 }
 
@@ -400,36 +582,52 @@ func (service *Service) CreatePermission(ctx context.Context, request CreatePerm
 }
 
 func (service *Service) UpdatePermission(ctx context.Context, permissionID uint, request UpdatePermissionRequest) (domain.Permission, error) {
-	permission, err := service.repository.FindPermission(ctx, permissionID)
+	var permission domain.Permission
+	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		var err error
+		permission, err = service.repository.LockPermission(tx, permissionID)
+		if err != nil {
+			return permissionError(err)
+		}
+		if request.Name == nil && request.Group == nil && request.Sort == nil {
+			return NewError(CodeValidationInvalid, nil)
+		}
+		if request.Name != nil {
+			if strings.TrimSpace(*request.Name) == "" {
+				return NewError(CodeValidationInvalid, nil)
+			}
+			permission.Name = *request.Name
+		}
+		if request.Group != nil {
+			permission.Group = *request.Group
+		}
+		if request.Sort != nil {
+			permission.Sort = *request.Sort
+		}
+		return service.repository.UpdatePermission(tx, permission)
+	})
 	if err != nil {
-		return domain.Permission{}, permissionError(err)
+		if _, ok := CodeOf(err); ok {
+			return domain.Permission{}, err
+		}
+		return domain.Permission{}, wrapError(err)
 	}
-	if request.Name == "" && request.Group == "" && request.Sort == nil {
-		return domain.Permission{}, NewError(CodeValidationInvalid, nil)
-	}
-	if request.Name != "" {
-		permission.Name = request.Name
-	}
-	if request.Group != "" {
-		permission.Group = request.Group
-	}
-	if request.Sort != nil {
-		permission.Sort = *request.Sort
-	}
-	if err := service.repository.UpdatePermission(ctx, permission); err != nil {
-		return domain.Permission{}, NewError(CodeInternalError, err)
-	}
-	return service.repository.FindPermission(ctx, permissionID)
+	return permission, nil
 }
 
 func (service *Service) DeletePermission(ctx context.Context, permissionID uint) error {
-	if _, err := service.repository.FindPermission(ctx, permissionID); err != nil {
-		return permissionError(err)
-	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
+		if _, err := service.repository.LockPermission(tx, permissionID); err != nil {
+			return permissionError(err)
+		}
 		roleIDs, err := service.repository.RoleIDsByPermission(tx, permissionID)
 		if err != nil {
 			return err
+		}
+		for _, roleID := range uniqueIDs(roleIDs) {
+			if _, err := service.repository.LockRole(tx, roleID); err != nil {
+				return roleError(err)
+			}
 		}
 		if err := service.repository.DeletePermission(tx, permissionID); err != nil {
 			return err
@@ -439,11 +637,36 @@ func (service *Service) DeletePermission(ctx context.Context, permissionID uint)
 }
 
 func (service *Service) AssignPermissionsToRole(ctx context.Context, roleID uint, permissionIDs []uint) error {
-	if _, err := service.repository.FindRole(ctx, roleID); err != nil {
-		return NewError(CodeNotFound, err)
-	}
 	return service.transactions.Run(ctx, func(tx context.Context) error {
-		if err := service.repository.ReplaceRolePermissions(tx, roleID, permissionIDs); err != nil {
+		role, err := service.repository.LockRole(tx, roleID)
+		if err != nil {
+			return roleError(err)
+		}
+		if domain.IsProtectedRole(role.Code) {
+			return NewError(CodeConflict, nil)
+		}
+		for _, permissionID := range permissionIDs {
+			if permissionID == 0 {
+				return NewError(CodeValidationInvalid, nil)
+			}
+		}
+		targetIDs := uniqueIDs(permissionIDs)
+		for _, permissionID := range targetIDs {
+			if _, err := service.repository.LockPermission(tx, permissionID); err != nil {
+				if errors.Is(err, ErrNotFound) {
+					return NewError(CodeValidationInvalid, err)
+				}
+				return NewError(CodeInternalError, err)
+			}
+		}
+		currentIDs, err := service.repository.CurrentRolePermissionIDs(tx, roleID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if slices.Equal(currentIDs, targetIDs) {
+			return nil
+		}
+		if err := service.repository.ReplaceRolePermissions(tx, roleID, targetIDs); err != nil {
 			return NewError(CodeInternalError, err)
 		}
 		return service.incrementRoleUsers(tx, roleID)
@@ -496,7 +719,24 @@ func (service *Service) Snapshot(ctx context.Context, principal domain.Principal
 }
 
 func (service *Service) ResolveUserScope(ctx context.Context, principal domain.Principal) (domain.UserScope, error) {
-	organizationScope, err := service.ResolveOrganizationScope(ctx, principal)
+	return service.resolveUserScope(ctx, principal, false)
+}
+
+// ResolveUserManagementScope uses current locked facts only for a management
+// mutation. Ordinary snapshot readers retain their repeatable-read semantics.
+// The caller already holds its gathered user/role targets in the same transaction.
+func (service *Service) ResolveUserManagementScope(ctx context.Context, principal domain.Principal) (domain.UserScope, error) {
+	var scope domain.UserScope
+	err := service.organizations.WithLockedHierarchy(ctx, func(tx context.Context) error {
+		var err error
+		scope, err = service.resolveUserScope(tx, principal, true)
+		return err
+	})
+	return scope, err
+}
+
+func (service *Service) resolveUserScope(ctx context.Context, principal domain.Principal, current bool) (domain.UserScope, error) {
+	organizationScope, err := service.resolveOrganizationScope(ctx, principal, current)
 	if err != nil {
 		return domain.UserScope{}, wrapError(err)
 	}
@@ -505,7 +745,13 @@ func (service *Service) ResolveUserScope(ctx context.Context, principal domain.P
 	}
 	userIDs := []uint{principal.UserID}
 	for _, organizationID := range organizationScope.OrganizationIDs {
-		ids, err := service.organizations.MemberUserIDs(ctx, organizationID)
+		var ids []uint
+		var err error
+		if current {
+			ids, err = service.organizations.CurrentMemberUserIDs(ctx, organizationID)
+		} else {
+			ids, err = service.organizations.MemberUserIDs(ctx, organizationID)
+		}
 		if err != nil {
 			return domain.UserScope{}, NewError(CodeInternalError, err)
 		}
@@ -515,10 +761,20 @@ func (service *Service) ResolveUserScope(ctx context.Context, principal domain.P
 }
 
 func (service *Service) ResolveOrganizationScope(ctx context.Context, principal domain.Principal) (domain.OrganizationScope, error) {
+	return service.resolveOrganizationScope(ctx, principal, false)
+}
+
+// ResolveOrganizationManagementScope is used after the caller's hierarchy and
+// current management dependencies have been locked, never by runtime snapshots.
+func (service *Service) ResolveOrganizationManagementScope(ctx context.Context, principal domain.Principal) (domain.OrganizationScope, error) {
+	return service.resolveOrganizationScope(ctx, principal, true)
+}
+
+func (service *Service) resolveOrganizationScope(ctx context.Context, principal domain.Principal, current bool) (domain.OrganizationScope, error) {
 	if principal.UserID == 0 {
 		return domain.OrganizationScope{}, ErrInvalidUser
 	}
-	all, ids, err := service.scopeOrganizations(ctx, principal.UserID)
+	all, ids, err := service.scopeOrganizations(ctx, principal.UserID, current)
 	if err != nil {
 		return domain.OrganizationScope{}, wrapError(err)
 	}
@@ -538,8 +794,14 @@ func (service *Service) VisibleOrganizationIDs(ctx context.Context, operatorID u
 	return scope.OrganizationIDs, scope.All, err
 }
 
-func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint) (bool, []uint, error) {
-	roles, err := service.repository.RolesForUser(ctx, operatorID)
+func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint, current bool) (bool, []uint, error) {
+	var roles []domain.Role
+	var err error
+	if current {
+		roles, err = service.repository.CurrentRolesForUser(ctx, operatorID)
+	} else {
+		roles, err = service.repository.RolesForUser(ctx, operatorID)
+	}
 	if err != nil {
 		return false, nil, NewError(CodeInternalError, err)
 	}
@@ -550,24 +812,32 @@ func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint)
 		}
 		switch role.DataScope {
 		case domain.DataScopeSelf:
-		case domain.DataScopeOrg:
-			ids, err := service.organizations.MemberOrganizationIDs(ctx, operatorID)
+		case domain.DataScopeOrg, domain.DataScopeOrgAndChildren:
+			var ids []uint
+			var err error
+			if current {
+				ids, err = service.organizations.CurrentMemberOrganizationIDs(ctx, operatorID)
+			} else {
+				ids, err = service.organizations.MemberOrganizationIDs(ctx, operatorID)
+			}
 			if err != nil {
 				return false, nil, wrapError(err)
 			}
-			organizationIDs = append(organizationIDs, ids...)
-		case domain.DataScopeOrgAndChildren:
-			ids, err := service.organizations.MemberOrganizationIDs(ctx, operatorID)
-			if err != nil {
-				return false, nil, wrapError(err)
-			}
-			ids, err = service.organizations.DescendantOrganizationIDs(ctx, ids)
-			if err != nil {
-				return false, nil, wrapError(err)
+			if role.DataScope == domain.DataScopeOrgAndChildren {
+				ids, err = service.organizations.DescendantOrganizationIDs(ctx, ids)
+				if err != nil {
+					return false, nil, wrapError(err)
+				}
 			}
 			organizationIDs = append(organizationIDs, ids...)
 		case domain.DataScopeCustom:
-			ids, err := service.repository.CustomOrganizationIDs(ctx, role.ID)
+			var ids []uint
+			var err error
+			if current {
+				ids, err = service.repository.CurrentCustomOrganizationIDs(ctx, role.ID)
+			} else {
+				ids, err = service.repository.CustomOrganizationIDs(ctx, role.ID)
+			}
 			if err != nil {
 				return false, nil, wrapError(err)
 			}
@@ -575,6 +845,134 @@ func (service *Service) scopeOrganizations(ctx context.Context, operatorID uint)
 		}
 	}
 	return false, uniqueIDs(organizationIDs), nil
+}
+
+// HierarchyDependentUserIDs reads individual role dependencies, not merged scope:
+// an all/admin role must not hide another role's org_and_children dependency.
+// The caller holds Organization's hierarchy barrier and keeps this context's
+// transaction open through the hierarchy write and access-version increments.
+func (service *Service) HierarchyDependentUserIDs(ctx context.Context, changedRootIDs []uint) ([]uint, error) {
+	roots := uniqueIDs(changedRootIDs)
+	if len(roots) == 0 {
+		return []uint{}, nil
+	}
+	userIDs, err := service.organizations.CurrentMemberUserIDsByOrganizations(ctx, roots)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	userIDs = uniqueIDs(userIDs)
+	if len(userIDs) == 0 {
+		return []uint{}, nil
+	}
+	references, err := service.repository.CurrentUserRoleReferences(ctx, userIDs)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	roleIDs := make([]uint, 0, len(references))
+	for _, reference := range references {
+		roleIDs = append(roleIDs, reference.RoleID)
+	}
+	roleIDs = uniqueIDs(roleIDs)
+	if len(roleIDs) == 0 {
+		return []uint{}, nil
+	}
+	// Do not filter disabled/scope metadata before locking: an enable or scope
+	// writer may have won while this operation waited for the role barrier.
+	roles, err := service.repository.LockRoles(ctx, roleIDs)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	eligible := make(map[uint]bool, len(roles))
+	for _, role := range roles {
+		eligible[role.ID] = role.Status == 1 && role.DataScope == domain.DataScopeOrgAndChildren && !domain.IsProtectedRole(role.Code)
+	}
+	current, err := service.repository.CurrentUserRoleReferences(ctx, userIDs)
+	if err != nil {
+		return nil, wrapError(err)
+	}
+	// Deleted-role winners (and historical orphan references) cannot contribute
+	// a dependency. Other reference changes conflict rather than acquiring newly
+	// discovered role locks outside the established ascending order.
+	liveReferences := references[:0]
+	for _, reference := range references {
+		if _, exists := eligible[reference.RoleID]; exists {
+			liveReferences = append(liveReferences, reference)
+		}
+	}
+	liveCurrent := current[:0]
+	for _, reference := range current {
+		if _, gathered := slices.BinarySearch(roleIDs, reference.RoleID); !gathered {
+			return nil, NewError(CodeConflict, nil)
+		}
+		if _, exists := eligible[reference.RoleID]; exists {
+			liveCurrent = append(liveCurrent, reference)
+		}
+	}
+	if !slices.Equal(liveReferences, liveCurrent) {
+		return nil, NewError(CodeConflict, nil)
+	}
+	dependents := []uint{}
+	for _, reference := range liveCurrent {
+		if eligible[reference.RoleID] && (len(dependents) == 0 || dependents[len(dependents)-1] != reference.UserID) {
+			dependents = append(dependents, reference.UserID)
+		}
+	}
+	return dependents, nil
+}
+
+// ProtectedUserIDs locks only actual user-role dependencies, not an unmatched
+// administrator row from a joined policy query. Callers include the operator
+// before reading its scope so all role targets are gathered in one ID order.
+func (service *Service) ProtectedUserIDs(ctx context.Context, userIDs []uint) ([]uint, error) {
+	userIDs = uniqueIDs(userIDs)
+	if len(userIDs) == 0 {
+		return []uint{}, nil
+	}
+	if _, err := service.managedUsers.ManagementUsersByIDs(ctx, userIDs); err != nil {
+		return nil, wrapError(err)
+	}
+	_, protected, _, err := service.lockUserRoleTargets(ctx, userIDs, nil, nil)
+	return protected, err
+}
+
+func (service *Service) HasCustomOrganizationReferences(ctx context.Context, organizationID uint) (bool, error) {
+	return service.lockOrganizationReferences(ctx, organizationID, nil)
+}
+
+// LockOrganizationReferences gathers the operator, current members and raw
+// custom-reference roles before any policy scope read acquires role locks.
+// The caller already holds Organization's hierarchy barrier.
+func (service *Service) LockOrganizationReferences(ctx context.Context, operatorID, organizationID uint, memberIDs []uint) (bool, error) {
+	userIDs := uniqueIDs(append(append([]uint{}, memberIDs...), operatorID))
+	if _, err := service.managedUsers.ManagementUsersByIDs(ctx, userIDs); err != nil {
+		return false, wrapError(err)
+	}
+	return service.lockOrganizationReferences(ctx, organizationID, userIDs)
+}
+
+func (service *Service) lockOrganizationReferences(ctx context.Context, organizationID uint, userIDs []uint) (bool, error) {
+	references, err := service.repository.OrganizationReferenceRoleIDs(ctx, organizationID)
+	if err != nil {
+		return false, wrapError(err)
+	}
+	roles, _, _, err := service.lockUserRoleTargets(ctx, userIDs, nil, references)
+	if err != nil {
+		return false, err
+	}
+	current, err := service.repository.OrganizationReferenceRoleIDs(ctx, organizationID)
+	if err != nil {
+		return false, wrapError(err)
+	}
+	if !sameIDs(references, current) {
+		return false, NewError(CodeConflict, nil)
+	}
+	for _, roleID := range current {
+		role, exists := roles[roleID]
+		if exists && !domain.IsProtectedRole(role.Code) && role.DataScope == domain.DataScopeCustom {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (service *Service) incrementRoleUsers(ctx context.Context, roleID uint) error {
@@ -766,6 +1164,7 @@ func uniqueIDs(ids []uint) []uint {
 		seen[id] = struct{}{}
 		result = append(result, id)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
 }
 
@@ -784,6 +1183,28 @@ func sameIDs(left, right []uint) bool {
 		}
 	}
 	return true
+}
+
+// membershipChanges compares the sorted, unique IDs returned by relationship
+// reads with a normalized target. Retained relationships are never rewritten.
+func membershipChanges(current, target []uint) (added, removed []uint) {
+	left, right := 0, 0
+	for left < len(current) && right < len(target) {
+		switch {
+		case current[left] < target[right]:
+			removed = append(removed, current[left])
+			left++
+		case target[right] < current[left]:
+			added = append(added, target[right])
+			right++
+		default:
+			left++
+			right++
+		}
+	}
+	added = append(added, target[right:]...)
+	removed = append(removed, current[left:]...)
+	return added, removed
 }
 
 func containsID(ids []uint, target uint) bool {

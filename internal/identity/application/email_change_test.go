@@ -170,8 +170,8 @@ func TestUpdateByAdminRejectsEmailField(t *testing.T) {
 		repository.user.EmailVerifiedAt != verifiedAt || repository.changes != (application.UserChanges{}) {
 		t.Fatalf("admin email rejection changed user state: user=%#v changes=%#v", repository.user, repository.changes)
 	}
-	if transactions.calls != 0 || access.incremented != nil {
-		t.Fatalf("admin email rejection touched transaction/access state: transactions=%d invalidated=%v", transactions.calls, access.incremented)
+	if transactions.calls != 1 || access.incremented != nil {
+		t.Fatalf("admin email rejection must validate current facts without writes: transactions=%d invalidated=%v", transactions.calls, access.incremented)
 	}
 }
 

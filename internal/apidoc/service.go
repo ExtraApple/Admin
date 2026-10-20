@@ -402,7 +402,7 @@ func objectSchema(value reflect.Type, stack map[reflect.Type]bool) map[string]an
 			continue
 		}
 		property := schemaForStack(field.Type, stack)
-		applyIntegerBinding(property, field.Tag.Get("binding"))
+		applyBindingConstraints(property, field.Tag.Get("binding"))
 		properties[name] = property
 		if strings.Contains(field.Tag.Get("binding"), "required") {
 			required = append(required, name)
@@ -415,12 +415,28 @@ func objectSchema(value reflect.Type, stack map[reflect.Type]bool) map[string]an
 	return result
 }
 
-func applyIntegerBinding(schema map[string]any, binding string) {
+func applyBindingConstraints(schema map[string]any, binding string) {
 	for _, rule := range strings.Split(binding, ",") {
 		if rule == "dive" {
 			items, ok := schema["items"].(map[string]any)
 			if !ok { return }
 			schema = items
+			continue
+		}
+		if schema["type"] == "string" {
+			key, value, found := strings.Cut(rule, "=")
+			if !found || (key != "min" && key != "max") {
+				continue
+			}
+			bound, err := strconv.Atoi(value)
+			if err != nil || bound < 0 {
+				continue
+			}
+			if key == "min" {
+				schema["minLength"] = bound
+			} else {
+				schema["maxLength"] = bound
+			}
 			continue
 		}
 		if schema["type"] != "integer" { continue }
@@ -486,7 +502,7 @@ func queryParameters(value reflect.Type) []map[string]any {
 		if field.PkgPath != "" || name == "" || name == "-" { continue }
 		schema := schemaFor(field.Type)
 		delete(schema, "nullable")
-		applyIntegerBinding(schema, field.Tag.Get("binding"))
+		applyBindingConstraints(schema, field.Tag.Get("binding"))
 		result = append(result, map[string]any{"name": name, "in": "query", "required": strings.Contains(field.Tag.Get("binding"), "required"), "schema": schema})
 	}
 	return result

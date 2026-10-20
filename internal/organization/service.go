@@ -15,6 +15,9 @@ type Service struct {
 	users        UserDirectory
 	versions     AccessVersionInvalidator
 	transactions TransactionRunner
+	policy       UserManagementPolicy
+	references   OrganizationReferencePolicy
+	dependencies HierarchyDependencyReader
 }
 
 func NewService(
@@ -24,6 +27,9 @@ func NewService(
 	users UserDirectory,
 	versions AccessVersionInvalidator,
 	transactions TransactionRunner,
+	policy UserManagementPolicy,
+	references OrganizationReferencePolicy,
+	dependencies HierarchyDependencyReader,
 ) *Service {
 	return &Service{
 		repository:   repository,
@@ -32,6 +38,9 @@ func NewService(
 		users:        users,
 		versions:     versions,
 		transactions: transactions,
+		policy:       policy,
+		references:   references,
+		dependencies: dependencies,
 	}
 }
 
@@ -74,54 +83,93 @@ func (service *Service) Tree(ctx context.Context, operatorID uint) ([]TreeNode, 
 }
 
 func (service *Service) CreateUnit(ctx context.Context, operatorID uint, request CreateUnitRequest) (UnitInfo, error) {
-	if request.ParentID != 0 {
-		if err := service.ensureVisible(ctx, operatorID, request.ParentID); err != nil {
-			return UnitInfo{}, err
-		}
-		if _, err := service.repository.FindUnitByID(ctx, request.ParentID); err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return UnitInfo{}, NewError(CodeNotFound, err)
-			}
-			return UnitInfo{}, NewError(CodeInternalError, err)
-		}
-	} else {
-		scope, err := service.visibility.Scope(ctx, operatorID)
+	var result UnitInfo
+	err := service.withLockedTopology(ctx, func(transactionContext context.Context, parents []OrganizationParent) error {
+		scope, err := service.visibility.CurrentScope(transactionContext, operatorID)
 		if err != nil {
-			return UnitInfo{}, NewError(CodeInternalError, err)
+			return err
 		}
-		if !scope.All {
-			return UnitInfo{}, NewError(CodeValidationInvalid, nil)
+		if request.ParentID == 0 {
+			if !scope.All {
+				return NewError(CodeValidationInvalid, nil)
+			}
+		} else {
+			if !scope.All && !containsID(scope.OrganizationIDs, request.ParentID) {
+				return NewError(CodeValidationInvalid, nil)
+			}
+			if !organizationParentExists(parents, request.ParentID) {
+				return NewError(CodeNotFound, ErrNotFound)
+			}
 		}
+		if exists, err := service.repository.CodeExists(transactionContext, request.Code, 0); err != nil {
+			return err
+		} else if exists {
+			return NewError(CodeConflict, nil)
+		}
+		unit := Unit{
+			ParentID: request.ParentID,
+			Name:     request.Name,
+			Code:     request.Code,
+			Remark:   request.Remark,
+			Sort:     request.Sort,
+			Status:   defaultStatus(request.Status),
+		}
+		if err := service.repository.CreateUnit(transactionContext, &unit); err != nil {
+			return err
+		}
+		result = unitInfo(unit)
+		return nil
+	})
+	if err != nil {
+		return UnitInfo{}, err
 	}
-	if exists, err := service.repository.CodeExists(ctx, request.Code, 0); err != nil {
-		return UnitInfo{}, NewError(CodeInternalError, err)
-	} else if exists {
-		return UnitInfo{}, NewError(CodeConflict, nil)
-	}
-	unit := Unit{
-		ParentID: request.ParentID,
-		Name:     request.Name,
-		Code:     request.Code,
-		Remark:   request.Remark,
-		Sort:     request.Sort,
-		Status:   defaultStatus(request.Status),
-	}
-	if err := service.repository.CreateUnit(ctx, &unit); err != nil {
-		return UnitInfo{}, NewError(CodeInternalError, err)
-	}
-	return unitInfo(unit), nil
+	return result, nil
 }
 
 func (service *Service) UpdateUnit(ctx context.Context, operatorID, unitID uint, request UpdateUnitRequest) (UnitInfo, error) {
-	unit, err := service.repository.FindUnitByID(ctx, unitID)
+	if request.ParentID == nil {
+		return service.updateUnit(ctx, operatorID, unitID, request, nil)
+	}
+	var result UnitInfo
+	err := service.withLockedTopology(ctx, func(transactionContext context.Context, parents []OrganizationParent) error {
+		var err error
+		result, err = service.updateUnit(transactionContext, operatorID, unitID, request, parents)
+		return err
+	})
 	if err != nil {
+		return UnitInfo{}, err
+	}
+	return result, nil
+}
+
+func (service *Service) updateUnit(ctx context.Context, operatorID, unitID uint, request UpdateUnitRequest, parents []OrganizationParent) (UnitInfo, error) {
+	var parentByID map[uint]uint
+	if request.ParentID != nil {
+		parentByID = make(map[uint]uint, len(parents))
+		for _, parent := range parents {
+			parentByID[parent.ID] = parent.ParentID
+		}
+		if _, exists := parentByID[unitID]; !exists {
+			return UnitInfo{}, NewError(CodeNotFound, ErrNotFound)
+		}
+	} else if _, err := service.repository.FindUnitByID(ctx, unitID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return UnitInfo{}, NewError(CodeNotFound, err)
 		}
 		return UnitInfo{}, NewError(CodeInternalError, err)
 	}
-	if err := service.ensureVisible(ctx, operatorID, unitID); err != nil {
-		return UnitInfo{}, err
+	var scope OrganizationScope
+	var err error
+	if request.ParentID != nil {
+		scope, err = service.visibility.CurrentScope(ctx, operatorID)
+	} else {
+		scope, err = service.visibility.Scope(ctx, operatorID)
+	}
+	if err != nil {
+		return UnitInfo{}, NewError(CodeInternalError, err)
+	}
+	if !scope.All && !containsID(scope.OrganizationIDs, unitID) {
+		return UnitInfo{}, NewError(CodeValidationInvalid, nil)
 	}
 	updates := make(map[string]any, 6)
 	if request.ParentID != nil {
@@ -130,21 +178,19 @@ func (service *Service) UpdateUnit(ctx context.Context, operatorID, unitID uint,
 			if parentID == unitID {
 				return UnitInfo{}, NewError(CodeValidationInvalid, nil)
 			}
-			if err := service.ensureVisible(ctx, operatorID, parentID); err != nil {
-				return UnitInfo{}, err
-			}
-			if _, err := service.repository.FindUnitByID(ctx, parentID); err != nil {
-				if errors.Is(err, ErrNotFound) {
-					return UnitInfo{}, NewError(CodeNotFound, err)
-				}
-				return UnitInfo{}, NewError(CodeInternalError, err)
-			}
-			descendants, err := service.hierarchy.DescendantOrganizationIDs(ctx, []uint{unitID})
-			if err != nil {
-				return UnitInfo{}, NewError(CodeInternalError, err)
-			}
-			if containsID(descendants, parentID) {
+			if !scope.All && !containsID(scope.OrganizationIDs, parentID) {
 				return UnitInfo{}, NewError(CodeValidationInvalid, nil)
+			}
+			if _, exists := parentByID[parentID]; !exists {
+				return UnitInfo{}, NewError(CodeNotFound, ErrNotFound)
+			}
+			// Follow only the proposed parent's chain in the locked graph.
+			// The bound also terminates traversal of pre-existing corrupt cycles.
+			for ancestorID, remaining := parentID, len(parents); ancestorID != 0 && remaining > 0; remaining-- {
+				if ancestorID == unitID {
+					return UnitInfo{}, NewError(CodeValidationInvalid, nil)
+				}
+				ancestorID = parentByID[ancestorID]
 			}
 		}
 		updates["parent_id"] = parentID
@@ -172,10 +218,26 @@ func (service *Service) UpdateUnit(ctx context.Context, operatorID, unitID uint,
 	if len(updates) == 0 {
 		return UnitInfo{}, NewError(CodeValidationInvalid, nil)
 	}
+	var dependentUserIDs []uint
+	if request.ParentID != nil && parentByID[unitID] != *request.ParentID {
+		roots := changedHierarchyRootIDs(parentByID, unitID, *request.ParentID)
+		dependentUserIDs, err = service.dependencies.HierarchyDependentUserIDs(ctx, roots)
+		if err != nil {
+			if _, classified := CodeOf(err); classified {
+				return UnitInfo{}, err
+			}
+			return UnitInfo{}, NewError(CodeInternalError, err)
+		}
+		dependentUserIDs = uniqueIDs(dependentUserIDs)
+		sort.Slice(dependentUserIDs, func(left, right int) bool { return dependentUserIDs[left] < dependentUserIDs[right] })
+	}
 	if err := service.repository.UpdateUnit(ctx, unitID, updates); err != nil {
 		return UnitInfo{}, NewError(CodeInternalError, err)
 	}
-	unit, err = service.repository.FindUnitByID(ctx, unitID)
+	if err := service.incrementVersions(ctx, dependentUserIDs); err != nil {
+		return UnitInfo{}, NewError(CodeInternalError, err)
+	}
+	unit, err := service.repository.FindUnitByID(ctx, unitID)
 	if err != nil {
 		return UnitInfo{}, NewError(CodeInternalError, err)
 	}
@@ -183,27 +245,44 @@ func (service *Service) UpdateUnit(ctx context.Context, operatorID, unitID uint,
 }
 
 func (service *Service) DeleteUnit(ctx context.Context, operatorID, unitID uint) error {
-	unit, err := service.repository.FindUnitByID(ctx, unitID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return NewError(CodeNotFound, err)
-		}
-		return NewError(CodeInternalError, err)
-	}
-	if err := service.ensureVisible(ctx, operatorID, unitID); err != nil {
-		return err
-	}
-	childCount, err := service.repository.ChildCount(ctx, unitID)
-	if err != nil {
-		return NewError(CodeInternalError, err)
-	}
-	if childCount > 0 {
+	if operatorID == 0 {
 		return NewError(CodeValidationInvalid, nil)
 	}
-	if err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
-		userIDs, err := service.repository.MemberUserIDs(transactionContext, unitID)
+	return service.withLockedTopology(ctx, func(transactionContext context.Context, parents []OrganizationParent) error {
+		if !organizationParentExists(parents, unitID) {
+			return NewError(CodeNotFound, ErrNotFound)
+		}
+		userIDs, err := service.repository.CurrentMemberUserIDs(transactionContext, unitID)
 		if err != nil {
 			return err
+		}
+		referenced, err := service.references.LockOrganizationReferences(transactionContext, operatorID, unitID, userIDs)
+		if err != nil {
+			return err
+		}
+		if err := service.ensureVisible(transactionContext, operatorID, unitID, true); err != nil {
+			return err
+		}
+		if referenced {
+			return NewError(CodeConflict, nil)
+		}
+		for _, parent := range parents {
+			if parent.ParentID == unitID {
+				return NewError(CodeValidationInvalid, nil)
+			}
+		}
+		unit, err := service.repository.FindUnitByID(transactionContext, unitID)
+		if err != nil {
+			return err
+		}
+		users, err := service.policy.ManagedUsers(transactionContext, operatorID, userIDs)
+		if err != nil {
+			return err
+		}
+		for _, userID := range userIDs {
+			if err := service.validateMember(operatorID, userID, users[userID], true, true); err != nil {
+				return err
+			}
 		}
 		if err := service.repository.DeleteMemberships(transactionContext, unitID); err != nil {
 			return err
@@ -212,48 +291,130 @@ func (service *Service) DeleteUnit(ctx context.Context, operatorID, unitID uint)
 			return err
 		}
 		return service.incrementVersions(transactionContext, userIDs)
-	}); err != nil {
+	})
+}
+
+func (service *Service) withLockedTopology(ctx context.Context, operation func(context.Context, []OrganizationParent) error) error {
+	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
+		parents, err := service.repository.LockOrganizationParents(transactionContext)
+		if err != nil {
+			return err
+		}
+		return operation(withOrganizationParents(transactionContext, parents), parents)
+	})
+	if err != nil {
+		if _, classified := CodeOf(err); classified {
+			return err
+		}
 		return NewError(CodeInternalError, err)
 	}
 	return nil
 }
 
+func organizationParentExists(parents []OrganizationParent, unitID uint) bool {
+	for _, parent := range parents {
+		if parent.ID == unitID {
+			return true
+		}
+	}
+	return false
+}
+
 func (service *Service) SetUsers(ctx context.Context, operatorID, unitID uint, userIDs []uint) error {
-	if _, err := service.repository.FindUnitByID(ctx, unitID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return NewError(CodeNotFound, err)
-		}
-		return NewError(CodeInternalError, err)
+	if operatorID == 0 {
+		return NewError(CodeValidationInvalid, nil)
 	}
-	if err := service.ensureVisible(ctx, operatorID, unitID); err != nil {
-		return err
-	}
-	userIDs = uniqueIDs(userIDs)
-	if len(userIDs) > 0 {
-		users, err := service.users.ListUsersByIDs(ctx, userIDs)
-		if err != nil {
-			return NewError(CodeInternalError, err)
-		}
-		existingIDs := make([]uint, len(users))
-		for index, user := range users {
-			existingIDs[index] = user.ID
-		}
-		if !sameIDs(existingIDs, userIDs) {
+	for _, userID := range userIDs {
+		if userID == 0 {
 			return NewError(CodeValidationInvalid, nil)
 		}
 	}
-	if err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
-		oldUserIDs, err := service.repository.MemberUserIDs(transactionContext, unitID)
+	userIDs = uniqueIDs(userIDs)
+	err := service.withLockedTopology(ctx, func(transactionContext context.Context, parents []OrganizationParent) error {
+		if !organizationParentExists(parents, unitID) {
+			return NewError(CodeNotFound, ErrNotFound)
+		}
+		oldUserIDs, err := service.repository.CurrentMemberUserIDs(transactionContext, unitID)
 		if err != nil {
 			return err
 		}
-		if err := service.repository.ReplaceMemberships(transactionContext, unitID, userIDs); err != nil {
+		checkedIDs := uniqueIDs(append(oldUserIDs, userIDs...))
+		users, err := service.policy.ManagedUsers(transactionContext, operatorID, checkedIDs)
+		if err != nil {
 			return err
 		}
-		affected := append(oldUserIDs, userIDs...)
-		return service.incrementVersions(transactionContext, uniqueIDs(affected))
-	}); err != nil {
+		if err := service.ensureVisible(transactionContext, operatorID, unitID, true); err != nil {
+			return err
+		}
+		for _, userID := range userIDs {
+			if err := service.validateMember(operatorID, userID, users[userID], !containsID(oldUserIDs, userID), false); err != nil {
+				return err
+			}
+		}
+		for _, userID := range oldUserIDs {
+			if !containsID(userIDs, userID) {
+				if err := service.validateMember(operatorID, userID, users[userID], true, true); err != nil {
+					return err
+				}
+			}
+		}
+		added, removed := membershipDelta(oldUserIDs, userIDs)
+		if len(added) == 0 && len(removed) == 0 {
+			return nil
+		}
+		if err := service.repository.ApplyMembershipDelta(transactionContext, unitID, added, removed); err != nil {
+			return err
+		}
+		changed := append(added, removed...)
+		sort.Slice(changed, func(left, right int) bool { return changed[left] < changed[right] })
+		return service.incrementVersions(transactionContext, changed)
+	})
+	if err != nil {
+		if _, classified := CodeOf(err); classified {
+			return err
+		}
 		return NewError(CodeInternalError, err)
+	}
+	return nil
+}
+
+// membershipDelta compares the applicable current and selected organization links.
+// Both inputs contain unique IDs; retained links never enter the write set.
+func membershipDelta(current, selected []uint) (added, removed []uint) {
+	currentSet := make(map[uint]bool, len(current))
+	for _, id := range current {
+		currentSet[id] = false
+	}
+	for _, id := range selected {
+		if _, exists := currentSet[id]; exists {
+			currentSet[id] = true
+		} else {
+			added = append(added, id)
+		}
+	}
+	for _, id := range current {
+		if !currentSet[id] {
+			removed = append(removed, id)
+		}
+	}
+	return added, removed
+}
+
+func (service *Service) validateMember(operatorID, userID uint, user ManagedUser, changed, allowDeleted bool) error {
+	if operatorID == 0 || userID == 0 {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	if !user.Exists || (user.Deleted && !allowDeleted) {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	if !user.Visible {
+		return NewError(CodePermissionDenied, nil)
+	}
+	if changed && operatorID == userID {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	if changed && user.Protected {
+		return NewError(CodeConflict, nil)
 	}
 	return nil
 }
@@ -265,7 +426,7 @@ func (service *Service) Users(ctx context.Context, operatorID, unitID uint) ([]i
 		}
 		return nil, NewError(CodeInternalError, err)
 	}
-	if err := service.ensureVisible(ctx, operatorID, unitID); err != nil {
+	if err := service.ensureVisible(ctx, operatorID, unitID, false); err != nil {
 		return nil, err
 	}
 	userIDs, err := service.repository.MemberUserIDs(ctx, unitID)
@@ -282,8 +443,14 @@ func (service *Service) Users(ctx context.Context, operatorID, unitID uint) ([]i
 	return users, nil
 }
 
-func (service *Service) ensureVisible(ctx context.Context, operatorID, unitID uint) error {
-	scope, err := service.visibility.Scope(ctx, operatorID)
+func (service *Service) ensureVisible(ctx context.Context, operatorID, unitID uint, current bool) error {
+	var scope OrganizationScope
+	var err error
+	if current {
+		scope, err = service.visibility.CurrentScope(ctx, operatorID)
+	} else {
+		scope, err = service.visibility.Scope(ctx, operatorID)
+	}
 	if err != nil {
 		return NewError(CodeInternalError, err)
 	}
@@ -348,18 +515,4 @@ func containsID(ids []uint, target uint) bool {
 		}
 	}
 	return false
-}
-
-func sameIDs(left, right []uint) bool {
-	left = uniqueIDs(left)
-	right = uniqueIDs(right)
-	if len(left) != len(right) {
-		return false
-	}
-	for _, id := range right {
-		if !containsID(left, id) {
-			return false
-		}
-	}
-	return true
 }

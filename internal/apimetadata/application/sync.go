@@ -15,11 +15,11 @@ func (service *Service) SyncRoutes(ctx context.Context) ([]domain.API, error) {
 	if err != nil {
 		return nil, NewError(CodeInternalError, err)
 	}
-	if service.transactions == nil {
+	if service.core.transactions == nil {
 		return nil, NewError(CodeInternalError, nil)
 	}
 	var created []domain.API
-	err = service.transactions.Run(ctx, func(transactionContext context.Context) error {
+	err = service.core.transactions.Run(ctx, func(transactionContext context.Context) error {
 		var syncErr error
 		created, syncErr = service.syncRoutesInTransaction(transactionContext, facts)
 		return syncErr
@@ -28,6 +28,17 @@ func (service *Service) SyncRoutes(ctx context.Context) ([]domain.API, error) {
 }
 
 func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []RouteFact) ([]domain.API, error) {
+	codes := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		_, code := routeAccessValues(fact)
+		codes = append(codes, code)
+	}
+	if err := service.core.references.LockPermissions(ctx, codes); err != nil {
+		return nil, wrapError(err)
+	}
+	if err := service.core.repository.LockRoutes(ctx, facts); err != nil {
+		return nil, NewError(CodeInternalError, err)
+	}
 	created := make([]domain.API, 0)
 	for _, fact := range facts {
 		method := strings.ToUpper(strings.TrimSpace(fact.Method))

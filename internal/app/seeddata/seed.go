@@ -28,7 +28,7 @@ func Foundation(tx *gorm.DB) (Summary, error) {
 func Finalize(tx *gorm.DB, conf *platformconfig.Config) (Summary, error) {
 	summary := Summary{}
 	var err error
-	if summary.Menus, err = navigation.SeedMenus(tx); err != nil {
+	if summary.Menus, err = navigation.SeedMenus(tx, gormadapter.NewRepository(tx).LockPermissionsByCodes); err != nil {
 		return summary, err
 	}
 	if summary.RolePermissions, err = gormadapter.SeedAdminRolePermissions(tx); err != nil {

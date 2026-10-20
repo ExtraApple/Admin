@@ -12,6 +12,7 @@ import (
 	apiapplication "admin/internal/apimetadata/application"
 	apidomain "admin/internal/apimetadata/domain"
 	"admin/internal/app"
+	platformdatabase "admin/internal/platform/database"
 	"admin/internal/routecatalog"
 	"admin/testsupport/testutil"
 
@@ -56,7 +57,7 @@ func TestRegisterHTTPEnforcesStaticAccessBeforeDynamicPermissionPolicy(t *testin
 			c.Set("permissions", strings.Fields(c.GetHeader("X-Test-Permissions")))
 			c.Next()
 		},
-		PermissionControlled: apihttp.PermissionMiddleware(apiapplication.NewCore(apigorm.NewRepository(db))),
+		PermissionControlled: apihttp.PermissionMiddleware(apiapplication.NewCore(apigorm.NewRepository(db), platformdatabase.NewTransactionRunner(db), nil)),
 	})
 
 	tests := []struct {

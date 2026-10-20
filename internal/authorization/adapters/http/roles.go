@@ -17,9 +17,9 @@ type createRoleRequest struct {
 }
 
 type updateRoleRequest struct {
-	Name        string `json:"name" binding:"max=50"`
-	Code        string `json:"code" binding:"max=50"`
-	Description string `json:"description" binding:"max=255"`
+	Name        *string `json:"name" binding:"omitempty,min=1,max=50"`
+	Code        *string `json:"code" binding:"omitempty,min=1,max=50"`
+	Description *string `json:"description" binding:"omitempty,max=255"`
 	Sort        *int   `json:"sort"`
 	Status      *int   `json:"status"`
 	DataScope   string `json:"data_scope"`
@@ -162,7 +162,7 @@ func (handler *Handler) assignRoleUsers(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	if err := handler.service.AssignUsersToRole(c.Request.Context(), id, req.UserIDs); err != nil {
+	if err := handler.service.AssignUsersToRole(c.Request.Context(), c.GetUint("userID"), id, req.UserIDs); err != nil {
 		badRequest(c, err)
 		return
 	}

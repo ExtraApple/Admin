@@ -16,6 +16,7 @@ type API struct {
 	NeedAudit      int
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Deleted        bool
 }
 
 type Policy struct {

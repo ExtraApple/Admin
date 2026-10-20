@@ -1,0 +1,948 @@
+{
+  "recorded_at": "2026-10-17T10:30:24.746962+08:00",
+  "scope": "C4 organization topology protocol only; no I4 invalidation goal, full organization audit, production cutover or mixed-protocol rollout is claimed.",
+  "historical_evidence_reused_unchanged": [
+    "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json"
+  ],
+  "program": "Original main.go built with go build; actual HTTP with real captcha/login/JWT and native MySQL, private Redis and MinIO. All fixture mutations were in the unique disposable schema.",
+  "runtime_recovery": {
+    "kernel_state_was_lost": true,
+    "ownership_checked_original_processes_survived": true,
+    "original_application_pid": 27932,
+    "restarted": false,
+    "completed_scenarios_not_repeated": true,
+    "native_driver_error_numbers_not_recovered_from_old_stdout_pipe": true
+  },
+  "gates": [
+    {
+      "command": "go test ./internal/organization ./internal/authorization/... ./internal/app/...",
+      "exit_code": 0,
+      "observed": "organization, authorization GORM/application/domain, app and seeddata passed; authorization HTTP has no test files."
+    },
+    {
+      "command": "go test -tags mysql_integration ./internal/organization -count=1",
+      "exit_code": 0,
+      "output": "ok  \tadmin/internal/organization\t4.200s\n",
+      "dsn_not_recorded": true,
+      "provided_database": "admin_apply_c4_7965e35d8d6b",
+      "test_scope": "Organization tag gates including the repaired current constructor, shared role/organization optimistic version behavior, version RR lock and new parent-graph current-read regression."
+    },
+    {
+      "command": "go build -o <private-owned-runtime>/admin-apply.exe .",
+      "exit_code": 0
+    },
+    {
+      "command": "openspec validate fix-concurrent-organization-moves --strict --json --no-interactive",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0
+    }
+  ],
+  "controlled_native_races": [
+    {
+      "case": "two-root-cross-move",
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/1",
+          "body": {
+            "parent_id": 2,
+            "remark": "two-a"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/2",
+          "body": {
+            "parent_id": 1,
+            "remark": "two-b"
+          }
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.531\tNULL\t0\tc4-two-b\tc4-two-b\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 2,
+        "observed_waits": [
+          "134\t94\tidx_organizations_deleted_at\tX\tWAITING\tNULL, 1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX,REC_NOT_GAP\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        },
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 2,
+              "parent_id": 1,
+              "name": "c4-two-b",
+              "code": "c4-two-b",
+              "remark": "two-b",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "three-root-long-cycle",
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/3",
+          "body": {
+            "parent_id": 4,
+            "remark": "three-0"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/4",
+          "body": {
+            "parent_id": 5,
+            "remark": "three-1"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/5",
+          "body": {
+            "parent_id": 3,
+            "remark": "three-2"
+          }
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 0,
+        "4": 0,
+        "5": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.737\tNULL\t0\tc4-three-a\tc4-three-a\t\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.749\tNULL\t0\tc4-three-c\tc4-three-c\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 3,
+        "observed_waits": [
+          "134\t94\tidx_organizations_deleted_at\tX\tWAITING\tNULL, 1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX,REC_NOT_GAP\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "146\t106\tidx_organizations_deleted_at\tX\tWAITING\tNULL, 1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 3,
+              "parent_id": 4,
+              "name": "c4-three-a",
+              "code": "c4-three-a",
+              "remark": "three-0",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        },
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 5,
+              "parent_id": 3,
+              "name": "c4-three-c",
+              "code": "c4-three-c",
+              "remark": "three-2",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "deep-cross-branch-cycle",
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/6",
+          "body": {
+            "parent_id": 11,
+            "remark": "deep-left"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/9",
+          "body": {
+            "parent_id": 8,
+            "remark": "deep-right"
+          }
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 0,
+        "10": 9,
+        "11": 10
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.490\tNULL\t0\tc4-deep-right\tc4-deep-right\t\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 2,
+        "observed_waits": [
+          "134\t94\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        },
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 9,
+              "parent_id": 8,
+              "name": "c4-deep-right",
+              "code": "c4-deep-right",
+              "remark": "deep-right",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "create-child-versus-parent-delete",
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/admin/organizations",
+          "body": {
+            "name": "c4-created-child",
+            "code": "c4-created-child",
+            "parent_id": 12
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/organizations/12"
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 2,
+        "observed_waits": [
+          "134\t94\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 13,
+              "parent_id": 12,
+              "name": "c4-created-child",
+              "code": "c4-created-child",
+              "remark": "",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "move-child-versus-parent-delete",
+      "requests": [
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/15",
+          "body": {
+            "parent_id": 14,
+            "remark": "move-delete"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/organizations/14"
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.896\tNULL\t0\tc4-move-delete-node\tc4-move-delete-node\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 2,
+        "observed_waits": [
+          "134\t94\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 15,
+              "parent_id": 14,
+              "name": "c4-move-delete-node",
+              "code": "c4-move-delete-node",
+              "remark": "move-delete",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 14
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "create-child-versus-parent-move",
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/admin/organizations",
+          "body": {
+            "name": "c4-create-move-child",
+            "code": "c4-create-move-child",
+            "parent_id": 16
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/16",
+          "body": {
+            "parent_id": 17,
+            "remark": "create-move"
+          }
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 14,
+        "16": 0,
+        "17": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.031\tNULL\t0\tc4-create-move-parent\tc4-create-move-parent\t\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 2,
+        "observed_waits": [
+          "134\t94\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 18,
+              "parent_id": 16,
+              "name": "c4-create-move-child",
+              "code": "c4-create-move-child",
+              "remark": "",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 16,
+              "parent_id": 17,
+              "name": "c4-create-move-parent",
+              "code": "c4-create-move-parent",
+              "remark": "create-move",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 14,
+        "16": 17,
+        "17": 0,
+        "18": 16
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    },
+    {
+      "case": "three-writer-create-move-delete",
+      "requests": [
+        {
+          "method": "POST",
+          "path": "/api/admin/organizations",
+          "body": {
+            "name": "c4-triple-child",
+            "code": "c4-triple-child",
+            "parent_id": 19
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/20",
+          "body": {
+            "parent_id": 19,
+            "remark": "triple-move"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/organizations/19"
+        }
+      ],
+      "before_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 14,
+        "16": 17,
+        "17": 0,
+        "18": 16,
+        "19": 0,
+        "20": 0
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.042\tNULL\t0\tc4-triple-moving\tc4-triple-moving\t\t0\t1",
+      "controlled_barrier": {
+        "anchor_id": 1,
+        "writer_wait_count": 3,
+        "observed_waits": [
+          "134\t94\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "135\t95\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE",
+          "181\t141\tPRIMARY\tX\tWAITING\t1\tSELECT `id`,`parent_id` FROM `organizations` WHERE `organizations`.`deleted_at` IS NULL ORDER BY id asc FOR UPDATE"
+        ],
+        "note": "After the fix writers wait on current parent-graph locking reads, not both after stale validation at UPDATE."
+      },
+      "outcomes": [
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 21,
+              "parent_id": 19,
+              "name": "c4-triple-child",
+              "code": "c4-triple-child",
+              "remark": "",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 200,
+          "response": {
+            "code": 200,
+            "error_code": "",
+            "msg": "success",
+            "data": {
+              "id": 20,
+              "parent_id": 19,
+              "name": "c4-triple-moving",
+              "code": "c4-triple-moving",
+              "remark": "triple-move",
+              "sort": 0,
+              "status": 1
+            }
+          }
+        },
+        {
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          }
+        }
+      ],
+      "after_graph": {
+        "1": 0,
+        "2": 1,
+        "3": 4,
+        "4": 0,
+        "5": 3,
+        "6": 0,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10,
+        "12": 0,
+        "13": 12,
+        "14": 0,
+        "15": 14,
+        "16": 17,
+        "17": 0,
+        "18": 16,
+        "19": 0,
+        "20": 19,
+        "21": 19
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true
+    }
+  ],
+  "rejected_moves_full_own_row_checks": [
+    {
+      "case": "two-root-cross-move",
+      "target_id": 1,
+      "full_own_row_unchanged": true
+    },
+    {
+      "case": "three-root-long-cycle",
+      "target_id": 4,
+      "full_own_row_unchanged": true
+    },
+    {
+      "case": "deep-cross-branch-cycle",
+      "target_id": 6,
+      "full_own_row_unchanged": true
+    }
+  ],
+  "additional_native_checks": [
+    {
+      "case": "native-move-storage-failure",
+      "injected_constraint": "organizations CHECK (name <> 'c4.fail')",
+      "request": {
+        "method": "PUT",
+        "target_id": 23,
+        "body": {
+          "parent_id": 24,
+          "name": "c4.fail",
+          "remark": "must-rollback"
+        }
+      },
+      "http": 500,
+      "response": {
+        "code": 500,
+        "error_code": "ORG_INTERNAL_ERROR",
+        "msg": "organization operation failed",
+        "data": null
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1",
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1",
+      "all_rows_unchanged": true,
+      "driver_error_number_not_claimed": true
+    },
+    {
+      "case": "native-delete-fails-after-unit-and-membership-deletion",
+      "injected_constraint": "user_access_versions CHECK (version <= 1)",
+      "target_id": 27,
+      "member_user_id": 2,
+      "http": 500,
+      "response": {
+        "code": 500,
+        "error_code": "ORG_INTERNAL_ERROR",
+        "msg": "organization operation failed",
+        "data": null
+      },
+      "before_full_rows": {
+        "organizations": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1\n25\t2026-10-17 10:28:47.405\t2026-10-17 10:28:47.405\tNULL\t0\tc4-scope-ancestor\tc4-scope-ancestor\t\t0\t1\n26\t2026-10-17 10:28:47.418\t2026-10-17 10:28:47.418\tNULL\t25\tc4-scope-unit\tc4-scope-unit\t\t0\t1\n27\t2026-10-17 10:28:47.430\t2026-10-17 10:28:47.430\tNULL\t26\tc4-scope-child\tc4-scope-child\t\t0\t1",
+        "user_organizations": "2\t26\t2026-10-17 10:28:47.000\n2\t27\t2026-10-17 10:28:47.000",
+        "user_access_versions": "1\t1\t2026-10-17 10:24:10.498\t2026-10-17 10:24:10.498\n2\t1\t2026-10-17 10:28:47.930\t2026-10-17 10:28:47.930"
+      },
+      "after_full_rows": {
+        "organizations": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1\n25\t2026-10-17 10:28:47.405\t2026-10-17 10:28:47.405\tNULL\t0\tc4-scope-ancestor\tc4-scope-ancestor\t\t0\t1\n26\t2026-10-17 10:28:47.418\t2026-10-17 10:28:47.418\tNULL\t25\tc4-scope-unit\tc4-scope-unit\t\t0\t1\n27\t2026-10-17 10:28:47.430\t2026-10-17 10:28:47.430\tNULL\t26\tc4-scope-child\tc4-scope-child\t\t0\t1",
+        "user_organizations": "2\t26\t2026-10-17 10:28:47.000\n2\t27\t2026-10-17 10:28:47.000",
+        "user_access_versions": "1\t1\t2026-10-17 10:24:10.498\t2026-10-17 10:24:10.498\n2\t1\t2026-10-17 10:28:47.930\t2026-10-17 10:28:47.930"
+      },
+      "all_units_memberships_versions_unchanged": true,
+      "driver_error_number_not_claimed": true
+    },
+    {
+      "case": "real-scoped-actor-positioning-ancestor-and-root-zero",
+      "actor_id": 2,
+      "role_id": 3,
+      "data_scope": "org_and_children",
+      "explicitly_granted_route_permissions": [
+        "admin.organizations.tree.get",
+        "admin.organizations.id.put",
+        "admin.organizations.post",
+        "admin.organizations.id.delete"
+      ],
+      "tree_http": 200,
+      "tree_response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": [
+          {
+            "id": 25,
+            "parent_id": 0,
+            "name": "c4-scope-ancestor",
+            "code": "c4-scope-ancestor",
+            "remark": "",
+            "sort": 0,
+            "status": 1,
+            "manageable": false,
+            "children": [
+              {
+                "id": 26,
+                "parent_id": 25,
+                "name": "c4-scope-unit",
+                "code": "c4-scope-unit",
+                "remark": "",
+                "sort": 0,
+                "status": 1,
+                "manageable": true,
+                "children": [
+                  {
+                    "id": 27,
+                    "parent_id": 26,
+                    "name": "c4-scope-child",
+                    "code": "c4-scope-child",
+                    "remark": "",
+                    "sort": 0,
+                    "status": 1,
+                    "manageable": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "manageable_by_id": {
+        "25": false,
+        "26": true,
+        "27": true
+      },
+      "before_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1\n25\t2026-10-17 10:28:47.405\t2026-10-17 10:28:47.405\tNULL\t0\tc4-scope-ancestor\tc4-scope-ancestor\t\t0\t1\n26\t2026-10-17 10:28:47.418\t2026-10-17 10:28:47.418\tNULL\t25\tc4-scope-unit\tc4-scope-unit\t\t0\t1\n27\t2026-10-17 10:28:47.430\t2026-10-17 10:28:47.430\tNULL\t26\tc4-scope-child\tc4-scope-child\t\t0\t1",
+      "rejections": [
+        {
+          "method": "PUT",
+          "path": "/api/admin/organizations/25",
+          "body": {
+            "parent_id": 0
+          },
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          },
+          "full_rows_unchanged": true
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/admin/organizations/25",
+          "body": null,
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          },
+          "full_rows_unchanged": true
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/organizations",
+          "body": {
+            "name": "c4-rejected-ancestor",
+            "code": "c4-rejected-ancestor",
+            "parent_id": 25
+          },
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          },
+          "full_rows_unchanged": true
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/organizations",
+          "body": {
+            "name": "c4-rejected-root",
+            "code": "c4-rejected-root",
+            "parent_id": 0
+          },
+          "http": 422,
+          "response": {
+            "code": 422,
+            "error_code": "ORG_VALIDATION_INVALID",
+            "msg": "organization validation failed",
+            "data": null
+          },
+          "full_rows_unchanged": true
+        }
+      ],
+      "successful_manageable_move_to_root": {
+        "http": 200,
+        "response": {
+          "code": 200,
+          "error_code": "",
+          "msg": "success",
+          "data": {
+            "id": 26,
+            "parent_id": 0,
+            "name": "c4-scope-unit",
+            "code": "c4-scope-unit",
+            "remark": "scoped-root-move",
+            "sort": 0,
+            "status": 1
+          }
+        }
+      },
+      "after_full_rows": "1\t2026-10-17 10:24:10.526\t2026-10-17 10:24:10.526\tNULL\t0\tc4-two-a\tc4-two-a\t\t0\t1\n2\t2026-10-17 10:24:10.531\t2026-10-17 10:24:10.641\tNULL\t1\tc4-two-b\tc4-two-b\ttwo-b\t0\t1\n3\t2026-10-17 10:24:10.737\t2026-10-17 10:24:10.834\tNULL\t4\tc4-three-a\tc4-three-a\tthree-0\t0\t1\n4\t2026-10-17 10:24:10.744\t2026-10-17 10:24:10.744\tNULL\t0\tc4-three-b\tc4-three-b\t\t0\t1\n5\t2026-10-17 10:24:10.749\t2026-10-17 10:24:10.830\tNULL\t3\tc4-three-c\tc4-three-c\tthree-2\t0\t1\n6\t2026-10-17 10:24:41.428\t2026-10-17 10:24:41.428\tNULL\t0\tc4-deep-left\tc4-deep-left\t\t0\t1\n7\t2026-10-17 10:24:41.459\t2026-10-17 10:24:41.459\tNULL\t6\tc4-deep-left-child\tc4-deep-left-child\t\t0\t1\n8\t2026-10-17 10:24:41.483\t2026-10-17 10:24:41.483\tNULL\t7\tc4-deep-left-leaf\tc4-deep-left-leaf\t\t0\t1\n9\t2026-10-17 10:24:41.490\t2026-10-17 10:24:41.644\tNULL\t8\tc4-deep-right\tc4-deep-right\tdeep-right\t0\t1\n10\t2026-10-17 10:24:41.511\t2026-10-17 10:24:41.511\tNULL\t9\tc4-deep-right-child\tc4-deep-right-child\t\t0\t1\n11\t2026-10-17 10:24:41.540\t2026-10-17 10:24:41.540\tNULL\t10\tc4-deep-right-leaf\tc4-deep-right-leaf\t\t0\t1\n12\t2026-10-17 10:24:41.737\t2026-10-17 10:24:41.737\tNULL\t0\tc4-create-delete-parent\tc4-create-delete-parent\t\t0\t1\n13\t2026-10-17 10:24:41.818\t2026-10-17 10:24:41.818\tNULL\t12\tc4-created-child\tc4-created-child\t\t0\t1\n14\t2026-10-17 10:24:41.872\t2026-10-17 10:24:41.872\tNULL\t0\tc4-move-delete-parent\tc4-move-delete-parent\t\t0\t1\n15\t2026-10-17 10:24:41.896\t2026-10-17 10:24:41.974\tNULL\t14\tc4-move-delete-node\tc4-move-delete-node\tmove-delete\t0\t1\n16\t2026-10-17 10:24:42.031\t2026-10-17 10:24:42.125\tNULL\t17\tc4-create-move-parent\tc4-create-move-parent\tcreate-move\t0\t1\n17\t2026-10-17 10:24:42.038\t2026-10-17 10:24:42.038\tNULL\t0\tc4-create-move-destination\tc4-create-move-destination\t\t0\t1\n18\t2026-10-17 10:24:42.123\t2026-10-17 10:24:42.123\tNULL\t16\tc4-create-move-child\tc4-create-move-child\t\t0\t1\n19\t2026-10-17 10:27:59.007\t2026-10-17 10:27:59.007\tNULL\t0\tc4-triple-parent\tc4-triple-parent\t\t0\t1\n20\t2026-10-17 10:27:59.042\t2026-10-17 10:27:59.225\tNULL\t19\tc4-triple-moving\tc4-triple-moving\ttriple-move\t0\t1\n21\t2026-10-17 10:27:59.230\t2026-10-17 10:27:59.230\tNULL\t19\tc4-triple-child\tc4-triple-child\t\t0\t1\n22\t2026-10-17 10:27:59.296\t2026-10-17 10:27:59.296\tNULL\t0\tc4-fault-parent\tc4-fault-parent\t\t0\t1\n23\t2026-10-17 10:27:59.311\t2026-10-17 10:27:59.311\tNULL\t22\tc4-fault-target\tc4-fault-target\t\t0\t1\n24\t2026-10-17 10:27:59.351\t2026-10-17 10:27:59.351\tNULL\t0\tc4-fault-destination\tc4-fault-destination\t\t0\t1\n25\t2026-10-17 10:28:47.405\t2026-10-17 10:28:47.405\tNULL\t0\tc4-scope-ancestor\tc4-scope-ancestor\t\t0\t1\n26\t2026-10-17 10:28:47.418\t2026-10-17 10:28:48.475\tNULL\t0\tc4-scope-unit\tc4-scope-unit\tscoped-root-move\t0\t1\n27\t2026-10-17 10:28:47.430\t2026-10-17 10:28:47.430\tNULL\t26\tc4-scope-child\tc4-scope-child\t\t0\t1",
+      "global_acyclic_and_no_dangling_parent": true,
+      "create_root_all_scope_required_but_manageable_unit_move_root_zero_allowed": true
+    }
+  ],
+  "limits": [
+    "After repair writers wait at SELECT FOR UPDATE of the current parent graph, not both at the old post-validation UPDATE point.",
+    "Captured delete-vs-create/move races observed the child writer winning and delete rejection; this is not evidence for every possible scheduler order.",
+    "Positioning-ancestor and root-zero assertions are the existing rules, not newly expanded permission policy.",
+    "No process mutex, lock table, DDL/data migration, automatic retry, or I4 version-invalidation scope was added.",
+    "Production stop-write/all-instance switch and rollback are documented, not performed."
+  ],
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  }
+}

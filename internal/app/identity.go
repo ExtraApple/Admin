@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -74,7 +75,7 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 		service.ConfigureEmailVerification(emailVerification, sender)
 		emailVerification.ConfigureSender(sender)
 	}
-	access := &identityAccessManager{authorization: authorization, roles: authgorm.NewRepository(resources.DB), versions: authgorm.NewAccessVersions(resources.DB)}
+	access := &identityAccessManager{authorization: authorization, versions: authgorm.NewAccessVersions(resources.DB)}
 	users := identityapplication.NewUserService(core.repository, identitypassword.Bcrypt{}, platformdatabase.NewTransactionRunner(resources.DB), access)
 	adminUsers := identityapplication.NewAdminUserService(core.repository, access, organizations, platformdatabase.NewTransactionRunner(resources.DB))
 	if emailSender != nil {
@@ -100,6 +101,9 @@ func (adapter identityAuthorization) EnsureVersion(ctx context.Context, userID u
 func (adapter identityAuthorization) Snapshot(ctx context.Context, userID uint) (identitydomain.AccessSnapshot, error) {
 	snapshot, err := adapter.authorization.Snapshot(ctx, authdomain.Principal{UserID: userID})
 	if err != nil {
+		if errors.Is(err, authgorm.ErrAccessVersionNotFound) {
+			return identitydomain.AccessSnapshot{}, errors.Join(identityapplication.ErrAuthorizationVersionMissing, err)
+		}
 		return identitydomain.AccessSnapshot{}, err
 	}
 	return identitydomain.AccessSnapshot{Roles: append([]string(nil), snapshot.Roles...), Permissions: append([]string(nil), snapshot.Permissions...), Version: snapshot.Version}, nil
@@ -129,7 +133,6 @@ var _ identityapplication.NavigationReader = identityNavigation{}
 
 type identityAccessManager struct {
 	authorization *authapplication.Service
-	roles         *authgorm.Repository
 	versions      *authgorm.AccessVersions
 }
 
@@ -141,17 +144,25 @@ func (adapter *identityAccessManager) UserScope(ctx context.Context, userID uint
 	return identitydomain.UserScope{All: scope.All, UserIDs: append([]uint(nil), scope.UserIDs...)}, nil
 }
 
+func (adapter *identityAccessManager) ManagementUserScope(ctx context.Context, userID uint) (identitydomain.UserScope, error) {
+	scope, err := adapter.authorization.ResolveUserManagementScope(ctx, authdomain.Principal{UserID: userID})
+	if err != nil {
+		return identitydomain.UserScope{}, err
+	}
+	return identitydomain.UserScope{All: scope.All, UserIDs: scope.UserIDs}, nil
+}
+
 func (adapter *identityAccessManager) IncrementVersions(ctx context.Context, userIDs []uint) error {
 	return adapter.versions.Increment(ctx, userIDs)
 }
 
-func (adapter *identityAccessManager) IsAdministrator(ctx context.Context, userID uint) (bool, error) {
-	roles, err := adapter.roles.RolesForUser(ctx, userID)
+func (adapter *identityAccessManager) IsProtectedUser(ctx context.Context, operatorID, targetID uint) (bool, error) {
+	protected, err := adapter.authorization.ProtectedUserIDs(ctx, []uint{operatorID, targetID})
 	if err != nil {
 		return false, err
 	}
-	for _, role := range roles {
-		if role.Status == 1 && authdomain.IsProtectedRole(role.Code) {
+	for _, userID := range protected {
+		if userID == targetID {
 			return true, nil
 		}
 	}

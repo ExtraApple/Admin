@@ -62,6 +62,8 @@ func RoutesWithEmailVerification(service *application.Service, users *applicatio
 
 func routesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires time.Duration, verification *application.EmailVerificationService) []routecatalog.Descriptor {
 	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, logoutExpires: logoutExpires}
+	updateUser := permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{})
+	updateUser.OpenAPI.Description = "管理保护和邮箱禁写先校验；纯昵称变更及合法全同值更新不创建或提升授权版本，旧有效会话保持。真实已接受角色／状态变化仍与资料同事务失效一次；空请求拒绝。旧 role 字段不作为 RBAC 管理身份来源，Kick 和状态翻转不适用资料豁免。"
 	return []routecatalog.Descriptor{
 		identityRoute(http.MethodGet, "/api/captcha", "Generate Captcha", routecatalog.Public, handler.captchaHandler, nil, captchaResponse{}),
 		identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{}),
@@ -78,7 +80,7 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
 		identityRoute(http.MethodPost, "/api/user/logout", "Logout", routecatalog.Authenticated, handler.logout, nil, nil),
-		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{}),
+		updateUser,
 		permissionIdentityRoute(http.MethodDelete, "/api/admin/users/:id", "Delete User", "admin.users.id.delete", handler.deleteUser, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/status", "Toggle User Status", "admin.users.id.status.put", handler.toggleStatus, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/kick", "Kick User", "admin.users.id.kick.put", handler.kickUser, nil, nil),

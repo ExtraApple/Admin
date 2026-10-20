@@ -42,7 +42,7 @@ func TestRepositoryPersistsAuthorizationRelationsAndScopes(t *testing.T) {
 	if err != nil || len(page) != 1 || total != 2 {
 		t.Fatalf("permission page = %#v, total = %d, err = %v; want one of two", page, total, err)
 	}
-	if err := repository.ReplaceRoleUsers(ctx, role.ID, []uint{7, 7, 8}); err != nil {
+	if err := repository.ApplyRoleUserChanges(ctx, role.ID, []uint{7, 8}, nil); err != nil {
 		t.Fatalf("replace role users: %v", err)
 	}
 	if err := repository.ReplaceRolePermissions(ctx, role.ID, []uint{permission.ID, permission.ID}); err != nil {
@@ -99,13 +99,13 @@ func TestRepositoryListsAllAssignedRoleSummariesAndReplacesOnlyOneUser(t *testin
 	if err := repository.UpdateRole(ctx, disabled); err != nil {
 		t.Fatalf("disable role: %v", err)
 	}
-	if err := repository.ReplaceRoleUsers(ctx, first.ID, []uint{7}); err != nil {
+	if err := repository.ApplyRoleUserChanges(ctx, first.ID, []uint{7}, nil); err != nil {
 		t.Fatalf("assign first role: %v", err)
 	}
-	if err := repository.ReplaceRoleUsers(ctx, second.ID, []uint{7, 8}); err != nil {
+	if err := repository.ApplyRoleUserChanges(ctx, second.ID, []uint{7, 8}, nil); err != nil {
 		t.Fatalf("assign second role: %v", err)
 	}
-	if err := repository.ReplaceRoleUsers(ctx, disabled.ID, []uint{7}); err != nil {
+	if err := repository.ApplyRoleUserChanges(ctx, disabled.ID, []uint{7}, nil); err != nil {
 		t.Fatalf("assign disabled role: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestRepositoryListsAllAssignedRoleSummariesAndReplacesOnlyOneUser(t *testin
 		}
 	}
 
-	if err := repository.ReplaceUserRoles(ctx, 7, []uint{replacement.ID, replacement.ID}); err != nil {
+	if err := repository.ApplyUserRoleChanges(ctx, 7, []uint{replacement.ID}, []uint{first.ID, second.ID, disabled.ID}); err != nil {
 		t.Fatalf("replace user 7 roles: %v", err)
 	}
 	firstUserRoles, err := repository.RoleIDsByUser(ctx, 7)
@@ -138,6 +138,172 @@ func TestRepositoryListsAllAssignedRoleSummariesAndReplacesOnlyOneUser(t *testin
 	secondUserRoles, err := repository.RoleIDsByUser(ctx, 8)
 	if err != nil || len(secondUserRoles) != 1 || secondUserRoles[0] != second.ID {
 		t.Fatalf("user 8 role IDs = %#v, %v; want second role unchanged", secondUserRoles, err)
+	}
+}
+
+func TestRepositoryListsRolePagesInSortAndIDOrder(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(authgorm.Models()...); err != nil {
+		t.Fatalf("migrate authorization models: %v", err)
+	}
+	repository := authgorm.NewRepository(db)
+	ctx := context.Background()
+	roles := []authdomain.Role{
+		{Name: "Last", Code: "last", Sort: 30, Status: 1, DataScope: authdomain.DataScopeSelf},
+		{Name: "First tie", Code: "first-tie", Sort: 10, Status: 1, DataScope: authdomain.DataScopeSelf},
+		{Name: "Second tie", Code: "second-tie", Sort: 10, Status: 1, DataScope: authdomain.DataScopeSelf},
+		{Name: "Middle", Code: "middle", Sort: 20, Status: 1, DataScope: authdomain.DataScopeSelf},
+		{Name: "Third tie", Code: "third-tie", Sort: 10, Status: 1, DataScope: authdomain.DataScopeSelf},
+	}
+	for index := range roles {
+		if err := repository.CreateRole(ctx, &roles[index]); err != nil {
+			t.Fatalf("create role %q: %v", roles[index].Code, err)
+		}
+	}
+	for _, test := range []struct {
+		name   string
+		offset int
+		want   []uint
+	}{
+		{name: "first page", offset: 0, want: []uint{roles[1].ID, roles[2].ID}},
+		{name: "second page across tied sort", offset: 2, want: []uint{roles[4].ID, roles[3].ID}},
+		{name: "partial last page", offset: 4, want: []uint{roles[0].ID}},
+		{name: "exact end", offset: 5, want: []uint{}},
+		{name: "beyond end", offset: 6, want: []uint{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page, total, err := repository.ListRoles(ctx, test.offset, 2)
+			if err != nil {
+				t.Fatalf("list role page: %v", err)
+			}
+			if total != 5 || len(page) != len(test.want) {
+				t.Fatalf("role page = %#v, total = %d; want IDs %v and total 5", page, total, test.want)
+			}
+			for index, wantID := range test.want {
+				if page[index].ID != wantID {
+					t.Fatalf("role page[%d].ID = %d; want %d (sequence %v)", index, page[index].ID, wantID, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestRepositoryListsPermissionPagesInSortAndIDOrder(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(authgorm.Models()...); err != nil {
+		t.Fatalf("migrate authorization models: %v", err)
+	}
+	repository := authgorm.NewRepository(db)
+	ctx := context.Background()
+	permissions := make([]authdomain.Permission, 0, 5)
+	for _, fixture := range []struct {
+		code string
+		sort int
+	}{
+		{code: "page.last", sort: 30},
+		{code: "page.first-tie", sort: 10},
+		{code: "page.second-tie", sort: 10},
+		{code: "page.middle", sort: 20},
+		{code: "page.third-tie", sort: 10},
+	} {
+		code, err := authdomain.NewPermissionCode(fixture.code)
+		if err != nil {
+			t.Fatalf("create permission code: %v", err)
+		}
+		permission := authdomain.Permission{Name: fixture.code, Code: code, Sort: fixture.sort}
+		if err := repository.CreatePermission(ctx, &permission); err != nil {
+			t.Fatalf("create permission %q: %v", fixture.code, err)
+		}
+		permissions = append(permissions, permission)
+	}
+	for _, test := range []struct {
+		name   string
+		offset int
+		want   []uint
+	}{
+		{name: "first page", offset: 0, want: []uint{permissions[1].ID, permissions[2].ID}},
+		{name: "second page across tied sort", offset: 2, want: []uint{permissions[4].ID, permissions[3].ID}},
+		{name: "partial last page", offset: 4, want: []uint{permissions[0].ID}},
+		{name: "exact end", offset: 5, want: []uint{}},
+		{name: "beyond end", offset: 6, want: []uint{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page, total, err := repository.ListPermissions(ctx, test.offset, 2)
+			if err != nil {
+				t.Fatalf("list permission page: %v", err)
+			}
+			if total != 5 || len(page) != len(test.want) {
+				t.Fatalf("permission page = %#v, total = %d; want IDs %v and total 5", page, total, test.want)
+			}
+			for index, wantID := range test.want {
+				if page[index].ID != wantID {
+					t.Fatalf("permission page[%d].ID = %d; want %d (sequence %v)", index, page[index].ID, wantID, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestRepositoryListsAssignedPermissionsInSortAndIDOrder(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(authgorm.Models()...); err != nil {
+		t.Fatalf("migrate authorization models: %v", err)
+	}
+	repository := authgorm.NewRepository(db)
+	ctx := context.Background()
+	role := authdomain.Role{Name: "Ordered", Code: "ordered", Status: 1, DataScope: authdomain.DataScopeSelf}
+	emptyRole := authdomain.Role{Name: "Empty", Code: "empty", Status: 1, DataScope: authdomain.DataScopeSelf}
+	for _, fixture := range []*authdomain.Role{&role, &emptyRole} {
+		if err := repository.CreateRole(ctx, fixture); err != nil {
+			t.Fatalf("create role %q: %v", fixture.Code, err)
+		}
+	}
+	permissions := make([]authdomain.Permission, 0, 5)
+	for _, fixture := range []struct {
+		code string
+		sort int
+	}{
+		{code: "assigned.last", sort: 30},
+		{code: "assigned.first-tie", sort: 10},
+		{code: "assigned.middle", sort: 20},
+		{code: "assigned.second-tie", sort: 10},
+		{code: "unrelated.permission", sort: 5},
+	} {
+		code, err := authdomain.NewPermissionCode(fixture.code)
+		if err != nil {
+			t.Fatalf("create permission code: %v", err)
+		}
+		permission := authdomain.Permission{Name: fixture.code, Code: code, Sort: fixture.sort}
+		if err := repository.CreatePermission(ctx, &permission); err != nil {
+			t.Fatalf("create permission %q: %v", fixture.code, err)
+		}
+		permissions = append(permissions, permission)
+	}
+	if err := repository.ReplaceRolePermissions(ctx, role.ID, []uint{permissions[0].ID, permissions[3].ID, permissions[2].ID, permissions[1].ID}); err != nil {
+		t.Fatalf("assign permissions in non-sort order: %v", err)
+	}
+	if err := repository.ReplaceRolePermissions(ctx, emptyRole.ID, []uint{permissions[4].ID}); err != nil {
+		t.Fatalf("assign unrelated permission to another role: %v", err)
+	}
+	assigned, err := repository.PermissionsByRole(ctx, role.ID)
+	if err != nil {
+		t.Fatalf("list assigned permissions: %v", err)
+	}
+	want := []uint{permissions[1].ID, permissions[3].ID, permissions[2].ID, permissions[0].ID}
+	if len(assigned) != len(want) {
+		t.Fatalf("assigned permissions = %#v; want IDs %v", assigned, want)
+	}
+	for index, wantID := range want {
+		if assigned[index].ID != wantID {
+			t.Fatalf("assigned permission[%d].ID = %d; want %d (sequence %v)", index, assigned[index].ID, wantID, want)
+		}
+	}
+	if err := repository.ReplaceRolePermissions(ctx, emptyRole.ID, nil); err != nil {
+		t.Fatalf("clear other role permissions: %v", err)
+	}
+	empty, err := repository.PermissionsByRole(ctx, emptyRole.ID)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("unassigned role permissions = %#v, err = %v; want empty list", empty, err)
 	}
 }
 

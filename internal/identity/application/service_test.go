@@ -231,3 +231,34 @@ func TestAuthenticateUsesRuntimeAuthorizationAndRejectsRefreshPurpose(t *testing
 		t.Fatal("Authenticate() accepted refresh token")
 	}
 }
+
+type failingAuthorization struct {
+	authorizationFake
+	cause error
+}
+
+func (fake failingAuthorization) Snapshot(context.Context, uint) (domain.AccessSnapshot, error) {
+	return domain.AccessSnapshot{}, fake.cause
+}
+
+func TestAuthenticateSeparatesMissingAuthorizationVersionFromInfrastructureFailure(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		cause error
+		code  application.ErrorCode
+	}{
+		{"missing version", errors.Join(errors.New("snapshot failed"), application.ErrAuthorizationVersionMissing), application.CodeTokenInvalid},
+		{"infrastructure failure", errors.New("version query failed"), application.CodeInternalError},
+		{"same text without error identity", errors.New(application.ErrAuthorizationVersionMissing.Error()), application.CodeInternalError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeAccess}}
+			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, failingAuthorization{cause: test.cause}, tokens)
+			identity, err := service.Authenticate(context.Background(), "access")
+			code, _ := application.CodeOf(err)
+			if code != test.code || identity.UserID != 0 || !errors.Is(err, test.cause) {
+				t.Fatalf("Authenticate() = %#v, %v; code=%q want %q with original cause", identity, err, code, test.code)
+			}
+		})
+	}
+}

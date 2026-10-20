@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"admin/internal/identity/domain"
@@ -41,6 +42,20 @@ type UserDirectory interface {
 	ListUserIDs(context.Context) ([]uint, error)
 }
 
+// ManagementUserRecord distinguishes retained soft-deleted references without
+// widening the public user directory or exposing identity attributes.
+type ManagementUserRecord struct {
+	ID      uint
+	Deleted bool
+}
+
+// UserManagementReader returns current, ID-ordered locked identity facts inside
+// a caller transaction, including retained soft-deleted rows. The public
+// UserDirectory remains live-only and must not be used for lifecycle decisions.
+type UserManagementReader interface {
+	ManagementUsersByIDs(context.Context, []uint) ([]ManagementUserRecord, error)
+}
+
 type UserChanges struct {
 	Nickname             *string
 	Email                *string
@@ -69,8 +84,9 @@ type TransactionRunner interface {
 
 type AccessManager interface {
 	UserScope(context.Context, uint) (domain.UserScope, error)
+	ManagementUserScope(context.Context, uint) (domain.UserScope, error)
 	IncrementVersions(context.Context, []uint) error
-	IsAdministrator(context.Context, uint) (bool, error)
+	IsProtectedUser(context.Context, uint, uint) (bool, error)
 }
 
 type CaptchaVerifier interface {
@@ -93,6 +109,9 @@ type BlacklistStore interface {
 	Contains(context.Context, string) (bool, error)
 	Add(context.Context, string, time.Duration) error
 }
+
+// ErrAuthorizationVersionMissing excludes database and other infrastructure failures.
+var ErrAuthorizationVersionMissing = errors.New("authorization version missing")
 
 type AuthorizationReader interface {
 	EnsureVersion(context.Context, uint) (int, error)

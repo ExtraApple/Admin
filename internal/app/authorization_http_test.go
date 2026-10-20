@@ -168,3 +168,202 @@ func TestAuthorizationPermissionSyncConsumesStaticCatalog(t *testing.T) {
 		t.Fatal("Gin-only route was incorrectly synchronized")
 	}
 }
+
+func TestAuthorizationHTTPMenuUpdateKeepsBoundAPIsAndRoleGrantsConsistent(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		failAPIUpdate bool
+	}{
+		{name: "commits menu API and merged grants"},
+		{name: "API failure rolls back ordinary fields and linked facts", failAPIUpdate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// This fixture supplies test authentication and bypasses permission checks;
+			// these assertions cover App writes and reads, not production ACL enforcement.
+			fixture := newOrganizationJWTFixture(t)
+			create := func(path string, body map[string]any) map[string]any {
+				t.Helper()
+				data := fixture.post(path, body)
+				fixture.adminToken = fixture.token(fixture.admin)
+				return data
+			}
+			decodeData := func(response *httptest.ResponseRecorder, target any) {
+				t.Helper()
+				if response.Code != http.StatusOK {
+					t.Fatalf("HTTP status = %d body=%s", response.Code, response.Body.String())
+				}
+				var payload struct {
+					Data json.RawMessage `json:"data"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+					t.Fatalf("decode response envelope: %v", err)
+				}
+				if err := json.Unmarshal(payload.Data, target); err != nil {
+					t.Fatalf("decode response data: %v", err)
+				}
+			}
+			read := func(path string, target any) {
+				t.Helper()
+				decodeData(fixture.request(http.MethodGet, path, fixture.adminToken, nil), target)
+			}
+
+			const oldCode, newCode = "menu-linked.before", "menu-linked.after"
+			oldPermission := create("/api/admin/permissions", map[string]any{"name": "Before", "code": oldCode})
+			newPermission := create("/api/admin/permissions", map[string]any{"name": "After", "code": newCode})
+			oldPermissionID := uint(oldPermission["id"].(float64))
+			newPermissionID := uint(newPermission["id"].(float64))
+			menu := create("/api/admin/menus", map[string]any{
+				"name": "Before", "type": 3, "permission_code": oldCode, "sort": 4,
+			})
+			menuID := uint(menu["id"].(float64))
+			menuPath := "/api/admin/menus/" + itoa(menuID)
+			var apiIDs []uint
+			for _, path := range []string{"/api/menu-linked/first", "/api/menu-linked/second"} {
+				api := create("/api/admin/apis", map[string]any{
+					"name": "Linked API", "method": http.MethodGet, "path": path,
+					"permission_code": oldCode, "status": 1, "need_auth": 1,
+				})
+				apiIDs = append(apiIDs, uint(api["id"].(float64)))
+			}
+			assigned := fixture.request(http.MethodPost, menuPath+"/apis", fixture.adminToken, map[string]any{
+				"api_ids": apiIDs, "permission_code": oldCode,
+			})
+			if assigned.Code != http.StatusOK {
+				t.Fatalf("bind menu APIs status=%d body=%s", assigned.Code, assigned.Body.String())
+			}
+			fixture.adminToken = fixture.token(fixture.admin)
+
+			roles := []authgorm.Role{
+				{Name: "Old grant only", Code: "menu-old-only", Status: 1},
+				{Name: "Overlapping grants", Code: "menu-overlap", Status: 1},
+				{Name: "Destination grant only", Code: "menu-new-only", Status: 1},
+			}
+			if err := fixture.db.Create(&roles).Error; err != nil {
+				t.Fatalf("create grant roles: %v", err)
+			}
+			grants := []authgorm.RolePermission{
+				{RoleID: roles[0].ID, PermissionID: oldPermissionID},
+				{RoleID: roles[1].ID, PermissionID: oldPermissionID},
+				{RoleID: roles[1].ID, PermissionID: newPermissionID},
+				{RoleID: roles[2].ID, PermissionID: newPermissionID},
+			}
+			if err := fixture.db.Create(&grants).Error; err != nil {
+				t.Fatalf("create preexisting permission grants: %v", err)
+			}
+			if test.failAPIUpdate {
+				if err := fixture.db.Exec(`CREATE TRIGGER reject_menu_linked_code
+					BEFORE UPDATE OF permission_code ON apis
+					WHEN NEW.permission_code = 'menu-linked.after'
+					BEGIN SELECT RAISE(ABORT, 'API permission update rejected'); END`).Error; err != nil {
+					t.Fatalf("install API update failure: %v", err)
+				}
+			}
+
+			response := fixture.request(http.MethodPut, menuPath, fixture.adminToken, map[string]any{
+				"name": "After", "sort": 19, "permission_code": newCode,
+			})
+			type menuState struct {
+				ID             uint   `json:"id"`
+				Name           string `json:"name"`
+				Sort           int    `json:"sort"`
+				PermissionCode string `json:"permission_code"`
+			}
+			wantMenu := menuState{ID: menuID, Name: "After", Sort: 19, PermissionCode: newCode}
+			if test.failAPIUpdate {
+				if response.Code != http.StatusInternalServerError {
+					t.Fatalf("rejected menu update status=%d body=%s", response.Code, response.Body.String())
+				}
+				wantMenu = menuState{ID: menuID, Name: "Before", Sort: 4, PermissionCode: oldCode}
+			} else {
+				var returned menuState
+				decodeData(response, &returned)
+				if returned != wantMenu {
+					t.Fatalf("menu PUT response = %#v, want %#v", returned, wantMenu)
+				}
+			}
+			fixture.adminToken = fixture.token(fixture.admin)
+
+			var menus []menuState
+			read("/api/admin/menus", &menus)
+			if len(menus) != 1 || menus[0] != wantMenu {
+				t.Fatalf("persisted menus = %#v, want [%#v]", menus, wantMenu)
+			}
+			type apiState struct {
+				ID             uint   `json:"id"`
+				PermissionCode string `json:"permission_code"`
+			}
+			var bound []apiState
+			read(menuPath+"/apis", &bound)
+			if len(bound) != len(apiIDs) {
+				t.Fatalf("bound APIs = %#v, want IDs %v", bound, apiIDs)
+			}
+			seen := make(map[uint]bool, len(bound))
+			for _, api := range bound {
+				if seen[api.ID] || api.PermissionCode != wantMenu.PermissionCode {
+					t.Fatalf("bound APIs = %#v, want unique IDs %v with code %q", bound, apiIDs, wantMenu.PermissionCode)
+				}
+				seen[api.ID] = true
+			}
+			for _, id := range apiIDs {
+				if !seen[id] {
+					t.Fatalf("binding lost API %d: %#v", id, bound)
+				}
+				var persisted apiState
+				read("/api/admin/apis/"+itoa(id), &persisted)
+				if persisted.ID != id || persisted.PermissionCode != wantMenu.PermissionCode {
+					t.Fatalf("persisted API = %#v, want ID %d code %q", persisted, id, wantMenu.PermissionCode)
+				}
+			}
+
+			type permissionState struct {
+				ID   uint   `json:"id"`
+				Code string `json:"code"`
+			}
+			for index, role := range roles {
+				var permissions []permissionState
+				read("/api/admin/roles/"+itoa(role.ID)+"/permissions", &permissions)
+				want := map[uint]string{newPermissionID: newCode}
+				if test.failAPIUpdate {
+					switch index {
+					case 0:
+						want = map[uint]string{oldPermissionID: oldCode}
+					case 1:
+						want[oldPermissionID] = oldCode
+					}
+				}
+				if len(permissions) != len(want) {
+					t.Fatalf("role %q permissions = %#v, want %v", role.Code, permissions, want)
+				}
+				for _, permission := range permissions {
+					if code, ok := want[permission.ID]; !ok || code != permission.Code {
+						t.Fatalf("role %q permissions = %#v, want %v", role.Code, permissions, want)
+					}
+					delete(want, permission.ID)
+				}
+				if len(want) != 0 {
+					t.Fatalf("role %q missing permissions %v", role.Code, want)
+				}
+			}
+			var permissions struct {
+				List []permissionState `json:"list"`
+			}
+			read("/api/admin/permissions?size=100", &permissions)
+			wantPermissions := map[uint]string{newPermissionID: newCode}
+			if test.failAPIUpdate {
+				wantPermissions[oldPermissionID] = oldCode
+			}
+			if len(permissions.List) != len(wantPermissions) {
+				t.Fatalf("persisted permissions = %#v, want %v", permissions.List, wantPermissions)
+			}
+			for _, permission := range permissions.List {
+				if code, ok := wantPermissions[permission.ID]; !ok || code != permission.Code {
+					t.Fatalf("persisted permissions = %#v, want %v", permissions.List, wantPermissions)
+				}
+				delete(wantPermissions, permission.ID)
+			}
+			if len(wantPermissions) != 0 {
+				t.Fatalf("missing persisted permissions %v", wantPermissions)
+			}
+		})
+	}
+}

@@ -15,7 +15,9 @@ var ErrNotFound = errors.New("organization not found")
 
 type Repository interface {
 	MemberOrganizationIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberOrganizationIDs(context.Context, uint) ([]uint, error)
 	OrganizationParents(context.Context) ([]OrganizationParent, error)
+	LockOrganizationParents(context.Context) ([]OrganizationParent, error)
 	ListUnits(context.Context, int, int, string, *int, OrganizationScope) ([]Unit, int64, error)
 	ListAllUnits(context.Context) ([]Unit, error)
 	ListUnitsByIDs(context.Context, []uint) ([]Unit, error)
@@ -26,17 +28,27 @@ type Repository interface {
 	DeleteUnit(context.Context, *Unit) error
 	ChildCount(context.Context, uint) (int64, error)
 	MemberUserIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberUserIDs(context.Context, uint) ([]uint, error)
+	CurrentMemberUserIDsByOrganizations(context.Context, []uint) ([]uint, error)
 	MemberOrganizationMemberships(context.Context, uint) ([]MembershipFact, error)
 	UserOrganizationFacts(context.Context, []uint) ([]UserOrganizationFact, error)
-	ReplaceUserMemberships(context.Context, uint, []uint, []uint) error
+	ApplyUserMembershipDelta(context.Context, uint, []uint, []uint) error
 	DeleteMemberships(context.Context, uint) error
 	CreateMemberships(context.Context, []Membership) error
-	ReplaceMemberships(context.Context, uint, []uint) error
+	ApplyMembershipDelta(context.Context, uint, []uint, []uint) error
 }
 
 type OrganizationParent struct {
 	ID       uint
 	ParentID uint
+}
+
+type organizationParentsContextKey struct{}
+
+// withOrganizationParents reuses the locked graph only within its transaction.
+// Callers must not retain this context beyond the transaction callback.
+func withOrganizationParents(ctx context.Context, parents []OrganizationParent) context.Context {
+	return context.WithValue(ctx, organizationParentsContextKey{}, parents)
 }
 
 // MembershipFact is the caller-safe current membership record. JoinedAt is
@@ -68,6 +80,14 @@ func (repository *gormRepository) MemberOrganizationIDs(ctx context.Context, use
 	return organizationIDs, err
 }
 
+func (repository *gormRepository) CurrentMemberOrganizationIDs(ctx context.Context, userID uint) ([]uint, error) {
+	var ids []uint
+	err := repository.connection(ctx).Model(&Membership{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).
+		Order("organization_id asc").Pluck("organization_id", &ids).Error
+	return ids, err
+}
+
 func (repository *gormRepository) MemberOrganizationMemberships(ctx context.Context, userID uint) ([]MembershipFact, error) {
 	var records []MembershipFact
 	err := repository.connection(ctx).
@@ -92,36 +112,47 @@ func (repository *gormRepository) UserOrganizationFacts(ctx context.Context, use
 	return result, err
 }
 
-func (repository *gormRepository) ReplaceUserMemberships(ctx context.Context, userID uint, manageable, selected []uint) error {
+func (repository *gormRepository) ApplyUserMembershipDelta(ctx context.Context, userID uint, added, removed []uint) error {
 	db := repository.connection(ctx)
-	if len(manageable) > 0 {
-		query := db.Where("user_id = ? AND organization_id IN ?", userID, manageable)
-		if len(selected) > 0 {
-			query = query.Where("organization_id NOT IN ?", selected)
-		}
-		if err := query.Delete(&Membership{}).Error; err != nil {
+	if len(removed) > 0 {
+		if err := db.Where("user_id = ? AND organization_id IN ?", userID, removed).Delete(&Membership{}).Error; err != nil {
 			return err
 		}
 	}
-	if len(selected) == 0 {
+	if len(added) == 0 {
 		return nil
 	}
 	now := time.Now().UTC()
-	records := make([]Membership, len(selected))
-	for index, id := range selected {
+	records := make([]Membership, len(added))
+	for index, id := range added {
 		records[index] = Membership{UserID: userID, OrganizationID: id, CreatedAt: now}
 	}
-	return db.Clauses(clause.OnConflict{DoNothing: true}).Create(&records).Error
+	return db.Create(&records).Error
 }
 
-
 func (repository *gormRepository) OrganizationParents(ctx context.Context) ([]OrganizationParent, error) {
+	if organizations, ok := ctx.Value(organizationParentsContextKey{}).([]OrganizationParent); ok {
+		return organizations, nil
+	}
 	var organizations []OrganizationParent
 	err := repository.connection(ctx).
 		Model(&Unit{}).
 		Select("id", "parent_id").
 		Order("id asc").
 		Scan(&organizations).Error
+	return organizations, err
+}
+
+// LockOrganizationParents reads current topology rather than a repeatable-read
+// snapshot and holds its row locks until the context transaction completes.
+func (repository *gormRepository) LockOrganizationParents(ctx context.Context) ([]OrganizationParent, error) {
+	var organizations []OrganizationParent
+	err := repository.connection(ctx).
+		Model(&Unit{}).
+		Select("id", "parent_id").
+		Order("id asc").
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Find(&organizations).Error
 	return organizations, err
 }
 
@@ -208,6 +239,32 @@ func (repository *gormRepository) MemberUserIDs(ctx context.Context, unitID uint
 	return userIDs, err
 }
 
+func (repository *gormRepository) CurrentMemberUserIDs(ctx context.Context, unitID uint) ([]uint, error) {
+	var ids []uint
+	err := repository.connection(ctx).Model(&Membership{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).Where("organization_id = ?", unitID).
+		Order("user_id asc").Pluck("user_id", &ids).Error
+	return ids, err
+}
+
+// CurrentMemberUserIDsByOrganizations locks only memberships of the supplied
+// roots. Avoid DISTINCT so the current read locks the underlying relation rows.
+func (repository *gormRepository) CurrentMemberUserIDsByOrganizations(ctx context.Context, organizationIDs []uint) ([]uint, error) {
+	organizationIDs = uniqueIDs(organizationIDs)
+	if len(organizationIDs) == 0 {
+		return []uint{}, nil
+	}
+	var ids []uint
+	err := repository.connection(ctx).Model(&Membership{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("organization_id IN ?", organizationIDs).
+		Order("user_id asc, organization_id asc").Pluck("user_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return uniqueIDs(ids), nil
+}
+
 func (repository *gormRepository) DeleteMemberships(ctx context.Context, unitID uint) error {
 	return repository.connection(ctx).Where("organization_id = ?", unitID).Delete(&Membership{}).Error
 }
@@ -219,36 +276,21 @@ func (repository *gormRepository) CreateMemberships(ctx context.Context, members
 	return repository.connection(ctx).Create(&memberships).Error
 }
 
-// ReplaceMemberships preserves the membership record, and therefore its
-// JoinedAt, for every user that remains assigned to the organization.
-func (repository *gormRepository) ReplaceMemberships(ctx context.Context, unitID uint, userIDs []uint) error {
+// ApplyMembershipDelta leaves every retained membership and its JoinedAt untouched.
+func (repository *gormRepository) ApplyMembershipDelta(ctx context.Context, unitID uint, added, removed []uint) error {
 	db := repository.connection(ctx)
-	userIDs = uniqueMembershipUserIDs(userIDs)
-	if len(userIDs) == 0 {
-		return db.Where("organization_id = ?", unitID).Delete(&Membership{}).Error
-	}
-	if err := db.Where("organization_id = ? AND user_id NOT IN ?", unitID, userIDs).Delete(&Membership{}).Error; err != nil {
-		return err
-	}
-	memberships := make([]Membership, len(userIDs))
-	for index, userID := range userIDs {
-		memberships[index] = Membership{UserID: userID, OrganizationID: unitID}
-	}
-	return db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "user_id"}, {Name: "organization_id"}}, DoNothing: true}).Create(&memberships).Error
-}
-
-func uniqueMembershipUserIDs(userIDs []uint) []uint {
-	unique := make([]uint, 0, len(userIDs))
-	seen := make(map[uint]struct{}, len(userIDs))
-	for _, userID := range userIDs {
-		if userID == 0 {
-			continue
+	if len(removed) > 0 {
+		if err := db.Where("organization_id = ? AND user_id IN ?", unitID, removed).Delete(&Membership{}).Error; err != nil {
+			return err
 		}
-		if _, exists := seen[userID]; exists {
-			continue
-		}
-		seen[userID] = struct{}{}
-		unique = append(unique, userID)
 	}
-	return unique
+	if len(added) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	memberships := make([]Membership, len(added))
+	for index, userID := range added {
+		memberships[index] = Membership{UserID: userID, OrganizationID: unitID, CreatedAt: now}
+	}
+	return db.Create(&memberships).Error
 }

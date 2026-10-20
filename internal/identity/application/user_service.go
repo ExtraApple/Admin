@@ -26,7 +26,6 @@ type AdminUpdateUserRequest struct {
 	Status   *int
 }
 
-
 type UserService struct {
 	users                   UserManagementRepository
 	passwords               PasswordHasher
@@ -184,119 +183,119 @@ func (service *UserService) ChangePassword(ctx context.Context, userID uint, req
 	return nil
 }
 
-
 func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targetID uint, request AdminUpdateUserRequest) (domain.User, error) {
-	if operatorID == targetID {
-		return domain.User{}, NewError(CodeValidationInvalid, nil)
-	}
-	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
-		return domain.User{}, err
-	}
-	if request.Email != "" {
-		return domain.User{}, NewValidationError([]FieldError{{Field: "email", ErrorCode: "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE", Message: "administrator email changes use the identity email flow"}}, nil)
-	}
-	changes := UserChanges{}
-	if request.Nickname != "" {
-		value := request.Nickname
-		changes.Nickname = &value
-	}
-	if request.Role != "" {
-		value := request.Role
-		changes.Role = &value
-	}
-	changes.Status = request.Status
-	if changes.Nickname == nil && changes.Role == nil && changes.Status == nil {
-		return domain.User{}, NewError(CodeValidationInvalid, nil)
-	}
-	if err := service.transactions.Run(ctx, func(tx context.Context) error {
+	err := service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, user domain.User) error {
+		if request.Email != "" {
+			return NewValidationError([]FieldError{{Field: "email", ErrorCode: "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE", Message: "administrator email changes use the identity email flow"}}, nil)
+		}
+		if request.Nickname == "" && request.Role == "" && request.Status == nil {
+			return NewError(CodeValidationInvalid, nil)
+		}
+		var changes UserChanges
+		if request.Nickname != "" && request.Nickname != user.Nickname {
+			changes.Nickname = &request.Nickname
+		}
+		if request.Role != "" && request.Role != user.Role {
+			changes.Role = &request.Role
+		}
+		if request.Status != nil && *request.Status != user.Status {
+			changes.Status = request.Status
+		}
+		if changes.Nickname == nil && changes.Role == nil && changes.Status == nil {
+			return nil
+		}
 		if err := service.users.Update(tx, targetID, changes); err != nil {
 			return err
 		}
-		return service.access.IncrementVersions(tx, []uint{targetID})
-	}); err != nil {
-		return domain.User{}, NewError(CodeInternalError, err)
+		if changes.Role != nil || changes.Status != nil {
+			return service.access.IncrementVersions(tx, []uint{targetID})
+		}
+		return nil
+	})
+	if err != nil {
+		return domain.User{}, err
 	}
 	return service.Get(ctx, targetID)
 }
 
 func (service *UserService) Delete(ctx context.Context, operatorID, targetID uint) error {
-	if operatorID == targetID {
-		return NewError(CodeValidationInvalid, nil)
-	}
-	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
-		return err
-	}
-	if err := service.transactions.Run(ctx, func(tx context.Context) error {
+	return service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, _ domain.User) error {
 		if err := service.users.Delete(tx, targetID); err != nil {
 			return err
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
-	}); err != nil {
-		return NewError(CodeInternalError, err)
-	}
-	return nil
+	})
 }
 
 func (service *UserService) ToggleStatus(ctx context.Context, operatorID, targetID uint) (int, error) {
-	if operatorID == targetID {
-		return 0, NewError(CodeValidationInvalid, nil)
-	}
-	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
-		return 0, err
-	}
-	user, err := service.users.FindByID(ctx, targetID)
-	if err != nil {
-		return 0, ErrUserNotFound
-	}
-	status := 1
-	if user.Status == 1 {
-		status = 0
-	}
-	if err := service.transactions.Run(ctx, func(tx context.Context) error {
+	var status int
+	err := service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, user domain.User) error {
+		status = 1
+		if user.Status == 1 {
+			status = 0
+		}
 		if err := service.users.Update(tx, targetID, UserChanges{Status: &status}); err != nil {
 			return err
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
-	}); err != nil {
-		return 0, NewError(CodeInternalError, err)
+	})
+	if err != nil {
+		return 0, err
 	}
 	return status, nil
 }
 
 func (service *UserService) Kick(ctx context.Context, operatorID, targetID uint) error {
+	return service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, _ domain.User) error {
+		return service.access.IncrementVersions(tx, []uint{targetID})
+	})
+}
+
+func (service *UserService) mutateManagedTarget(ctx context.Context, operatorID, targetID uint, mutate func(context.Context, domain.User) error) error {
 	if operatorID == targetID {
 		return NewError(CodeValidationInvalid, nil)
 	}
-	if err := service.ensureManagedTarget(ctx, operatorID, targetID); err != nil {
-		return err
-	}
-	if err := service.transactions.Run(ctx, func(tx context.Context) error {
-		return service.access.IncrementVersions(tx, []uint{targetID})
-	}); err != nil {
+	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		user, err := service.ensureManagedTarget(tx, operatorID, targetID)
+		if err != nil {
+			return err
+		}
+		return mutate(tx, user)
+	})
+	if err != nil {
+		if _, classified := CodeOf(err); classified {
+			return err
+		}
 		return NewError(CodeInternalError, err)
 	}
 	return nil
 }
 
-func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID, targetID uint) error {
+func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID, targetID uint) (domain.User, error) {
 	if _, err := service.users.FindByID(ctx, targetID); err != nil {
-		return ErrUserNotFound
+		return domain.User{}, ErrUserNotFound
 	}
-	scope, err := service.access.UserScope(ctx, operatorID)
+	// Gather operator and target identity/role locks together before revisiting
+	// the target or resolving scope, so both checks use the same current facts.
+	protected, err := service.access.IsProtectedUser(ctx, operatorID, targetID)
 	if err != nil {
-		return NewError(CodeInternalError, err)
+		return domain.User{}, NewError(CodeInternalError, err)
+	}
+	user, err := service.users.FindByIDForUpdate(ctx, targetID)
+	if err != nil {
+		return domain.User{}, ErrUserNotFound
+	}
+	scope, err := service.access.ManagementUserScope(ctx, operatorID)
+	if err != nil {
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	if !scope.All && !containsUserID(scope.UserIDs, targetID) {
-		return NewError(CodePermissionDenied, nil)
+		return domain.User{}, NewError(CodePermissionDenied, nil)
 	}
-	administrator, err := service.access.IsAdministrator(ctx, targetID)
-	if err != nil {
-		return NewError(CodeInternalError, err)
+	if protected {
+		return domain.User{}, NewError(CodePermissionDenied, nil)
 	}
-	if administrator {
-		return NewError(CodePermissionDenied, nil)
-	}
-	return nil
+	return user, nil
 }
 
 func containsUserID(ids []uint, target uint) bool {

@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"admin/testsupport/testutil"
 	gormadapter "admin/internal/apimetadata/adapters/gorm"
 	"admin/internal/apimetadata/application"
+	platformdatabase "admin/internal/platform/database"
+	"admin/testsupport/testutil"
 )
 
 func TestCoreCreatesNormalizedAPIMetadataAndQueriesPolicy(t *testing.T) {
@@ -82,5 +83,5 @@ func newAPIMetadataCore(t *testing.T) *application.Core {
 	if err := db.AutoMigrate(gormadapter.Models()...); err != nil {
 		t.Fatalf("migrate API Metadata: %v", err)
 	}
-	return application.NewCore(gormadapter.NewRepository(db))
+	return application.NewCore(gormadapter.NewRepository(db), platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
 }

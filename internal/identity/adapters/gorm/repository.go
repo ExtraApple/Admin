@@ -46,6 +46,20 @@ func (repository *Repository) FindByID(ctx context.Context, userID uint) (domain
 	return toDomain(user), nil
 }
 
+func (repository *Repository) ManagementUsersByIDs(ctx context.Context, userIDs []uint) ([]application.ManagementUserRecord, error) {
+	records := []application.ManagementUserRecord{}
+	if len(userIDs) == 0 {
+		return records, nil
+	}
+	err := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Select("id, deleted_at IS NOT NULL AS deleted").
+		Where("id IN ?", userIDs).
+		Order("id asc").
+		Find(&records).Error
+	return records, err
+}
+
 func (repository *Repository) FindByIDForUpdate(ctx context.Context, userID uint) (domain.User, error) {
 	var user UserModel
 	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {

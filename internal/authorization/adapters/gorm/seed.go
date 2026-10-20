@@ -51,10 +51,17 @@ func defaultPermissionGroups() []seedPermissionGroup {
 
 func seedRoles(tx *gorm.DB) (int, error) {
 	created := 0
+	var existing []Role
+	if err := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("code IN ?", []string{"admin", "user"}).Order("id asc").Find(&existing).Error; err != nil {
+		return 0, err
+	}
+	byCode := make(map[string]Role, len(existing))
+	for _, role := range existing {
+		byCode[role.Code] = role
+	}
 	for _, item := range defaultRoles() {
-		var role Role
-		err := tx.Unscoped().Where("code = ?", item.Code).First(&role).Error
-		if err == nil {
+		role, found := byCode[item.Code]
+		if found {
 			updates := map[string]any{}
 			if role.DeletedAt.Valid {
 				updates["deleted_at"] = nil
@@ -71,9 +78,6 @@ func seedRoles(tx *gorm.DB) (int, error) {
 				}
 			}
 			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return created, err
 		}
 		role = Role{Name: item.Name, Code: item.Code, Description: item.Description, Sort: item.Sort, Status: item.Status, DataScope: item.DataScope}
 		if err := tx.Create(&role).Error; err != nil {
@@ -115,7 +119,7 @@ func SeedAdminRolePermissions(tx *gorm.DB) (int, error) {
 		return 0, err
 	}
 	var permissionIDs []uint
-	if err := tx.Model(&Permission{}).Pluck("id", &permissionIDs).Error; err != nil {
+	if err := tx.Model(&Permission{}).Clauses(clause.Locking{Strength: "UPDATE"}).Order("id asc").Pluck("id", &permissionIDs).Error; err != nil {
 		return 0, err
 	}
 	created := 0
@@ -133,6 +137,6 @@ func SeedAdminRolePermissions(tx *gorm.DB) (int, error) {
 
 func getRoleByCode(tx *gorm.DB, code string) (Role, error) {
 	var role Role
-	err := tx.Where("code = ? AND status = 1", code).First(&role).Error
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("code = ? AND status = 1", code).First(&role).Error
 	return role, err
 }

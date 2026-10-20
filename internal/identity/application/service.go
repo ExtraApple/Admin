@@ -244,6 +244,9 @@ func (service *Service) Authenticate(ctx context.Context, token string) (Authent
 	}
 	snapshot, err := service.authorization.Snapshot(ctx, claims.UserID)
 	if err != nil {
+		if errors.Is(err, ErrAuthorizationVersionMissing) {
+			return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, err)
+		}
 		return AuthenticatedIdentity{}, NewError(CodeInternalError, err)
 	}
 	if claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {

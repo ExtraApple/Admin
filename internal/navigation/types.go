@@ -11,6 +11,7 @@ type Menu struct {
 	Sort           int
 	Type           int
 	Status         int
+	Deleted        bool
 }
 
 type MenuDetail struct {
@@ -36,15 +37,15 @@ type CreateInput struct {
 	PermissionCode string
 	Sort           int
 	Type           int
-	Status         int
+	Status         *int
 }
 
 type UpdateInput struct {
 	ParentID       *uint
-	Name           string
-	Path           string
-	Component      string
-	Icon           string
+	Name           *string
+	Path           *string
+	Component      *string
+	Icon           *string
 	PermissionCode *string
 	Sort           *int
 	Type           *int
@@ -74,6 +75,14 @@ type APIRecord struct {
 	NeedAuth       int
 	NeedAudit      int
 	Remark         string
+	Deleted        bool
+}
+
+// APIPermissionSyncTarget preserves the API sync's original business order and
+// resolved code while Navigation prepares the whole request's lock targets.
+type APIPermissionSyncTarget struct {
+	API  APIRecord
+	Code string
 }
 
 type RoleMenuAssignment struct {

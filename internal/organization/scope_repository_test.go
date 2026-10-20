@@ -2,6 +2,7 @@ package organization_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"admin/internal/organization"
@@ -53,5 +54,34 @@ func TestScopeReaderListsAllOrganizationIDsForSystemWideAudience(t *testing.T) {
 	ids, err := reader.AllOrganizationIDs(context.Background())
 	if err != nil || len(ids) != 2 || ids[0] == 0 || ids[1] == 0 || ids[0] == ids[1] {
 		t.Fatalf("AllOrganizationIDs() = %#v, %v", ids, err)
+	}
+}
+
+func TestScopeReaderReturnsOnlySortedUniqueCurrentMembersOfRequestedRoots(t *testing.T) {
+	fixture := newTopologyFixture(t)
+	ctx := context.Background()
+	if err := fixture.repository.CreateMemberships(ctx, []organization.Membership{
+		{UserID: 40, OrganizationID: fixture.child.ID},
+		{UserID: 20, OrganizationID: fixture.root.ID},
+		{UserID: 40, OrganizationID: fixture.root.ID},
+		{UserID: 10, OrganizationID: fixture.outside.ID},
+		{UserID: 30, OrganizationID: fixture.child.ID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reader := organization.NewScopeReader(fixture.repository, organization.NewHierarchy(fixture.repository))
+	for _, test := range []struct {
+		roots []uint
+		want  []uint
+	}{
+		{[]uint{fixture.child.ID, fixture.root.ID, fixture.child.ID, 0}, []uint{20, 30, 40}},
+		{[]uint{fixture.leaf.ID}, []uint{}},
+		{[]uint{0}, []uint{}},
+		{nil, []uint{}},
+	} {
+		got, err := reader.CurrentMemberUserIDsByOrganizations(ctx, test.roots)
+		if err != nil || !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("current members for %v = %v, %v; want %v", test.roots, got, err, test.want)
+		}
 	}
 }

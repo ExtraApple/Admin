@@ -1,0 +1,497 @@
+{
+  "change": "fix-menu-api-code-consistency",
+  "verified_on": "2026-10-16",
+  "status": "implementation_verified_not_archived",
+  "prerequisite": {
+    "change": "fix-menu-api-binding-id-validation",
+    "implemented_and_verified": true,
+    "main_spec_synced_with_user_authorization": true,
+    "all_18_main_specs_strictly_validated": true
+  },
+  "historical_failure_evidence": "docs/reviews/evidence/c6b-authorization-writes-2026-10-14.json (C3)",
+  "implementation_files": [
+    "internal/navigation/service.go",
+    "internal/navigation/service_test.go",
+    "internal/app/authorization_http_test.go"
+  ],
+  "environment": {
+    "program": "original main.go, real captcha/login/JWT and permissions, native MySQL/Redis/MinIO",
+    "new_go_probe": false,
+    "schema": "admin_apply_c3_e2a5ccaaa845",
+    "mysql_and_isolation": "8.0.19\tREPEATABLE-READ",
+    "redis": "8.0.5",
+    "ports": {
+      "http": 28083,
+      "redis": 26383,
+      "minio": 29003,
+      "console": 29103,
+      "delve": 28883
+    },
+    "shared_admin_schema_written": false
+  },
+  "checks": {
+    "command": "go test ./internal/navigation ./internal/apimetadata/... ./internal/app/...",
+    "exit_code": 0,
+    "output": [
+      "ok admin/internal/navigation 4.115s",
+      "ok admin/internal/apimetadata/adapters/gorm (cached)",
+      "ok admin/internal/apimetadata/adapters/http (cached)",
+      "ok admin/internal/apimetadata/application (cached)",
+      "? admin/internal/apimetadata/domain [no test files]",
+      "ok admin/internal/app 50.508s",
+      "ok admin/internal/app/seeddata (cached)"
+    ],
+    "permanent_consumer_regressions": [
+      "Real SQLite App menu PUT keeps two bound API codes and IDs consistent; old-only/overlapping/destination-only grants merge and deduplicate; obsolete permission cleanup.",
+      "Actual local API update trigger failure rolls back ordinary fields and linked facts.",
+      "Public Service covers existing code reuse, automatic derivation, conflicting-code refusal rollback, unbound replacement/clear, omitted-code ordinary update."
+    ],
+    "limits": "Existing App JWT/permission overrides and Navigation collaborator fakes are local proof only; native composed program scenarios below establish real ACL/token/backend behavior."
+  },
+  "projection_method": {
+    "tables_and_order": {
+      "menus": "id",
+      "apis": "id",
+      "menu_apis": "menu_id,api_id",
+      "permissions": "id",
+      "role_permissions": "role_id,permission_id",
+      "user_access_versions": "user_id"
+    },
+    "comparison": "Every column selected in stable primary/composite-key order under utf8mb4; complete row arrays compared before/after each fault. Current saved fingerprints hash UTF-8 LF-joined rows with one trailing LF.",
+    "historical_digest_limit": "In-memory per-fault digests were lost with the executor. Passed comparison assertions and observed checkpoint facts were recovered from actual tool results; no historical digest bytes reconstructed."
+  },
+  "native_failure_observations": {
+    "cases": [
+      {
+        "case": "API-code-stage",
+        "http": 500,
+        "error_code": "NAV_INTERNAL_ERROR",
+        "native_mysql_error": 3819,
+        "six_complete_projection_rows_compared_equal": true,
+        "record_source": "Previously successful actual execution and assertions; not rerun after executor state loss."
+      },
+      {
+        "case": "permission-create-stage",
+        "http": 500,
+        "error_code": "NAV_INTERNAL_ERROR",
+        "native_mysql_error": 3819,
+        "six_complete_projection_rows_compared_equal": true,
+        "record_source": "Previously successful actual execution and assertions; not rerun after executor state loss."
+      },
+      {
+        "case": "role-grant-stage",
+        "http": 500,
+        "error_code": "NAV_INTERNAL_ERROR",
+        "native_mysql_error": 3819,
+        "six_complete_projection_rows_compared_equal": true,
+        "record_source": "Previously successful actual execution and assertions; not rerun after executor state loss."
+      },
+      {
+        "case": "second-user-version-stage",
+        "http": 500,
+        "error_code": "NAV_INTERNAL_ERROR",
+        "native_mysql_error": 3819,
+        "six_complete_projection_rows_compared_equal": true,
+        "wait": "219\t179\tuser_access_versions\tPRIMARY\tX,REC_NOT_GAP\tWAITING\t2\tSELECT * FROM `user_access_versions` WHERE user_id = ? ORDER BY `user_access_versions`.`user_id` LIMIT ? FOR UPDATE",
+        "uncommitted_checkpoint": {
+          "versions": "1\t8\n2\t8\n3\t7",
+          "menu_api_codes": "11\tc3.fail-version\n127\tc3.fail-version\n128\tc3.fail-version",
+          "observer": "Separate READ UNCOMMITTED session; not committed state."
+        },
+        "record_source": "Previously successful actual execution and assertions; historical in-memory fingerprints were lost, not regenerated."
+      }
+    ],
+    "readable_initial_facts": {
+      "menu": "11\tC3 original\t4\tc3.old",
+      "apis": "127\tc3.old\n128\tc3.old",
+      "bindings": "11\t127\n11\t128",
+      "permissions": "106\tc3.old\n107\tc3.new\n108\tc3.fail-role",
+      "grants": "3\t106\tc3.old\n4\t106\tc3.old\n4\t107\tc3.new",
+      "versions": "1\t7\n2\t8\n3\t7"
+    },
+    "recovery_time_persisted_projection_fingerprints": {
+      "menus": {
+        "row_count": 12,
+        "sha256": "8372bc7479ac6d191f9f083da080c8684c3e9c7022d429c41a4b187b639b0c29"
+      },
+      "apis": {
+        "row_count": 128,
+        "sha256": "b4b62052260eeddd8179c0baafbb3334aef3cb8b3c03a498d16b584132940419"
+      },
+      "menu_apis": {
+        "row_count": 2,
+        "sha256": "6313ff090d1a8df9e08139181a3b58e5e9068396a29d4293fdcec510483b8a67"
+      },
+      "permissions": {
+        "row_count": 108,
+        "sha256": "b08f5127795dda5474a8bd91aec5e6b001a1b0c6072638a7b6fc5b345bbe6977"
+      },
+      "role_permissions": {
+        "row_count": 108,
+        "sha256": "f105ac608046e08b2c382257f171938765a546f363bdc06451c49ddd1f4f362e"
+      },
+      "user_access_versions": {
+        "row_count": 3,
+        "sha256": "f999c4aada436fada5ec9503190efdcd2e3fce63d3e22242cf91778c895a4398"
+      }
+    },
+    "interruption_note": "Evaluator namespace and owned child processes disappeared; no historical digest bytes fabricated. All four native failure checks had already passed. This file reconstructs their observed assertions from transcript results."
+  },
+  "native_success": {
+    "request": {
+      "name": "C3 renamed",
+      "sort": 19,
+      "permission_code": "c3.new"
+    },
+    "http": 200,
+    "response": {
+      "code": 200,
+      "error_code": "",
+      "msg": "success",
+      "data": {
+        "id": 11,
+        "parent_id": 0,
+        "name": "C3 renamed",
+        "path": "",
+        "component": "",
+        "icon": "",
+        "permission_code": "c3.new",
+        "sort": 19,
+        "type": 3,
+        "status": 1
+      }
+    },
+    "before_facts": {
+      "menu": "11\tC3 original\t4\tc3.old",
+      "apis": "127\tc3.old\n128\tc3.old",
+      "bindings": "11\t127\n11\t128",
+      "permissions": "106\tc3.old\n107\tc3.new\n108\tc3.fail-role",
+      "grants": "3\t106\tc3.old\n4\t106\tc3.old\n4\t107\tc3.new",
+      "versions": "1\t7\n2\t8\n3\t7"
+    },
+    "after_facts": {
+      "menu": "11\tC3 renamed\t19\tc3.new",
+      "apis": "127\tc3.new\n128\tc3.new",
+      "bindings": "11\t127\n11\t128",
+      "permissions": "106\tc3.old\n107\tc3.new\n108\tc3.fail-role",
+      "grants": "3\t107\tc3.new\n4\t107\tc3.new",
+      "versions": "1\t8\n2\t9\n3\t8"
+    },
+    "before_projections": {
+      "menus": {
+        "row_count": 12,
+        "sha256": "8372bc7479ac6d191f9f083da080c8684c3e9c7022d429c41a4b187b639b0c29"
+      },
+      "apis": {
+        "row_count": 128,
+        "sha256": "2ce62cc785057229a9df31caddfd18ef549f206155afb52278cc615c0b6482e1"
+      },
+      "menu_apis": {
+        "row_count": 2,
+        "sha256": "6313ff090d1a8df9e08139181a3b58e5e9068396a29d4293fdcec510483b8a67"
+      },
+      "permissions": {
+        "row_count": 108,
+        "sha256": "b08f5127795dda5474a8bd91aec5e6b001a1b0c6072638a7b6fc5b345bbe6977"
+      },
+      "role_permissions": {
+        "row_count": 111,
+        "sha256": "7c2bf3938d139091743569218af48e2d52b95fa9218e3adaaa73e40bcf4b1eb9"
+      },
+      "user_access_versions": {
+        "row_count": 3,
+        "sha256": "f999c4aada436fada5ec9503190efdcd2e3fce63d3e22242cf91778c895a4398"
+      }
+    },
+    "after_projections": {
+      "menus": {
+        "row_count": 12,
+        "sha256": "1f2fae09967940625e17d3b01d66a571554514d0826183b1f129129abb7bdc67"
+      },
+      "apis": {
+        "row_count": 128,
+        "sha256": "2bf4ab01d2dbbb9ff3b09ce2ab6e22c158b86ff2e330da772bc382751b5c6b53"
+      },
+      "menu_apis": {
+        "row_count": 2,
+        "sha256": "6313ff090d1a8df9e08139181a3b58e5e9068396a29d4293fdcec510483b8a67"
+      },
+      "permissions": {
+        "row_count": 108,
+        "sha256": "b08f5127795dda5474a8bd91aec5e6b001a1b0c6072638a7b6fc5b345bbe6977"
+      },
+      "role_permissions": {
+        "row_count": 109,
+        "sha256": "c5539b54ecd0f8aa66886b16d38c1b73b72ac0ef1acf792a9db713047bd209a5"
+      },
+      "user_access_versions": {
+        "row_count": 3,
+        "sha256": "68aa86f4cc6eadb9f38041de3caf01b4dc4949e74e06948e0fa0fad482dada0d"
+      }
+    },
+    "binding_ids_unchanged": true,
+    "destination_grants_merged_deduplicated": true,
+    "referenced_old_permission_retained": true,
+    "version_increment_once_per_user": true,
+    "old_token_rejections": {
+      "a": {
+        "access_http": 401,
+        "access_error": "AUTHN_TOKEN_INVALID",
+        "refresh_http": 401,
+        "refresh_error": "AUTHN_REFRESH_TOKEN_INVALID",
+        "access_accepted_immediately_before_update": true,
+        "tokens_unexpired_at_update": true,
+        "expiry": {
+          "access": 1792206705,
+          "refresh": 1792210305
+        }
+      },
+      "b": {
+        "access_http": 401,
+        "access_error": "AUTHN_TOKEN_INVALID",
+        "refresh_http": 401,
+        "refresh_error": "AUTHN_REFRESH_TOKEN_INVALID",
+        "access_accepted_immediately_before_update": true,
+        "tokens_unexpired_at_update": true,
+        "expiry": {
+          "access": 1792206705,
+          "refresh": 1792210305
+        }
+      }
+    },
+    "public_grant_reads": [
+      {
+        "role_id": 3,
+        "http": 200,
+        "permission_ids": [
+          107
+        ]
+      },
+      {
+        "role_id": 4,
+        "http": 200,
+        "permission_ids": [
+          107
+        ]
+      }
+    ],
+    "fixture_recovery": "Original processes restarted after executor loss, same binary/config/schema; owned ordinary-user hashes copied from owned admin only to restore known login credentials before issuing fresh pre-update JWTs. No product password/reset behavior claim."
+  },
+  "preserved_boundaries": [
+    {
+      "case": "unreferenced-old-permission-cleanup",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 11,
+          "parent_id": 0,
+          "name": "C3 renamed",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "c3.final",
+          "sort": 19,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "obsolete_permission_id": 107,
+      "obsolete_permission_rows_after": 0,
+      "referenced_old_permission_id": 106,
+      "referenced_old_permission_retained": true,
+      "final_permission_id": 111,
+      "facts": {
+        "menu": "11\tC3 renamed\t19\tc3.final",
+        "apis": "127\tc3.final\n128\tc3.final",
+        "bindings": "11\t127\n11\t128",
+        "permissions": "106\tc3.old\n108\tc3.fail-role\n111\tc3.final",
+        "grants": "3\t111\tc3.final\n4\t111\tc3.final",
+        "versions": "1\t9\n2\t10\n3\t9"
+      }
+    },
+    {
+      "case": "permission-code-omitted",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 11,
+          "parent_id": 0,
+          "name": "C3 name only",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "c3.final",
+          "sort": 19,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "API_binding_permission_grant_rows_unchanged": true
+    },
+    {
+      "case": "bound-explicit-empty-reuses-existing-code",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 11,
+          "parent_id": 0,
+          "name": "C3 empty resolved",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "c3.final",
+          "sort": 19,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "binding_ids_unchanged": true
+    },
+    {
+      "case": "unbound-code-replacement",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 12,
+          "parent_id": 0,
+          "name": "C3 old reference",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "c3.unbound",
+          "sort": 0,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "no_API_binding_permission_grant_changes": true
+    },
+    {
+      "case": "unbound-code-clear",
+      "http": 200,
+      "response": {
+        "code": 200,
+        "error_code": "",
+        "msg": "success",
+        "data": {
+          "id": 12,
+          "parent_id": 0,
+          "name": "C3 old reference",
+          "path": "",
+          "component": "",
+          "icon": "",
+          "permission_code": "",
+          "sort": 0,
+          "type": 3,
+          "status": 1
+        }
+      },
+      "no_API_binding_permission_grant_changes": true
+    },
+    {
+      "case": "bound-empty-conflicting-existing-codes",
+      "http": 422,
+      "response": {
+        "code": 422,
+        "error_code": "NAV_VALIDATION_INVALID",
+        "msg": "navigation validation failed",
+        "data": null
+      },
+      "fixture": "Owned API128 code temporarily differs from API127 to exercise existing resolver refusal.",
+      "before": {
+        "menus": {
+          "row_count": 12,
+          "sha256": "8e9b9a1e56cca511c7747f26e38e8d2bd76ec9dec5e1c20c6d6dca0feff32cde"
+        },
+        "apis": {
+          "row_count": 128,
+          "sha256": "d4e394c0c8239cb9a36aa6c3e4f144651162ef49ad86f2899014221d4fce0ba2"
+        },
+        "menu_apis": {
+          "row_count": 2,
+          "sha256": "6313ff090d1a8df9e08139181a3b58e5e9068396a29d4293fdcec510483b8a67"
+        },
+        "permissions": {
+          "row_count": 108,
+          "sha256": "1c4b867d746ba029f5eb1e710b2b409bd606705234f1d4b1c6623bfc584d9279"
+        },
+        "role_permissions": {
+          "row_count": 109,
+          "sha256": "87bc99461f7650ff3df2ccdef65ac2e09e25f0918287133ad1bec71724a74420"
+        },
+        "user_access_versions": {
+          "row_count": 3,
+          "sha256": "6be1588f787bbaec0ab6e6fd4aa1b1c0e33d0ec894e53f2139a79be90ff9c75e"
+        }
+      },
+      "after": {
+        "menus": {
+          "row_count": 12,
+          "sha256": "8e9b9a1e56cca511c7747f26e38e8d2bd76ec9dec5e1c20c6d6dca0feff32cde"
+        },
+        "apis": {
+          "row_count": 128,
+          "sha256": "d4e394c0c8239cb9a36aa6c3e4f144651162ef49ad86f2899014221d4fce0ba2"
+        },
+        "menu_apis": {
+          "row_count": 2,
+          "sha256": "6313ff090d1a8df9e08139181a3b58e5e9068396a29d4293fdcec510483b8a67"
+        },
+        "permissions": {
+          "row_count": 108,
+          "sha256": "1c4b867d746ba029f5eb1e710b2b409bd606705234f1d4b1c6623bfc584d9279"
+        },
+        "role_permissions": {
+          "row_count": 109,
+          "sha256": "87bc99461f7650ff3df2ccdef65ac2e09e25f0918287133ad1bec71724a74420"
+        },
+        "user_access_versions": {
+          "row_count": 3,
+          "sha256": "6be1588f787bbaec0ab6e6fd4aa1b1c0e33d0ec894e53f2139a79be90ff9c75e"
+        }
+      },
+      "six_full_projection_rows_unchanged": true
+    }
+  ],
+  "final_readable_facts": {
+    "menu": "11\tC3 empty resolved\t19\tc3.final",
+    "apis": "127\tc3.final\n128\tc3.final",
+    "bindings": "11\t127\n11\t128",
+    "permissions": "106\tc3.old\n108\tc3.fail-role\n111\tc3.final",
+    "grants": "3\t111\tc3.final\n4\t111\tc3.final",
+    "versions": "1\t13\n2\t14\n3\t13"
+  },
+  "limits": [
+    "All four native failure stages passed before executor namespace loss. No known failure scenario was rerun merely to rebuild lost client variables.",
+    "Owned child processes were absent and owned ports closed after the interruption; the same original binary/config/schema were restarted. This is not classified as a product defect.",
+    "Owned ordinary-user credentials were restored only as fixture data to issue fresh real, unexpired pre-update JWTs; no product password-reset claim.",
+    "Target metadata API records are real CRUD-created records; no installed HTTP handlers are claimed for /api/c3-first or /api/c3-second.",
+    "Only existing direct binding behavior is covered, not full S3 multi-menu graph or new migration/empty-code policy.",
+    "C1 prerequisite was synced independently; this C3 delta remains unsynced, and no change was archived, committed or pushed."
+  ],
+  "teardown": {
+    "schema_removed": true,
+    "all_owned_processes_stopped": true,
+    "ports_closed": {
+      "http": true,
+      "redis": true,
+      "minio": true,
+      "console": true,
+      "delve": true
+    },
+    "private_runtime_directory_removed": true,
+    "read_only_batch_tool_cache_retained": true
+  }
+}

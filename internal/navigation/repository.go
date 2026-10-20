@@ -3,6 +3,8 @@ package navigation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 
 	platformdatabase "admin/internal/platform/database"
 
@@ -14,13 +16,16 @@ var ErrMenuNotFound = errors.New("菜单不存在")
 
 type Repository interface {
 	ListMenus(context.Context, bool) ([]Menu, error)
+	CountMenusByIDs(context.Context, []uint) (int64, error)
 	FindMenu(context.Context, uint) (Menu, error)
 	LockMenu(context.Context, uint) (Menu, error)
-	FindMenuByPath(context.Context, string) (Menu, bool, error)
+	ListByPermissionCode(context.Context, string) ([]Menu, error)
+	LockDependencies(context.Context, []uint, []string) ([]Menu, error)
+	LockMenusByPaths(context.Context, []string) ([]Menu, error)
 	PathExists(context.Context, string, uint) (bool, error)
 	CreateMenu(context.Context, *Menu) error
 	UpdateMenu(context.Context, uint, map[string]any) error
-	ChildCount(context.Context, uint) (int64, error)
+	LockMenuDeletionTargets(context.Context, uint) ([]Menu, error)
 	DeleteMenu(context.Context, uint) error
 	ReplaceRoleMenus(context.Context, uint, []uint) error
 	MenuIDsByRoleIDs(context.Context, []uint) ([]uint, error)
@@ -52,6 +57,15 @@ func (repository *GORMRepository) ListMenus(ctx context.Context, enabledOnly boo
 	}
 	return menuModelsToDomain(records), nil
 }
+
+func (repository *GORMRepository) CountMenusByIDs(ctx context.Context, menuIDs []uint) (int64, error) {
+	if len(menuIDs) == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := repository.connection(ctx).Model(&MenuModel{}).Where("id IN ?", menuIDs).Count(&count).Error
+	return count, err
+}
 func (repository *GORMRepository) FindMenu(ctx context.Context, id uint) (Menu, error) {
 	var record MenuModel
 	if err := repository.connection(ctx).First(&record, id).Error; err != nil {
@@ -66,16 +80,36 @@ func (repository *GORMRepository) LockMenu(ctx context.Context, id uint) (Menu, 
 	}
 	return menuModelToDomain(record), nil
 }
-func (repository *GORMRepository) FindMenuByPath(ctx context.Context, path string) (Menu, bool, error) {
-	var record MenuModel
-	err := repository.connection(ctx).Where("path = ?", path).First(&record).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Menu{}, false, nil
+
+func (repository *GORMRepository) ListByPermissionCode(ctx context.Context, code string) ([]Menu, error) {
+	var records []MenuModel
+	if err := repository.connection(ctx).Unscoped().Where("permission_code = ?", code).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
 	}
-	if err != nil {
-		return Menu{}, false, err
+	return menuModelsToDomain(records), nil
+}
+
+func (repository *GORMRepository) LockDependencies(ctx context.Context, ids []uint, codes []string) ([]Menu, error) {
+	if len(ids) == 0 && len(codes) == 0 {
+		return []Menu{}, nil
 	}
-	return menuModelToDomain(record), true, nil
+	var records []MenuModel
+	if err := repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id IN ? OR permission_code IN ?", uniqueUintIDs(ids), codes).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return menuModelsToDomain(records), nil
+}
+func (repository *GORMRepository) LockMenusByPaths(ctx context.Context, paths []string) ([]Menu, error) {
+	if len(paths) == 0 {
+		return []Menu{}, nil
+	}
+	var records []MenuModel
+	if err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("path IN ?", paths).Order("id asc").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	return menuModelsToDomain(records), nil
 }
 func (repository *GORMRepository) PathExists(ctx context.Context, path string, exceptID uint) (bool, error) {
 	query := repository.connection(ctx).Model(&MenuModel{}).Where("path = ?", path)
@@ -89,20 +123,49 @@ func (repository *GORMRepository) PathExists(ctx context.Context, path string, e
 	return count > 0, nil
 }
 func (repository *GORMRepository) CreateMenu(ctx context.Context, menu *Menu) error {
-	record := menuDomainToModel(*menu)
-	if err := repository.connection(ctx).Create(&record).Error; err != nil {
+	db := repository.connection(ctx)
+	now := db.NowFunc()
+	record := map[string]any{
+		"parent_id":       menu.ParentID,
+		"name":            menu.Name,
+		"path":            menu.Path,
+		"component":       menu.Component,
+		"icon":            menu.Icon,
+		"permission_code": menu.PermissionCode,
+		"sort":            menu.Sort,
+		"type":            menu.Type,
+		"status":          menu.Status,
+		"created_at":      now,
+		"updated_at":      now,
+	}
+	if err := db.Model(&MenuModel{}).Create(record).Error; err != nil {
 		return err
 	}
-	*menu = menuModelToDomain(record)
+	// MySQL uses LastInsertId (int64); RETURNING scans the schema's uint ID.
+	switch id := record["id"].(type) {
+	case int64:
+		menu.ID = uint(id)
+	case uint:
+		menu.ID = id
+	default:
+		return fmt.Errorf("create menu: unexpected inserted ID type %T", id)
+	}
+	if menu.ID == 0 {
+		return errors.New("create menu: inserted ID is zero")
+	}
 	return nil
 }
 func (repository *GORMRepository) UpdateMenu(ctx context.Context, id uint, updates map[string]any) error {
 	return repository.connection(ctx).Model(&MenuModel{}).Where("id = ?", id).Updates(updates).Error
 }
-func (repository *GORMRepository) ChildCount(ctx context.Context, id uint) (int64, error) {
-	var count int64
-	err := repository.connection(ctx).Model(&MenuModel{}).Where("parent_id = ?", id).Count(&count).Error
-	return count, err
+
+// LockMenuDeletionTargets includes children in the first ordered acquisition;
+// a reparented lower-ID child is never locked after its higher-ID parent.
+func (repository *GORMRepository) LockMenuDeletionTargets(ctx context.Context, id uint) ([]Menu, error) {
+	var records []MenuModel
+	err := repository.connection(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ? OR parent_id = ?", id, id).Order("id asc").Find(&records).Error
+	return menuModelsToDomain(records), err
 }
 func (repository *GORMRepository) DeleteMenu(ctx context.Context, id uint) error {
 	db := repository.connection(ctx)
@@ -113,6 +176,12 @@ func (repository *GORMRepository) DeleteMenu(ctx context.Context, id uint) error
 		return err
 	}
 	return db.Unscoped().Delete(&MenuModel{}, id).Error
+}
+
+// DeleteRoleMenus removes only Navigation-owned references in the caller's transaction.
+// Authorization holds the role lifecycle lock before invoking this capability.
+func (repository *GORMRepository) DeleteRoleMenus(ctx context.Context, roleID uint) error {
+	return repository.connection(ctx).Where("role_id = ?", roleID).Delete(&RoleMenuModel{}).Error
 }
 func (repository *GORMRepository) ReplaceRoleMenus(ctx context.Context, roleID uint, ids []uint) error {
 	db := repository.connection(ctx)
@@ -164,7 +233,8 @@ func (repository *GORMRepository) RoleIDsByMenuIDs(ctx context.Context, menuIDs 
 		return []uint{}, nil
 	}
 	var ids []uint
-	err := repository.connection(ctx).Model(&RoleMenuModel{}).Distinct("role_id").Where("menu_id IN ?", menuIDs).Order("role_id asc").Pluck("role_id", &ids).Error
+	err := repository.connection(ctx).Model(&RoleMenuModel{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Distinct("role_id").Where("menu_id IN ?", menuIDs).Order("role_id asc").Pluck("role_id", &ids).Error
 	return nonNilUintIDs(ids), err
 }
 func (repository *GORMRepository) APIIDsByMenuIDs(ctx context.Context, menuIDs []uint, lock bool) ([]uint, error) {
@@ -219,13 +289,14 @@ func (repository *GORMRepository) UpdateMenusPermissionCode(ctx context.Context,
 	return repository.connection(ctx).Model(&MenuModel{}).Where("id IN ?", ids).Update("permission_code", code).Error
 }
 func (repository *GORMRepository) CountPermissionCode(ctx context.Context, code string) (int64, error) {
-	var count int64
-	err := repository.connection(ctx).Model(&MenuModel{}).Where("permission_code = ?", code).Count(&count).Error
-	return count, err
+	var ids []uint
+	err := repository.connection(ctx).Model(&MenuModel{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("permission_code = ?", code).Order("id asc").Pluck("id", &ids).Error
+	return int64(len(ids)), err
 }
 
 func menuModelToDomain(record MenuModel) Menu {
-	return Menu{ID: record.ID, ParentID: record.ParentID, Name: record.Name, Path: record.Path, Component: record.Component, Icon: record.Icon, PermissionCode: record.PermissionCode, Sort: record.Sort, Type: record.Type, Status: record.Status}
+	return Menu{ID: record.ID, ParentID: record.ParentID, Name: record.Name, Path: record.Path, Component: record.Component, Icon: record.Icon, PermissionCode: record.PermissionCode, Sort: record.Sort, Type: record.Type, Status: record.Status, Deleted: record.DeletedAt.Valid}
 }
 func menuModelsToDomain(records []MenuModel) []Menu {
 	result := make([]Menu, len(records))
@@ -233,9 +304,6 @@ func menuModelsToDomain(records []MenuModel) []Menu {
 		result[i] = menuModelToDomain(records[i])
 	}
 	return result
-}
-func menuDomainToModel(menu Menu) MenuModel {
-	return MenuModel{ParentID: menu.ParentID, Name: menu.Name, Path: menu.Path, Component: menu.Component, Icon: menu.Icon, PermissionCode: menu.PermissionCode, Sort: menu.Sort, Type: menu.Type, Status: menu.Status}
 }
 func mapMenuError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -256,6 +324,7 @@ func uniqueUintIDs(ids []uint) []uint {
 		seen[id] = struct{}{}
 		result = append(result, id)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
 	return result
 }
 func nonNilUintIDs(ids []uint) []uint {

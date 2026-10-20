@@ -2,6 +2,7 @@ package seeddata_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"reflect"
 	"testing"
@@ -62,6 +63,135 @@ func TestRunIsIdempotent(t *testing.T) {
 
 	if before != after {
 		t.Fatalf("seed is not idempotent\nbefore: %+v\nafter:  %+v", before, after)
+	}
+}
+
+func TestRunPreservesAdministratorWhenIdentityReadFails(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		table        string
+		disableAdmin bool
+	}{
+		{name: "enabled administrator lookup", table: "users"},
+		{name: "configured user role lookup", table: "user_roles", disableAdmin: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupSeedTestDB(t)
+			sqlDB, err := db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := sqlDB.Close(); err != nil {
+					t.Errorf("close seed test database: %v", err)
+				}
+			})
+			conf := seedTestConfig()
+			if err := runSeed(db, conf, seedTestRoutes()); err != nil {
+				t.Fatalf("initial seed: %v", err)
+			}
+			before := findUserByUsername(t, db, conf.Admin.Username)
+			if test.disableAdmin {
+				if err := db.Model(&before).UpdateColumn("status", 0).Error; err != nil {
+					t.Fatalf("disable configured administrator: %v", err)
+				}
+				before.Status = 0
+			}
+			if err := db.Create(&authgorm.UserAccessVersion{UserID: before.ID, Version: 7}).Error; err != nil {
+				t.Fatalf("create version sentinel: %v", err)
+			}
+			adminRole := findRoleByCode(t, db, "admin")
+			var menu navigation.MenuModel
+			if err := db.Where("path = ?", "/system/users").First(&menu).Error; err != nil {
+				t.Fatalf("find menu: %v", err)
+			}
+			if err := db.Delete(&menu).Error; err != nil {
+				t.Fatalf("prepare menu requiring Finalize restoration: %v", err)
+			}
+
+			// Fail one database read only; subsequent reads remain available.
+			readFailure := errors.New("administrator lookup unavailable")
+			failed := false
+			const callback = "test:seed-identity-read-failure"
+			queries := db.Callback().Query()
+			if err := queries.Before("gorm:query").Register(callback, func(query *gorm.DB) {
+				if !failed && query.Statement.Table == test.table {
+					failed = true
+					query.AddError(readFailure)
+				}
+			}); err != nil {
+				t.Fatalf("register read failure: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := queries.Remove(callback); err != nil {
+					t.Errorf("remove read failure: %v", err)
+				}
+			})
+			conf.Admin.Password = "ReplacementSeed@123456"
+			routes := append(seedTestRoutes(), seedTestRoute{Method: "GET", Path: "/api/admin/seed-checkpoint"})
+			if err := runSeed(db, conf, routes); !errors.Is(err, readFailure) {
+				t.Fatalf("seed error = %v, want the database read failure", err)
+			}
+
+			after := findUserByUsername(t, db, conf.Admin.Username)
+			if after.ID != before.ID || after.Password != before.Password || after.Status != before.Status || after.DeletedAt.Valid != before.DeletedAt.Valid {
+				t.Fatal("failed identity read changed the configured administrator")
+			}
+			assertCount(t, db.Model(&authgorm.UserRole{}).Where("user_id = ? AND role_id = ?", before.ID, adminRole.ID), 1, "retained administrator binding")
+			assertCount(t, db.Model(&identity.User{}).Where("username = ?", conf.Admin.Username), 1, "unchanged administrator identity")
+			var version authgorm.UserAccessVersion
+			if err := db.First(&version, "user_id = ?", before.ID).Error; err != nil {
+				t.Fatalf("read version sentinel: %v", err)
+			}
+			if version.Version != 7 {
+				t.Fatalf("version after failed seed = %d, want unchanged 7", version.Version)
+			}
+			assertCount(t, db.Model(&navigation.MenuModel{}).Where("path = ?", "/system/users"), 0, "rolled back Finalize menu restoration")
+			assertCount(t, db.Model(&apigorm.API{}).Where("path = ?", "/api/admin/seed-checkpoint"), 1, "retained earlier API synchronization")
+			assertCount(t, db.Model(&authgorm.Permission{}).Where("code = ?", "admin.seed-checkpoint.get"), 1, "retained earlier permission synchronization")
+		})
+	}
+}
+
+func TestRunRejectsConfiguredUsernameWithoutAdministratorBinding(t *testing.T) {
+	db := setupSeedTestDB(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close seed test database: %v", err)
+		}
+	})
+	conf := seedTestConfig()
+	user := identity.User{
+		Username: conf.Admin.Username,
+		Password: "unchanged ordinary-user password",
+		Email:    conf.Admin.Email,
+		Role:     "admin", // The legacy field is not an administrator binding.
+		Status:   1,
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("create configured ordinary user: %v", err)
+	}
+	if err := db.Create(&authgorm.UserAccessVersion{UserID: user.ID, Version: 7}).Error; err != nil {
+		t.Fatalf("create version sentinel: %v", err)
+	}
+	if err := runSeed(db, conf, seedTestRoutes()); err == nil {
+		t.Fatal("seed accepted a configured user without an administrator binding")
+	}
+	after := findUserByUsername(t, db, conf.Admin.Username)
+	if after.ID != user.ID || after.Password != user.Password || after.Status != user.Status {
+		t.Fatal("seed changed the configured ordinary user's identity or credentials")
+	}
+	assertCount(t, db.Model(&authgorm.UserRole{}).Where("user_id = ?", user.ID), 0, "ordinary user not promoted")
+	var version authgorm.UserAccessVersion
+	if err := db.First(&version, "user_id = ?", user.ID).Error; err != nil {
+		t.Fatalf("read version sentinel: %v", err)
+	}
+	if version.Version != 7 {
+		t.Fatalf("ordinary user version = %d, want unchanged 7", version.Version)
 	}
 }
 

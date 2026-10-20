@@ -21,6 +21,7 @@ type userMembershipHTTPHandler struct{service *UserMembershipService}
 func UserMembershipRoutes(service *UserMembershipService)[]routecatalog.Descriptor{
  handler:=&userMembershipHTTPHandler{service:service}
  descriptor:=organizationRoute(http.MethodPut,"/api/admin/users/:id/organizations","Set User Organizations","admin.users.id.organizations.put",handler.set,updateUserOrganizationsRequest{},accessVersionResponse{})
+ descriptor.OpenAPI.Description="先按既有Ensure规则锁定／初始化共享版本并比较expected_access_version，再校验身份、保护、范围和全部组织引用；仅替换可管理关系，隐藏归属及保留joined_at不变。合法等价目标返回当前access_version，真实变化只提升目标一次。同旧版本最多一项真实修改提交；旧版本请求即使当前集合相同仍返回409 ORG_CONFLICT。"
  descriptor.OpenAPI.Responses[http.StatusForbidden]=routecatalog.ErrorResponse("organization operation is not permitted",orgPermissionDenied())
  return []routecatalog.Descriptor{descriptor}
 }

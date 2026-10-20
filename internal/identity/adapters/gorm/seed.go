@@ -27,7 +27,11 @@ func SeedAdminUser(tx *gorm.DB, conf *platformconfig.Config) error {
 	if err := tx.Where("code = ? AND status = 1", "admin").First(&adminRole).Error; err != nil {
 		return err
 	}
-	if hasActiveSuperAdmin(tx, adminRole.ID) {
+	hasAdmin, err := hasActiveSuperAdmin(tx, adminRole.ID)
+	if err != nil {
+		return err
+	}
+	if hasAdmin {
 		return nil
 	}
 	if conf.Admin.Username == "" {
@@ -41,15 +45,26 @@ func SeedAdminUser(tx *gorm.DB, conf *platformconfig.Config) error {
 	}
 
 	var user UserModel
-	err := tx.Unscoped().Where("username = ?", conf.Admin.Username).First(&user).Error
+	err = tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("username = ?", conf.Admin.Username).First(&user).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	// Existing identities precede referenced roles in the lifecycle lock order.
+	// Re-read the role under its shared lock before restoring or adding a link.
+	var lockedRole seedRoleRecord
+	if roleErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ? AND code = ? AND status = 1", adminRole.ID, "admin").First(&lockedRole).Error; roleErr != nil {
+		return roleErr
+	}
 	if err == nil {
-		if !hasUserRoleInTx(tx, user.ID, adminRole.ID) {
+		bound, err := hasUserRoleInTx(tx, user.ID, adminRole.ID)
+		if err != nil {
+			return err
+		}
+		if !bound {
 			return errors.New("configured admin username already exists but is not bound to admin role")
 		}
 		return restoreSeedAdminUser(tx, user, conf.Admin.Password)
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
 	}
 	hashed, err := bcrypt.GenerateFromPassword([]byte(conf.Admin.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -70,14 +85,19 @@ func restoreSeedAdminUser(tx *gorm.DB, user UserModel, password string) error {
 	return tx.Unscoped().Model(&user).Updates(map[string]any{"password": string(hashed), "status": 1, "deleted_at": nil}).Error
 }
 
-func hasActiveSuperAdmin(tx *gorm.DB, roleID uint) bool {
+func hasActiveSuperAdmin(tx *gorm.DB, roleID uint) (bool, error) {
 	var count int64
-	tx.Table("users").Joins("JOIN user_roles ON user_roles.user_id = users.id").Where("user_roles.role_id = ? AND users.status = ? AND users.deleted_at IS NULL", roleID, 1).Count(&count)
-	return count > 0
+	if err := tx.Table("users").Joins("JOIN user_roles ON user_roles.user_id = users.id").Where("user_roles.role_id = ? AND users.status = ? AND users.deleted_at IS NULL", roleID, 1).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
-func hasUserRoleInTx(tx *gorm.DB, userID, roleID uint) bool {
-	var count int64
-	tx.Model(&seedUserRoleRecord{}).Where("user_id = ? AND role_id = ?", userID, roleID).Count(&count)
-	return count > 0
+func hasUserRoleInTx(tx *gorm.DB, userID, roleID uint) (bool, error) {
+	var links []seedUserRoleRecord
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("user_id = ? AND role_id = ?", userID, roleID).Find(&links).Error; err != nil {
+		return false, err
+	}
+	return len(links) != 0, nil
 }

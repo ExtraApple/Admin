@@ -8,17 +8,15 @@ import (
 )
 
 type Service struct {
-	core         *Core
-	coordinator  PermissionCoordinator
-	transactions TransactionRunner
-	routes       RouteSource
+	core        *Core
+	coordinator PermissionCoordinator
+	routes      RouteSource
 }
 
 type ServiceOption func(*Service)
 
-func WithRouteSource(transactions TransactionRunner, routes RouteSource) ServiceOption {
+func WithRouteSource(routes RouteSource) ServiceOption {
 	return func(service *Service) {
-		service.transactions = transactions
 		service.routes = routes
 	}
 }
@@ -78,35 +76,87 @@ func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID 
 }
 
 func (service *Service) SyncPermissions(ctx context.Context) ([]string, int, error) {
-	apis, _, err := service.core.repository.List(ctx, 0, -1, Filter{})
-	if err != nil {
-		return nil, 0, NewError(CodeInternalError, err)
+	if service.coordinator == nil || service.core.transactions == nil {
+		return nil, 0, NewError(CodeInternalError, nil)
 	}
-	created := make([]string, 0)
-	updated := 0
-	for _, api := range apis {
-		if api.NeedAuth != 1 {
-			continue
-		}
-		code := strings.TrimSpace(api.PermissionCode)
-		if code == "" {
-			code = DerivePermissionCode(api.Method, api.Path)
-			if err := service.coordinator.ChangeAPIPermissionCode(ctx, api.ID, code, func(transactionContext context.Context) error {
-				_, err := service.core.Update(transactionContext, api.ID, UpdateInput{PermissionCode: &code})
-				return err
-			}); err != nil {
-				return created, updated, err
-			}
-			api.PermissionCode = code
-			updated++
-		}
-		wasCreated, err := service.coordinator.EnsureAPIPermission(ctx, api)
+	var created []string
+	var updated int
+	err := service.core.transactions.Run(ctx, func(transactionContext context.Context) error {
+		apis, _, err := service.core.repository.List(transactionContext, 0, -1, Filter{})
 		if err != nil {
-			return created, updated, err
+			return NewError(CodeInternalError, err)
 		}
-		if wasCreated {
-			created = append(created, code)
+		const (
+			existedBefore uint8 = 1 << iota
+			retainedAfter
+		)
+		codes := make([]string, 0, len(apis))
+		codeStates := make(map[string]uint8, len(apis))
+		for _, api := range apis {
+			if api.NeedAuth != 1 {
+				continue
+			}
+			code := strings.TrimSpace(api.PermissionCode)
+			if code == "" {
+				code = DerivePermissionCode(api.Method, api.Path)
+			}
+			if _, seen := codeStates[code]; !seen {
+				codes = append(codes, code)
+				codeStates[code] = 0
+			}
 		}
+		attemptCreated := make([]string, 0, len(codes))
+		attemptUpdated := 0
+		err = service.coordinator.WithAPIPermissionSync(transactionContext, apis, func(preparedContext context.Context) error {
+			before, err := service.coordinator.ExistingPermissionCodes(preparedContext, codes, true)
+			if err != nil {
+				return NewError(CodeInternalError, err)
+			}
+			for _, code := range before {
+				codeStates[code] |= existedBefore
+			}
+			for _, api := range apis {
+				if api.NeedAuth != 1 {
+					continue
+				}
+				code := strings.TrimSpace(api.PermissionCode)
+				if code == "" {
+					code = DerivePermissionCode(api.Method, api.Path)
+					if err := service.coordinator.ChangeAPIPermissionCode(preparedContext, api.ID, code, func(updateContext context.Context) error {
+						_, err := service.core.Update(updateContext, api.ID, UpdateInput{PermissionCode: &code})
+						return err
+					}); err != nil {
+						return err
+					}
+					api.PermissionCode = code
+					attemptUpdated++
+				}
+				if _, err := service.coordinator.EnsureAPIPermission(preparedContext, api); err != nil {
+					return err
+				}
+			}
+			after, err := service.coordinator.ExistingPermissionCodes(preparedContext, codes, false)
+			if err != nil {
+				return NewError(CodeInternalError, err)
+			}
+			for _, code := range after {
+				codeStates[code] |= retainedAfter
+			}
+			for _, code := range codes {
+				if codeStates[code] == retainedAfter {
+					attemptCreated = append(attemptCreated, code)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		created, updated = attemptCreated, attemptUpdated
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
 	}
 	return created, updated, nil
 }
