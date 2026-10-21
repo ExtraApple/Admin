@@ -11,9 +11,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ThemeSelector } from '@/components/ThemeSelector';
 
 function AuthFrame({ children }: { children: ReactNode }) {
-  return <div className="auth-screen"><aside className="auth-aside"><div className="brand"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>管理工作台</small></div><div><span className="auth-eyebrow">身份 · 角色 · 组织</span><h1>清晰的归属，<br />明确的授权。</h1><p>从真实身份出发，在各自的数据范围内管理角色、用户与组织。</p></div><footer>安全会话仅保留在当前页面，刷新页面后请重新登录。</footer></aside><main className="auth-main"><div className="auth-content">{children}</div></main></div>;
+  return <div className="auth-screen"><aside className="auth-aside"><div className="brand"><span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>Admin <small>管理工作台</small></div><div><span className="auth-eyebrow">身份 · 角色 · 组织</span><h1>清晰的归属，<br />明确的授权。</h1><p>从真实身份出发，在各自的数据范围内管理角色、用户与组织。</p></div><footer>安全会话仅保留在当前页面，刷新页面后请重新登录。</footer></aside><main className="auth-main"><div className="auth-toolbar"><ThemeSelector /></div><div className="auth-content">{children}</div></main></div>;
 }
 function FieldErrors({ name, fields }: { name: string; fields: Record<string, string[]> }) {
   return fields[name]?.length ? <ul id={`${name}-errors`} className="field-errors" aria-live="polite">{fields[name].map((message, index) => <li key={index}>{message}</li>)}</ul> : null;

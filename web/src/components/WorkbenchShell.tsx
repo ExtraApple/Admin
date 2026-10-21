@@ -12,6 +12,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarSeparator, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import type { UserContext } from '@/lib/models';
+import { ThemeSelector } from '@/components/ThemeSelector';
 
 const modules: ManagementModule[] = ['roles', 'users', 'organizations'];
 export function UserAvatar({ id, name }: { id: number; name: string }) {
@@ -90,6 +91,7 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
           </Breadcrumb>
         </div>
         <div className="top-actions">
+          <ThemeSelector />
           <Link className="identity" to="/profile" aria-label={`${name}的个人资料`}><UserAvatar id={context.user.id} name={name} /><span>{name}</span></Link>
           <Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} aria-hidden="true" />退出</Link></Button>
         </div>
