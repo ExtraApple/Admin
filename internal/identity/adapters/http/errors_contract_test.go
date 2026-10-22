@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -41,6 +42,20 @@ func TestWriteIdentityErrorEmitsSortedFieldDetails(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnprocessableEntity)
 	}
 	want := `{"code":422,"error_code":"IDENTITY_VALIDATION_INVALID","msg":"request validation failed","data":{"fields":[{"field":"confirm_password","error_code":"IDENTITY_PASSWORD_CONFIRMATION_INVALID","message":"password confirmation does not match"},{"field":"password","error_code":"IDENTITY_PASSWORD_INVALID","message":"password does not meet the security requirements"}]}}`
+	if recorder.Body.String() != want {
+		t.Fatalf("body = %s, want %s", recorder.Body.String(), want)
+	}
+}
+func TestWriteIdentityErrorEmitsSafeInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	writeIdentityError(context, application.NewError(application.CodeInternalError, errors.New("dsn=secret")), false)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	want := `{"code":500,"error_code":"IDENTITY_INTERNAL_ERROR","msg":"identity operation failed","data":null}`
 	if recorder.Body.String() != want {
 		t.Fatalf("body = %s, want %s", recorder.Body.String(), want)
 	}

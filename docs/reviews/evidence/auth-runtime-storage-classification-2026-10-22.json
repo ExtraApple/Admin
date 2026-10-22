@@ -1,0 +1,58 @@
+{
+  "change": "fix-auth-runtime-storage-error-classification",
+  "baseline": "362ea14fc7ec21170109c57a272d703b1e0237df",
+  "classification": "evidence_gap_no_current_reproduction",
+  "environment": {
+    "mysql": "isolated schema and container",
+    "redis": "isolated database namespace",
+    "minio": "isolated container",
+    "http_base": "http://127.0.0.1:18082",
+    "tokens": "redacted real JWTs"
+  },
+  "observations": {
+    "version_table_unavailable": {
+      "baseline": {"http_status": 200, "error_code": "", "data_present": true},
+      "during_fault": {"http_status": 500, "error_code": "IDENTITY_INTERNAL_ERROR", "data_present": false},
+      "after_restore": {"http_status": 200, "error_code": "", "data_present": true},
+      "token_issued_during_fault": false,
+      "version_row_created_during_fault": false
+    },
+    "full_mysql_unavailable": {
+      "baseline": {"http_status": 200, "error_code": "", "data_present": true},
+      "during_fault": {"http_status": 500, "error_code": "IDENTITY_INTERNAL_ERROR", "data_present": false},
+      "after_restore": {"http_status": 200, "error_code": "", "data_present": true},
+      "token_issued_during_fault": false
+    },
+    "connection_timing_probe": {
+      "attempts": 20,
+      "outcomes": [{"http_status": 0, "error_code": "transport_failure", "count": 20}],
+      "authn_401_reproduced": false
+    },
+    "post_restore_recovery": {
+      "refresh": {"http_status": 200, "error_code": "", "data_present": true},
+      "access_user_info": {"http_status": 200, "error_code": "", "data_present": true}
+    }
+  },
+  "historical_observation": {
+    "source": "audit-authorization-runtime prior isolated run",
+    "observed": "401 AUTHN_TOKEN_INVALID during a full MySQL fault",
+    "reproduced_on_current_clean_baseline": false,
+    "status": "evidence_gap"
+  },
+  "regression_protection": {
+    "production_code_modified": false,
+    "tests_added": [
+      "TestAuthenticateRejectsDisabledAndStaleAccess",
+      "TestWriteIdentityErrorEmitsSafeInternalError"
+    ],
+    "test_secrets": "none"
+  },
+  "redaction": {
+    "jwt": "not stored",
+    "password": "not stored",
+    "captcha": "not stored",
+    "authorization_header": "not stored",
+    "dsn": "not stored",
+    "raw_database_error": "not stored"
+  }
+}

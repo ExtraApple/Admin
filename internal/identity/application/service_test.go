@@ -262,3 +262,24 @@ func TestAuthenticateSeparatesMissingAuthorizationVersionFromInfrastructureFailu
 		})
 	}
 }
+func TestAuthenticateRejectsDisabledAndStaleAccess(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		status   int
+		tokenVer int
+		wantCode application.ErrorCode
+	}{
+		{"disabled account", 0, 4, application.CodeAccountDisabled},
+		{"stale access version", 1, 3, application.CodeTokenInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: test.tokenVer, Purpose: application.TokenPurposeAccess}}
+			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: test.status}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, tokens)
+			identity, err := service.Authenticate(context.Background(), "access")
+			code, _ := application.CodeOf(err)
+			if code != test.wantCode || identity.UserID != 0 {
+				t.Fatalf("Authenticate() = %#v, %v; code=%q want %q", identity, err, code, test.wantCode)
+			}
+		})
+	}
+}
