@@ -1,0 +1,65 @@
+{
+  "change": "audit-authorization-runtime",
+  "risk_domain": "W2 authorization mutations, no-op, CAS and rollback",
+  "status": "pass",
+  "code_baseline": "7f63e6a",
+  "real_http": true,
+  "cases": {
+    "M01-M07": [
+      {"case": "credential-change", "before_version": 1, "write_http_status": 200, "after_version": 2, "old_access_http_status": 401, "old_access_error_code": "AUTHN_TOKEN_INVALID"},
+      {"case": "profile-only-change", "before_version": 2, "write_http_status": 200, "after_version": 2, "old_session_preserved": true},
+      {"case": "status-disable", "before_version": 2, "write_http_status": 200, "after_version": 3, "old_access_http_status": 403, "old_access_error_code": "IDENTITY_ACCOUNT_DISABLED"},
+      {"case": "status-enable", "before_version": 3, "write_http_status": 200, "after_version": 4},
+      {"case": "kick", "before_version": 4, "write_http_status": 200, "after_version": 5, "old_access_http_status": 401, "old_access_error_code": "AUTHN_TOKEN_INVALID"},
+      {"case": "per-user-role-change", "before_version": 5, "write_http_status": 200, "after_version": 6, "affected_user_count": 1},
+      {"case": "per-user-organization-change", "before_version": 6, "write_http_status": 200, "after_version": 7, "affected_user_count": 1},
+      {"case": "soft-delete", "before_version": 7, "write_http_status": 200, "after_version": 8, "follow_up_detail_http_status": 404, "follow_up_error_code": "IDENTITY_USER_NOT_FOUND"}
+    ],
+    "role-level": {
+      "role_id": 7,
+      "permission_set_change": {"http_status": 200, "member_user_id": 8, "version_before": 0, "version_after": 2},
+      "permission_set_restore": {"http_status": 200, "version_before": 2, "version_after": 3},
+      "data_scope_change": {"http_status": 200, "version_before": 3, "version_after": 4},
+      "data_scope_restore": {"http_status": 200, "version_before": 4, "version_after": 5},
+      "member_add": {"http_status": 200, "user8_version_before": 5, "user8_version_after": 5, "user9_version_before": 0, "user9_version_after": 2},
+      "member_remove": {"http_status": 200, "user8_version_before": 5, "user8_version_after": 6, "user9_version_before": 2, "user9_version_after": 2},
+      "member_restore": {"http_status": 200, "user8_version_before": 6, "user8_version_after": 7, "user9_version_before": 2, "user9_version_after": 3},
+      "protected_role_rejections": [
+        {"dimension": "permissions", "http_status": 409, "error_code": "AUTHZ_CONFLICT"},
+        {"dimension": "data-scope", "http_status": 409, "error_code": "AUTHZ_CONFLICT"},
+        {"dimension": "members", "http_status": 409, "error_code": "AUTHZ_CONFLICT"}
+      ]
+    },
+    "M08-M10": {
+      "valid_role_noop": {"before_version": 7, "after_version": 7, "http_status": 200, "returned_version": 7},
+      "valid_organization_noop": {"before_version": 7, "after_version": 7, "http_status": 200, "returned_version": 7},
+      "stale_role_noop": {"expected_version": 6, "actual_version": 7, "http_status": 409, "error_code": "AUTHZ_CONFLICT", "relations_changed": false},
+      "stale_organization_noop": {"expected_version": 6, "actual_version": 7, "http_status": 409, "error_code": "ORG_CONFLICT", "relations_changed": false},
+      "self_rejections": [
+        {"dimension": "roles", "http_status": 422, "error_code": "AUTHZ_INVALID_USER"},
+        {"dimension": "organizations", "http_status": 422, "error_code": "ORG_VALIDATION_INVALID"}
+      ],
+      "protected_admin_rejections": [
+        {"dimension": "roles", "http_status": 409, "error_code": "AUTHZ_CONFLICT"},
+        {"dimension": "organizations", "http_status": 409, "error_code": "ORG_CONFLICT"}
+      ],
+      "out_of_scope_rejection": {"http_status": 422, "error_code": "AUTHZ_INVALID_USER", "target_relations_changed": false, "target_version_before": 0, "target_version_after": 0},
+      "no_permission_rejection": {"http_status": 403, "error_code": "API_META_PERMISSION_DENIED", "target_relations_changed": false, "target_version_before": 0, "target_version_after": 0}
+    },
+    "M11": {
+      "relation_write_failure": {"http_status": 500, "error_code": "AUTHZ_INTERNAL_ERROR", "before": {"roles": "7", "organizations": "2", "version": 9}, "after": {"roles": "7", "organizations": "2", "version": 9}},
+      "version_increment_failure": {"http_status": 500, "error_code": "ORG_INTERNAL_ERROR", "before": {"roles": "7", "organizations": "2", "version": 9}, "after": {"roles": "7", "organizations": "2", "version": 9}},
+      "version_initialization_failure": {"http_status": 500, "error_code": "AUTHZ_INTERNAL_ERROR", "before": {"roles": "2", "organizations": "3", "version": 0}, "after": {"roles": "2", "organizations": "3", "version": 0}}
+    }
+  },
+  "final_fixture_facts": {
+    "user8": {"roles": "7", "organizations": "2", "version": 21},
+    "user12": {"roles": "2", "organizations": "3", "version": 3}
+  },
+  "redaction": {
+    "access_credentials": "omitted",
+    "refresh_credentials": "omitted",
+    "captcha_answers": "omitted",
+    "database_connection_strings": "omitted"
+  }
+}

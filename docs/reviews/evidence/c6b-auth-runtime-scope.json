@@ -1,0 +1,78 @@
+{
+  "change": "audit-authorization-runtime",
+  "risk_domain": "W3 data scope, projection and W4 concurrency",
+  "status": "pass",
+  "code_baseline": "7f63e6a",
+  "scope_matrix": {
+    "all": {"user_list_ids": [1,4,5,6,7,8,9,10,11,12,13], "organization_ids": [1,4,2,3], "tree_manageable": "all returned nodes", "menu_ids": [1]},
+    "self": {"user_list_ids": [5], "organization_ids": [], "tree_manageable": "empty", "menu_ids": []},
+    "org": {"user_list_ids": [6,7,9], "organization_ids": [1], "tree_nodes": [{"id": 1,"manageable": true}], "menu_ids": []},
+    "org_and_children": {"user_list_ids": [6,7,9,10], "organization_ids": [1,4], "tree_nodes": [{"id": 1,"manageable": true},{"id": 4,"manageable": true}], "menu_ids": []},
+    "custom": {"user_list_ids": [6,7,8,9,11], "organization_ids": [1,2], "tree_nodes": [{"id": 1,"manageable": true},{"id": 2,"manageable": true}], "menu_ids": []}
+  },
+  "scope_writes": {
+    "valid_noops": [
+      {"scope": "all", "target": 8, "role_http_status": 200, "organization_http_status": 200, "version_before": 9, "version_after": 9},
+      {"scope": "org", "target": 9, "role_http_status": 200, "organization_http_status": 200, "version_before": 3, "version_after": 3},
+      {"scope": "org_and_children", "target": 10, "role_http_status": 200, "organization_http_status": 200, "version_before": 1, "version_after": 1},
+      {"scope": "custom", "target": 11, "role_http_status": 200, "organization_http_status": 200, "version_before": 3, "version_after": 3},
+      {"scope": "all", "organization": 1, "member_replace_http_status": 200},
+      {"scope": "org", "organization": 1, "member_replace_http_status": 200},
+      {"scope": "org_and_children", "organization": 4, "member_replace_http_status": 200},
+      {"scope": "custom", "organization": 2, "member_replace_http_status": 200}
+    ],
+    "rejections_without_partial_write": [
+      {"scope": "self", "target": 5, "roles_http_status": 422, "roles_error_code": "AUTHZ_INVALID_USER", "organizations_http_status": 422, "organizations_error_code": "ORG_VALIDATION_INVALID"},
+      {"scope": "org", "target": 11, "roles_http_status": 422, "roles_error_code": "AUTHZ_INVALID_USER", "organizations_http_status": 403, "organizations_error_code": "ORG_PERMISSION_DENIED"},
+      {"scope": "org_and_children", "target": 11, "roles_http_status": 422, "roles_error_code": "AUTHZ_INVALID_USER", "organizations_http_status": 403, "organizations_error_code": "ORG_PERMISSION_DENIED"},
+      {"scope": "custom", "target": 10, "roles_http_status": 422, "roles_error_code": "AUTHZ_INVALID_USER", "organizations_http_status": 403, "organizations_error_code": "ORG_PERMISSION_DENIED"},
+      {"scope": "org", "organization": 2, "member_replace_http_status": 422, "error_code": "ORG_VALIDATION_INVALID"},
+      {"scope": "org_and_children", "organization": 2, "member_replace_http_status": 422, "error_code": "ORG_VALIDATION_INVALID"},
+      {"scope": "custom", "organization": 4, "member_replace_http_status": 422, "error_code": "ORG_VALIDATION_INVALID"}
+    ]
+  },
+  "nonmanageable_ancestor": {
+    "temporary_custom_scope": [4],
+    "tree": [{"id": 1,"manageable": false,"child": {"id": 4,"manageable": true}}],
+    "ancestor_member_read_http_status": 422,
+    "ancestor_member_read_error_code": "ORG_VALIDATION_INVALID",
+    "ancestor_member_write_http_status": 422,
+    "ancestor_member_write_error_code": "ORG_VALIDATION_INVALID",
+    "child_member_read_ids": [10],
+    "child_user_write_http_status": 200,
+    "out_of_scope_user_write_http_status": 403,
+    "out_of_scope_user_write_error_code": "ORG_PERMISSION_DENIED"
+  },
+  "detail_redaction": {
+    "temporary_hidden_relation_target": 10,
+    "detail_http_status": 200,
+    "visible_organization_ids": [4],
+    "visible_role_ids": [2],
+    "has_unmanaged_organizations": true,
+    "access_version": 1
+  },
+  "menu_projection": {
+    "limited_operator_role_codes": ["audit2-custom"],
+    "limited_operator_permission_count": 105,
+    "limited_operator_menu_ids": [],
+    "same_operator_admin_user_list_http_status": 200,
+    "interpretation": "menu projection was observed separately and was not used as API authorization proof"
+  },
+  "role_user_projection": {
+    "observed_role_members": {"3": [4], "4": [5], "5": [6], "6": [7], "7": [8]},
+    "interpretation": "role membership query returned the role's assigned users per the RBAC read contract; user and organization security boundaries were separately checked through scoped endpoints"
+  },
+  "concurrency": {
+    "C01": {"before": {"target": 8,"roles": "7","organizations": "2","version": 15}, "responses": [{"http_status": 200,"error_code": "","returned_version": 16},{"http_status": 409,"error_code": "AUTHZ_CONFLICT"},{"http_status": 409,"error_code": "AUTHZ_CONFLICT"}], "after": {"roles": "3,7","organizations": "2","version": 16}},
+    "C02": {"before": {"target": 12,"roles": "2","organizations": "3","version": 0}, "responses": [{"http_status": 200,"returned_version": 1},{"http_status": 200,"returned_version": 2}], "after": {"roles": "2,3","organizations": "3","version": 2}, "version_row_count": 1},
+    "C03": {"before": {"target": 8,"roles": "7","organizations": "2","version": 17}, "responses": [{"http_status": 200,"returned_version": 18},{"http_status": 409,"error_code": "ORG_CONFLICT"}], "after": {"roles": "7","organizations": "2","version": 19}},
+    "C04": {"before": {"target": 8,"roles": "7","organizations": "2","version": 19}, "responses": [{"http_status": 200,"returned_version": 20},{"http_status": 409,"error_code": "AUTHZ_CONFLICT"},{"http_status": 200,"returned_version": 20}], "after": {"roles": "3,7","organizations": "2","version": 20}}
+  },
+  "cleanup_fact": {"user8": {"roles": "7","organizations": "2","version": 21}, "user12": {"roles": "2","organizations": "3","version": 3}},
+  "redaction": {
+    "access_credentials": "omitted",
+    "refresh_credentials": "omitted",
+    "captcha_answers": "omitted",
+    "database_connection_strings": "omitted"
+  }
+}

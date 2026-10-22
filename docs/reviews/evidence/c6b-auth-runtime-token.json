@@ -1,0 +1,63 @@
+{
+  "change": "audit-authorization-runtime",
+  "risk_domain": "W1 token and authorization version",
+  "status": "pass",
+  "code_baseline": "7f63e6a",
+  "environment": {
+    "service": "isolated locally built service",
+    "mysql": "dedicated temporary schema",
+    "redis": "dedicated temporary database",
+    "credentials_and_secret_material": "not recorded"
+  },
+  "cases": [
+    {
+      "id": "T01-T03",
+      "observed": [
+        {"endpoint": "GET /api/user/info", "http_status": 200, "error_code": "", "data_present": true},
+        {"endpoint": "POST /api/refresh", "http_status": 200, "error_code": "", "data_present": true},
+        {"endpoint": "GET /api/user/info with an old access credential", "http_status": 401, "error_code": "AUTHN_TOKEN_INVALID", "data_present": false},
+        {"endpoint": "POST /api/refresh with an old refresh credential", "http_status": 401, "error_code": "AUTHN_REFRESH_TOKEN_INVALID", "data_present": false}
+      ],
+      "token_material_recorded": false
+    },
+    {
+      "id": "T06-disabled",
+      "observed": [
+        {"endpoint": "GET /api/user/info", "http_status": 403, "error_code": "IDENTITY_ACCOUNT_DISABLED", "data_present": false},
+        {"endpoint": "POST /api/refresh", "http_status": 401, "error_code": "AUTHN_REFRESH_TOKEN_INVALID", "data_present": false}
+      ]
+    },
+    {
+      "id": "T06-soft-deleted",
+      "observed": [
+        {"endpoint": "GET /api/user/info", "http_status": 401, "error_code": "AUTHN_TOKEN_INVALID", "data_present": false},
+        {"endpoint": "POST /api/refresh", "http_status": 401, "error_code": "AUTHN_REFRESH_TOKEN_INVALID", "data_present": false}
+      ]
+    },
+    {
+      "id": "T07-nonexistent-user",
+      "observed": [
+        {"endpoint": "GET /api/user/info", "http_status": 401, "error_code": "AUTHN_TOKEN_INVALID", "data_present": false},
+        {"endpoint": "POST /api/refresh", "http_status": 401, "error_code": "AUTHN_REFRESH_TOKEN_INVALID", "data_present": false}
+      ]
+    },
+    {
+      "id": "T08-version-table-fault",
+      "observed": [
+        {"endpoint": "GET /api/user/info", "http_status": 500, "error_code": "IDENTITY_INTERNAL_ERROR", "data_present": false},
+        {"endpoint": "POST /api/refresh", "http_status": 401, "error_code": "AUTHN_REFRESH_TOKEN_INVALID", "data_present": false}
+      ],
+      "storage_fact": {"version_rows_before": 1, "version_rows_after_restore": 1, "credential_issued_during_fault": false}
+    },
+    {
+      "id": "first-login-initialization",
+      "observed": {"login_http_status": 200, "login_error_code": "", "version_rows_before": 0, "version_rows_after": 1, "initialized_version": 1, "credential_issued": true}
+    }
+  ],
+  "redaction": {
+    "access_credentials": "omitted",
+    "refresh_credentials": "omitted",
+    "captcha_answers": "omitted",
+    "database_connection_strings": "omitted"
+  }
+}
