@@ -1,14 +1,14 @@
 ## 1. 审计基线与隔离环境
 
-- [ ] 1.1 固定当前代码基线、Go 构建信息、运行配置形状和去敏环境记录；确认本 change 不修改产品代码、主规格或永久测试。
-- [ ] 1.2 创建独占 MySQL schema、Redis 命名空间和临时配置，编译并启动当前真实 Go 服务；验证真实 HTTP、MySQL、Redis、JWT 链路可用。
-- [ ] 1.3 创建固定隔离夹具：root／child／sibling／outside 组织、超级管理员、受限管理员、普通用户、范围外用户、受保护 admin、禁用用户、软删用户及 all/self/org/org_and_children/custom 角色范围。
-- [ ] 1.4 创建真实 Access／Refresh Token、当前版本、旧版本和缺版本状态；为数据库锁等待、版本冲突和受控故障准备可清理的确定性 Runner 辅助。
+- [x] 1.1 固定当前代码基线、Go 构建信息、运行配置形状和去敏环境记录；确认本 change 不修改产品代码、主规格或永久测试。
+- [x] 1.2 创建独占 MySQL schema、Redis 命名空间和临时配置，编译并启动当前真实 Go 服务；验证真实 HTTP、MySQL、Redis、JWT 链路可用。
+- [x] 1.3 创建固定隔离夹具：root／child／sibling／outside 组织、超级管理员、受限管理员、普通用户、范围外用户、受保护 admin、禁用用户、软删用户及 all/self/org/org_and_children/custom 角色范围。
+- [x] 1.4 创建真实 Access／Refresh Token、当前版本、旧版本和缺版本状态；为数据库锁等待、版本冲突和受控故障准备可清理的确定性 Runner 辅助。
 
 ## 2. W1 Token 与授权版本
 
-- [ ] 2.1 通过真实 `POST /api/login`、`POST /api/refresh`、`GET /api/user/info` 和 `GET /api/user/context` 执行 T01-T03，记录当前版本允许、旧 Access 拒绝和旧 Refresh 拒绝。
-- [ ] 2.2 执行 T04-T05，验证 Access／Refresh 缺版本的精确 HTTP 状态、错误码、不补行、不回退旧存储和不签发 Token。
+- [x] 2.1 通过真实 `POST /api/login`、`POST /api/refresh`、`GET /api/user/info` 和 `GET /api/user/context` 执行 T01-T03，记录当前版本允许、旧 Access 拒绝和旧 Refresh 拒绝。
+- [x] 2.2 执行 T04-T05，验证 Access／Refresh 缺版本的精确 HTTP 状态、错误码、不补行、不回退旧存储和不签发 Token。
 - [ ] 2.3 执行 T06-T08，验证版本读取故障、禁用／软删／不存在用户和首次登录初始化的安全响应、持久化事实及 Token 签发边界。
 
 ## 3. W2 授权变更、no-op 与事务
