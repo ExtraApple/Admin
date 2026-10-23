@@ -111,7 +111,17 @@ func syncCatalogAPIs(ctx context.Context, db *gorm.DB, descriptors []routecatalo
 			Group: strings.TrimSpace(descriptor.Group), PermissionCode: permissionCode,
 			Status: 1, NeedAuth: needAuth, NeedAudit: needAudit,
 		}
-		if err := db.WithContext(ctx).Create(&api).Error; err != nil {
+		if err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&api).Error; err != nil {
+				return err
+			}
+			if needAuth == 0 {
+				if err := tx.Model(&api).UpdateColumn("need_auth", 0).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			return errors.New("同步API失败: " + err.Error())
 		}
 	}
