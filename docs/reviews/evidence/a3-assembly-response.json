@@ -1,0 +1,408 @@
+{
+  "audit": "A3 assembly and response contract",
+  "change": "audit-assembly-response",
+  "code_baseline": "7d28b1121ec5c28f673001b2b66e2e2bbdeb09a9",
+  "classification": [
+    "contract_consistent",
+    "implementation_deviation",
+    "insufficient_evidence",
+    "semantic_or_documentation_decision"
+  ],
+  "scope": {
+    "included": [
+      "Route Catalog / Gin / OpenAPI collection",
+      "Access Level / API Metadata / Permission",
+      "App composition root and dependency wiring",
+      "Business JSON, native responses, and technical routes"
+    ],
+    "excluded": [
+      "full endpoint acceptance",
+      "production deployment changes",
+      "random load testing",
+      "complete API Management transaction audit",
+      "A2 resource and lifecycle audit"
+    ]
+  },
+  "provenance": {
+    "real_app": {
+      "base_url": "http://127.0.0.1:18080",
+      "configuration": "config-a3.yaml",
+      "dependencies": {
+        "mysql": "127.0.0.1:13306",
+        "redis": "127.0.0.1:16379",
+        "minio": "127.0.0.1:19000",
+        "rabbitmq": "127.0.0.1:15673"
+      },
+      "startup": "platform initialized and HTTP server started",
+      "http_and_jwt": "real HTTP requests and JWT login were executed",
+      "secrets_recorded": false
+    },
+    "route_catalog_snapshot": {
+      "file": "docs/reviews/evidence/a3-route-catalog-snapshot.json",
+      "builder": "internal/app.New with production composition and isolated SQLite support database",
+      "role": "supporting structural evidence; real runtime HTTP and startup logs are primary runtime evidence"
+    },
+    "tests": [
+      "go test ./internal/routecatalog -run Test(NewRejects|CatalogRejects) -count=1",
+      "go test ./internal/app -run TestApplication(DoesNotCreateRouteFromDatabaseMetadata|ServesOpenAPIDocumentFromRouteCatalog|SynchronizersShareRouteCatalogSet|StaticAccessPrecedesMetadataBootstrap) -count=1",
+      "go test ./internal/apidoc -run TestOpenAPIHandlerHidesMetadataGenerationFailure -count=1",
+      "go test ./testsupport -run TestArchitecture -count=1",
+      "go test ./internal/messaging/adapters/http -run TestWebSocket -count=1",
+      "go test ./internal/app ./internal/platform/httpresponse ./internal/identity/adapters/http ./internal/apidoc -run Test(RequestLogging|Recovery|WriteIdentityError|OpenAPIHandler|ApplicationServesOpenAPI|RegisterTechnicalHTTP) -count=1"
+    ]
+  },
+  "route_collection": {
+    "catalog_routes": 126,
+    "gin_business_routes": 126,
+    "gin_total_routes": 129,
+    "technical_routes": [
+      "GET /ping",
+      "GET /docs",
+      "GET /docs/openapi.json"
+    ],
+    "catalog_vs_gin_business_diff": {
+      "catalog_only": [],
+      "gin_only": []
+    },
+    "gin_extra_technical_routes": [
+      "GET /ping",
+      "GET /docs",
+      "GET /docs/openapi.json"
+    ],
+    "openapi": {
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "version": "3.0.3",
+      "paths": 91,
+      "path_parameter_normalization": "descriptor :parameter to OpenAPI {parameter}"
+    },
+    "access_counts": {
+      "Public": 8,
+      "Authenticated": 20,
+      "PermissionControlled": 98
+    },
+    "descriptor_completeness": {
+      "missing_name": 0,
+      "missing_group": 0,
+      "missing_audit_category": 0,
+      "permission_controlled_without_default_permission": 0,
+      "json_request_without_schema": 0,
+      "json_response_without_schema": 0,
+      "error_response_without_error_definition": 0,
+      "native_websocket_routes": 1
+    },
+    "database_only_route_case": {
+      "metadata_created": "GET /api/a3-database-only",
+      "http_status": 404,
+      "error_code": "HTTP_NOT_FOUND",
+      "metadata_deleted": true
+    }
+  },
+  "metadata_and_permission": {
+    "api_metadata_total": 126,
+    "same_snapshot_consumers": [
+      "App seed",
+      "API Metadata sync",
+      "RBAC permission sync",
+      "OpenAPI generation",
+      "audit classification fields"
+    ],
+    "representative_metadata": [
+      {
+        "method": "GET",
+        "path": "/api/user/messages/ws",
+        "access": "Authenticated",
+        "status": 1,
+        "need_auth": 1,
+        "permission_code": "user.messages.ws.get",
+        "protocol": "websocket"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/message-outboxes",
+        "access": "PermissionControlled",
+        "status": 1,
+        "need_auth": 1,
+        "permission_code": "admin.messages.outbox.replay"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/message-outboxes/:id/replay",
+        "access": "PermissionControlled",
+        "status": 1,
+        "need_auth": 1,
+        "permission_code": "admin.messages.outbox.replay"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/message-dead-letters",
+        "access": "PermissionControlled",
+        "status": 1,
+        "need_auth": 1,
+        "permission_code": "admin.messages.dead-letter.manage"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user/email-verifications",
+        "access": "Authenticated",
+        "status": 1,
+        "need_auth": 1,
+        "permission_code": "user.email-verifications.post"
+      }
+    ],
+    "public_metadata_case": {
+      "expected_need_auth": 0,
+      "observed_need_auth_0": [
+        "POST /api/refresh"
+      ],
+      "observed_need_auth_1": [
+        "GET /api/dicts/:type_code/items",
+        "GET /api/captcha",
+        "POST /api/register",
+        "POST /api/login",
+        "GET /api/avatars/default",
+        "GET /api/avatars/:user_id",
+        "GET /api/ready"
+      ],
+      "static_access_remained_public": true,
+      "classification": "implementation_deviation",
+      "impact": "current Public Gin routes remained anonymously reachable; API Metadata projection does not match the published sync contract"
+    },
+    "sync_cases": {
+      "ordinary_user_POST_api_admin_apis_sync": {
+        "status": 403,
+        "error_code": "API_META_PERMISSION_DENIED"
+      },
+      "super_admin_POST_api_admin_apis_sync": {
+        "status": 200,
+        "error_code": ""
+      },
+      "need_auth_zero_anonymous": {
+        "status": 401,
+        "error_code": "AUTHN_HEADER_MISSING"
+      },
+      "need_auth_zero_valid_identity_without_permission": {
+        "status": 200,
+        "error_code": ""
+      },
+      "metadata_disabled": {
+        "status": 403,
+        "error_code": "API_META_DISABLED"
+      },
+      "metadata_path_diverged_real_route": {
+        "status": 403,
+        "error_code": "API_META_PERMISSION_NOT_CONFIGURED"
+      }
+    }
+  },
+  "access_matrix": [
+    {
+      "case": "Authenticated anonymous",
+      "route": "GET /api/user/context",
+      "status": 401,
+      "error_code": "AUTHN_HEADER_MISSING",
+      "envelope": ["code", "error_code", "msg", "data"]
+    },
+    {
+      "case": "Authenticated invalid token",
+      "route": "GET /api/user/context",
+      "status": 401,
+      "error_code": "AUTHN_TOKEN_INVALID",
+      "envelope": ["code", "error_code", "msg", "data"]
+    },
+    {
+      "case": "Authenticated valid identity",
+      "route": "GET /api/user/context",
+      "status": 200,
+      "error_code": "",
+      "data_keys": ["user", "roles", "permissions", "menus"]
+    },
+    {
+      "case": "PermissionControlled anonymous",
+      "route": "GET /api/admin/apis",
+      "status": 401,
+      "error_code": "AUTHN_HEADER_MISSING"
+    },
+    {
+      "case": "PermissionControlled invalid token",
+      "route": "GET /api/admin/apis",
+      "status": 401,
+      "error_code": "AUTHN_TOKEN_INVALID"
+    },
+    {
+      "case": "PermissionControlled ordinary user without permission",
+      "route": "GET /api/admin/apis",
+      "status": 403,
+      "error_code": "API_META_PERMISSION_DENIED"
+    },
+    {
+      "case": "PermissionControlled super administrator",
+      "route": "GET /api/admin/apis",
+      "status": 200,
+      "error_code": "",
+      "data_keys": ["list", "total", "page", "size"]
+    },
+    {
+      "case": "Scope in",
+      "route": "GET /api/admin/organizations/1/users",
+      "status": 200,
+      "error_code": "",
+      "returned_user_ids": [2]
+    },
+    {
+      "case": "Scope out",
+      "route": "GET /api/admin/organizations/2/users",
+      "status": 422,
+      "error_code": "ORG_VALIDATION_INVALID",
+      "note": "current implementation maps an invisible organization to validation failure"
+    },
+    {
+      "case": "Scope tree projection",
+      "route": "GET /api/admin/organizations/tree",
+      "status": 200,
+      "returned_organization_ids": [1],
+      "excluded_outside_organization_id": 2
+    }
+  ],
+  "composition_and_dependencies": {
+    "composition_root": "internal/app",
+    "gin_registration_point": "internal/app/http.go",
+    "descriptor_consumers": [
+      "RegisterHTTP",
+      "seedDescriptors",
+      "API Metadata sync",
+      "Authorization permission sync",
+      "API Doc OpenAPI generation"
+    ],
+    "dependency_structures": {
+      "files.application.Dependencies": {
+        "required": ["Repository", "Storage", "Validator", "MessageImages", "MessageImageValidator", "Signer"],
+        "optional": ["Transactions", "Clock", "ObjectNames", "DownloadURLExpireSeconds"],
+        "provider": "internal/app/files.go",
+        "architecture_guard": "passed"
+      },
+      "messaging.application.Dependencies": {
+        "required": ["Messages", "Categories", "Inbox", "Notifications", "Outboxes", "ConsumerDeadLetters", "ConsumerDeadLetterReplay", "Identity", "Organizations", "Authorization", "Files"],
+        "optional": ["Transactions", "ContentLimits", "Clock"],
+        "provider": "internal/app/messaging.go",
+        "architecture_guard": "passed"
+      }
+    },
+    "startup": {
+      "mysql": "initialized",
+      "redis": "ping passed",
+      "minio": "buckets ensured",
+      "rabbitmq": "configured and readiness returned ready",
+      "required_dependency_failure_behavior": "covered by architecture/build tests; no silent bypass observed"
+    }
+  },
+  "response_matrix": [
+    {
+      "route": "GET /ping",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_contract": "four-field success envelope",
+      "data": "object"
+    },
+    {
+      "route": "GET /api/ready",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_contract": "four-field success envelope",
+      "data_keys": ["status", "components"],
+      "rabbitmq_status": "ready"
+    },
+    {
+      "route": "GET /docs",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body_contract": "native Swagger HTML"
+    },
+    {
+      "route": "GET /docs/openapi.json",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_contract": "unwrapped OpenAPI 3.0.3 JSON"
+    },
+    {
+      "route": "GET /api/avatars/default",
+      "status": 200,
+      "content_type": "image/png",
+      "body_contract": "native binary image"
+    },
+    {
+      "route": "GET /api/admin/message-dead-letters",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_contract": "business JSON envelope with empty list projection"
+    },
+    {
+      "route": "GET /api/unknown",
+      "status": 404,
+      "error_code": "HTTP_NOT_FOUND",
+      "body_contract": "four-field error envelope"
+    },
+    {
+      "route": "PATCH /api/admin/apis",
+      "status": 405,
+      "error_code": "HTTP_METHOD_NOT_ALLOWED",
+      "body_contract": "four-field error envelope"
+    },
+    {
+      "route": "OPTIONS /api/admin/apis",
+      "status": 405,
+      "error_code": "HTTP_METHOD_NOT_ALLOWED",
+      "body_contract": "no successful CORS preflight was enabled in this runtime"
+    },
+    {
+      "route": "POST /api/login with malformed JSON",
+      "status": 400,
+      "error_code": "HTTP_REQUEST_INVALID",
+      "data": null
+    },
+    {
+      "route": "POST /api/admin/apis duplicate method/path",
+      "status": 409,
+      "error_code": "API_META_CONFLICT",
+      "data": null
+    },
+    {
+      "route": "GET /api/user/messages/ws with browser WebSocket and no Authorization header",
+      "status": 401,
+      "error_code": "AUTHN_HEADER_MISSING",
+      "body_contract": "upgrade rejected before native protocol submission"
+    }
+  ],
+  "error_owner_and_schema": {
+    "route_catalog_validation": "passed duplicate, invalid descriptor, error ownership, envelope, and protocol tests",
+    "openapi_generation_failure": {
+      "status": 500,
+      "error_code": "HTTP_INTERNAL_ERROR",
+      "data": null,
+      "internal_detail_leaked": false
+    },
+    "recovery_after_native_commit": "tested: no JSON appended after committed native response",
+    "websocket_descriptor": {
+      "protocol": "websocket",
+      "success_status": 101,
+      "success_body": "none",
+      "upgrade_error": "four-field JSON envelope"
+    }
+  },
+  "limitations": [
+    "The live matrix is representative, not full endpoint acceptance.",
+    "429, 500, and 503 were checked through current descriptors and focused tests; no destructive live fault injection was performed.",
+    "A browser WebSocket cannot attach the Authorization header required by the current Authenticated Gin middleware; native handler success was covered by focused handler tests, while the live browser attempt recorded the pre-upgrade 401.",
+    "CORS preflight was observed as 405; no separate CORS enablement contract was inferred beyond the current published route behavior.",
+    "The public API Metadata need_auth mismatch is recorded only; no product or specification fix is included in this audit change."
+  ],
+  "sanitization": {
+    "authorization_headers": false,
+    "jwt_values": false,
+    "captcha_values": false,
+    "passwords": false,
+    "dsn_values": false,
+    "object_keys_or_signed_urls": false,
+    "raw_internal_errors": false
+  }
+}
