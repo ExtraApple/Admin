@@ -110,8 +110,18 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 - **AND** 对已存在的 `method + path` 跳过创建
 - **AND** 为需要权限控制的接口生成默认权限码
 - **AND** 对 Public 路由以及当前兼容规则指定的公开字典接口标记为不需要权限码检查
+- **AND** 对从 Public Route Descriptor 新建的 API Metadata SHALL 持久化 `need_auth = 0`
+- **AND** 对从 Authenticated 或 PermissionControlled Route Descriptor 新建的 API Metadata SHALL 持久化 `need_auth = 1`
+- **AND** Public 新记录 SHALL NOT 生成 Permission Code
 - **AND** 对已存在但错误标记为需要认证的 `POST /api/refresh` 纠正 `need_auth` 并清空 `permission_code`
 - **AND** 同步流程 SHALL NOT 扫描 Gin Engine 发现路由
+
+#### Scenario: Public 新 Metadata 写入失败
+- **WHEN** 系统创建 Public Route Descriptor 对应的 API Metadata
+- **AND** 显式持久化 `need_auth = 0` 失败
+- **THEN** 系统 SHALL 回滚该条 API Metadata 的创建
+- **AND** 同步 SHALL 返回既有安全同步错误
+- **AND** 系统 SHALL NOT 留下 `need_auth = 1` 的半成品 Public Metadata
 
 #### Scenario: 同步公开 Refresh 元数据
 - **WHEN** Route Catalog 中存在 `POST /api/refresh`
@@ -129,6 +139,7 @@ API 管理维护后台接口元数据，用于接口分组、启停、权限码�
 - **WHEN** Route Catalog 的 Method 和 Path 只存在软删除 API 元数据
 - **THEN** 系统 SHALL 按现有同步规则恢复该记录
 - **AND** 系统 SHALL 保持 `method + path` 唯一
+- **AND** 系统 SHALL 按既有 Metadata 兼容规则保留该记录的运行时策略字段
 
 ### Requirement: API 权限同步
 系统 SHALL 能够将 API 元数据中的权限码同步到权限表。
