@@ -1,0 +1,322 @@
+{
+  "audit": "resource-lifecycle-audit",
+  "schema": "spec-driven",
+  "code_baseline": {
+    "commit": "6d07b452516f0ab0bcb25e4f2eaf09cc00b7ac3a",
+    "branch": "main",
+    "go_version": "go1.25.0 windows/amd64",
+    "module": "admin",
+    "specs": [
+      "file-management",
+      "internal-messaging",
+      "logging"
+    ],
+    "runbooks": [
+      "messaging",
+      "file-management",
+      "runtime-logging",
+      "audit-logging",
+      "configuration"
+    ]
+  },
+  "environment": {
+    "isolation": "A2-only local containers and schema",
+    "http_base": "http://127.0.0.1:18080",
+    "mysql_schema_isolated": true,
+    "redis_namespace_isolated": true,
+    "object_storage_instance_isolated": true,
+    "object_prefixes": {
+      "managed_file": "server-generated UUID extension prefix; exact names omitted",
+      "message_image": "dedicated message-image prefix; exact names omitted"
+    },
+    "rabbitmq_instance_isolated": true,
+    "credentials_retained": false
+  },
+  "fixture_summary": {
+    "super_admin_user_id": 1,
+    "restricted_admin_user_id": 2,
+    "sender_user_id": 3,
+    "current_audience_user_id": 4,
+    "removed_audience_user_id": 5,
+    "outside_organization_user_id": 6,
+    "deleted_private_recipient_user_id": 7,
+    "primary_organization_id": 1,
+    "outside_organization_id": 2,
+    "ordinary_file_id": 1,
+    "visible_private_message_id": 4,
+    "deleted_relationship_private_message_id": 1,
+    "broadcast_message_id": 2,
+    "revoked_broadcast_message_id": 5,
+    "expired_announcement_id": 3
+  },
+  "evidence_policy": {
+    "passwords_retained": false,
+    "tokens_retained": false,
+    "authorization_headers_retained": false,
+    "dsns_retained": false,
+    "object_paths_retained": false,
+    "raw_infrastructure_errors_retained": false,
+    "message_content_retained": false,
+    "image_content_retained": false
+  },
+  "cases": [
+    {
+      "id": "A2-MSG-001",
+      "chapter": "message_visibility",
+      "classification": "contract_consistent",
+      "operation": "real HTTP/JWT creation and read of private, broadcast, and published announcement",
+      "http": {
+        "current_audience_list_status": 200,
+        "current_audience_visible_message_count": 3,
+        "private_detail_status": 200,
+        "broadcast_detail_status": 200,
+        "announcement_detail_status": 200,
+        "private_image_status": 200,
+        "broadcast_image_status": 200,
+        "announcement_image_status": 200
+      },
+      "database_projection": "message copies and recipient/audience facts committed",
+      "object_projection": "all three visible image reads returned binary content; content bytes not retained",
+      "log_projection": "HTTP and messaging runtime records observed"
+    },
+    {
+      "id": "A2-MSG-002",
+      "chapter": "message_visibility",
+      "classification": "contract_consistent",
+      "operation": "private relationship deletion, broadcast revoke, announcement expiry, and audience membership removal",
+      "http": {
+        "deleted_private_list_contains_message": false,
+        "deleted_private_detail": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "deleted_private_image": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "expired_announcement_detail": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "expired_announcement_image": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "removed_audience_list_count": 0,
+        "removed_audience_detail": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "removed_audience_image": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "revoked_broadcast_detail": {"status": 200, "status_value": "revoked", "body_html_length": 0},
+        "revoked_broadcast_image": {"status": 404, "error_code": "MSG_NOT_FOUND"}
+      },
+      "database_projection": "revoked/expired message facts retained; private recipient tombstone and membership removal committed",
+      "object_projection": "denied image reads did not return binary content or storage state",
+      "log_projection": "stable message error/status records observed"
+    },
+    {
+      "id": "A2-MSG-003",
+      "chapter": "message_visibility",
+      "classification": "contract_consistent",
+      "operation": "outside-organization and restricted-admin repeat access",
+      "http": {
+        "outside_list_count": 0,
+        "outside_detail": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "outside_image": {"status": 404, "error_code": "MSG_NOT_FOUND"},
+        "restricted_admin_list_status": 200,
+        "restricted_admin_visible_broadcast_ids": [5, 2],
+        "restricted_admin_image_status": 200
+      },
+      "database_projection": "outside user retained no primary-organization membership",
+      "object_projection": "outside image read returned no binary content"
+    },
+    {
+      "id": "A2-MSG-004",
+      "chapter": "message_visibility",
+      "classification": "implementation_deviation",
+      "operation": "super-admin All-scope category/broadcast/announcement management",
+      "http": {
+        "category_list_status": 500,
+        "category_list_error_code": "MSG_INTERNAL_ERROR",
+        "broadcast_create_status": 500,
+        "announcement_create_status": 500
+      },
+      "database_projection": "failed requests left no managed message copy",
+      "object_projection": "failed image binding paths did not create a bound message",
+      "evidence": "real app adapter lacks the AllOrganizationIDs capability required by the All-scope branch",
+      "action": "record only; no product fix in this audit"
+    },
+    {
+      "id": "A2-FILE-001",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "managed-file upload succeeds, then MySQL File Record insert is rejected by a test-only trigger",
+      "injection": "test-only MySQL BEFORE INSERT trigger",
+      "http": {"status": 500, "error_code": "PERSISTENCE_FAILED"},
+      "database_projection": {"managed_record_count_unchanged": true},
+      "object_projection": {"managed_object_count_unchanged": true, "compensation_delete_observed": true}
+    },
+    {
+      "id": "A2-FILE-002",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "ordinary-file delete with isolated MinIO temporarily stopped",
+      "injection": "temporary isolated MinIO container stop",
+      "http": {"status": 503, "error_code": "STORAGE_UNAVAILABLE"},
+      "database_projection": {"file_record_preserved": true},
+      "object_projection": {"object_preserved": true}
+    },
+    {
+      "id": "A2-FILE-003",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "rotation object move failure",
+      "injection": "temporary isolated MinIO container stop",
+      "runner": {"examined": 1, "moved": 0, "failures": 1},
+      "database_projection": {"location_unchanged": true},
+      "object_projection": {"original_location_readable_after_recovery": true}
+    },
+    {
+      "id": "A2-FILE-004",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "rotation database location update failure",
+      "injection": "test-only MySQL BEFORE UPDATE trigger",
+      "runner": {"examined": 1, "moved": 0, "failures": 1},
+      "database_projection": {"location_unchanged": true},
+      "object_projection": {"rollback_to_original_location_observed": true, "download_status_after_rollback": 200}
+    },
+    {
+      "id": "A2-FILE-005",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "message-image cleanup registration transaction failure",
+      "injection": "test-only MySQL BEFORE INSERT trigger on cleanup jobs",
+      "runner": {"status": "failed", "stage": "register", "failure_code": "message_image_cleanup_register_failed", "job_id_present": false},
+      "database_projection": {"file_record_preserved": true, "cleanup_job_present_at_observation": false},
+      "object_projection": {"source_object_preserved_at_observation": true}
+    },
+    {
+      "id": "A2-FILE-006",
+      "chapter": "file_consistency",
+      "classification": "implementation_deviation",
+      "operation": "message-image object deletion failure with isolated MinIO stopped",
+      "injection": "temporary isolated MinIO container stop",
+      "runner": {"status": "skipped", "stage": "storage", "failure_code": "message_image_cleanup_storage_unavailable", "retry_attempt": 0},
+      "database_projection": {"file_record_preserved": true, "queue_status": "pending", "retry_count": 0, "last_error_code_present": false},
+      "object_projection": {"source_object_preserved": true},
+      "action": "record only; no product fix in this audit"
+    },
+    {
+      "id": "A2-FILE-007",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "message-image retry against a test-only unreachable object endpoint",
+      "injection": "test-only unreachable endpoint with a three-second context deadline",
+      "runner": {"status": "failed", "stage": "storage", "failure_code": "message_image_cleanup_timeout", "retry_attempt": 1},
+      "database_projection": {"retry_attempt_increment_observed": true},
+      "object_projection": {"object_not_deleted_by_timeout": true}
+    },
+    {
+      "id": "A2-FILE-008",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "message-image object already absent",
+      "runner": {"status": "succeeded", "stage": "complete", "failure_code": "", "retry_attempt": 0},
+      "database_projection": {"file_record_count_after": 0, "cleanup_job_count_after": 0},
+      "object_projection": {"object_existence": "absent"}
+    },
+    {
+      "id": "A2-FILE-009",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "object deleted before database terminal completion, then late retry",
+      "injection": "test-only MySQL BEFORE DELETE trigger",
+      "first_result": {"status": "failed", "stage": "complete", "failure_code": "message_image_cleanup_persistence_failed", "retry_attempt": 1},
+      "intermediate_projection": {"file_record_preserved": true, "queue_preserved": true},
+      "late_result": {"status": "succeeded", "stage": "complete", "retry_attempt": 2},
+      "final_projection": {"file_record_count": 0, "cleanup_job_count": 0, "record_not_resurrected": true}
+    },
+    {
+      "id": "A2-FILE-010",
+      "chapter": "file_consistency",
+      "classification": "contract_consistent",
+      "operation": "retry competition, retry terminal boundary, trusted locations, permission denial, NoSuchKey and timeout",
+      "verification": [
+        "real MySQL concurrent registration/retry integration test passed",
+        "real MinIO cleanup recovery integration test passed",
+        "focused retry/terminal/late-result tests passed",
+        "trusted-location and NoSuchKey tests passed"
+      ],
+      "object_projection": "untrusted or unrelated locations were not deleted; NoSuchKey completed successfully"
+    },
+    {
+      "id": "A2-FILE-011",
+      "chapter": "file_consistency",
+      "classification": "implementation_deviation",
+      "operation": "read a message image after cleanup registration",
+      "http": {"status": 500, "error_code": "MSG_INTERNAL_ERROR"},
+      "database_projection": {"logical_message_id_empty": true, "new_message_created": false, "cleanup_job_preserved": true},
+      "object_projection": {"object_not_rebound": true},
+      "action": "record only; no product fix in this audit"
+    },
+    {
+      "id": "A2-LOG-001",
+      "chapter": "logging",
+      "classification": "contract_consistent",
+      "runtime_sink": {
+        "messaging_log_line_count": 1971,
+        "forbidden_value_hits": 0,
+        "forbidden_field_names": [],
+        "outbox_dead_status": "dead",
+        "outbox_retry_attempt": 5,
+        "outbox_failure_code": "rabbitmq_publish_failed"
+      },
+      "observed_event_families": [
+        "messaging_outbox_publish_failed",
+        "messaging_outbox_failure_recorded",
+        "messaging_rabbitmq_consumer_channel_failed",
+        "messaging_dlq_recorder_run_deferred",
+        "messaging_cleanup_item_failed"
+      ]
+    },
+    {
+      "id": "A2-LOG-002",
+      "chapter": "logging",
+      "classification": "implementation_deviation",
+      "audit_sink": {
+        "snapshot_total": 122,
+        "snapshot_page_size": 100,
+        "category_counts": {"operation": 25, "message": 55, "data_access": 20},
+        "message_body_fixture_marker_hits": 10,
+        "download_signature_query_key_observed": true
+      },
+      "action": "record only; no product fix in this audit"
+    },
+    {
+      "id": "A2-QUERY-001",
+      "chapter": "query_scope",
+      "classification": "semantic_pending",
+      "verification": {
+        "unauthorized_user_status": 403,
+        "unauthorized_error_code": "API_META_PERMISSION_DENIED",
+        "fixed_path_super_admin_total": 2,
+        "fixed_path_restricted_admin_total": 2,
+        "fixed_path_page_ids_disjoint": true,
+        "category_query_endpoints_returned_filtered_categories": true
+      },
+      "boundary": "audit records expose user_id but no organization dimension; restricted-admin organization filtering was not evidenced by the current query contract"
+    }
+  ],
+  "verification_commands": [
+    "go test ./internal/files/application -run focused cleanup cases -count=1",
+    "go test ./internal/files/adapters/gorm -run focused retry cases -count=1",
+    "go test -tags=mysql_integration ./internal/files/adapters/gorm -run TestMySQLCleanupConcurrentRegistrationAndRetry -count=1",
+    "go test -tags=minio_integration ./internal/files/application -run TestMinIOMessageImageCleanupRecovery -count=1",
+    "real HTTP/JWT requests against the isolated App at port 18080"
+  ],
+  "uncovered_boundaries": [
+    "full RabbitMQ Consumer message-to-DLQ payload injection and replay was not executed; channel-unavailable and Outbox dead paths were executed",
+    "historical bulk file revalidation, avatar lifecycle, production deployment, random load, and A3 assembly/response scope were excluded",
+    "no product code, main specification, permanent test, route, permission code, model, Redis key, bucket definition, or third-party dependency was changed"
+  ],
+  "cleanup": {
+    "status": "complete",
+    "shared_business_database_touched": false,
+    "credentials_retained": false,
+    "app_process_stopped": true,
+    "containers_removed": true,
+    "temporary_config_removed": true,
+    "temporary_runner_removed": true,
+    "temporary_logs_removed": true,
+    "isolated_schema_removed_with_ephemeral_container": true,
+    "isolated_redis_data_removed_with_ephemeral_container": true,
+    "isolated_object_storage_removed_with_ephemeral_container": true
+  }
+}
