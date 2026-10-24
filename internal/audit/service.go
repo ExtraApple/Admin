@@ -101,6 +101,36 @@ func SanitizeBody(body []byte) string {
 	return TruncateBody(string(sanitized))
 }
 
+func SanitizeBodyForPath(method, path string, body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	if string(body) == "[multipart omitted]" {
+		return string(body)
+	}
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method != "GET" && method != "HEAD" && isMessageAuditPath(path) {
+		return "[message omitted]"
+	}
+	return SanitizeBody(body)
+}
+
+func isMessageAuditPath(path string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(path))
+	if normalized != "/" {
+		normalized = strings.TrimRight(normalized, "/")
+	}
+	return strings.HasPrefix(normalized, "/api/user/messages") ||
+		strings.HasPrefix(normalized, "/api/admin/messages") ||
+		strings.HasPrefix(normalized, "/api/admin/announcements") ||
+		strings.HasPrefix(normalized, "/api/admin/message-categories")
+}
+
+var auditQueryAllowlist = map[string]struct{}{
+	"page": {}, "size": {}, "user_id": {}, "method": {}, "path": {},
+	"status": {}, "category": {}, "start_time": {}, "end_time": {},
+}
+
 func SanitizeQuery(rawQuery string) string {
 	if strings.TrimSpace(rawQuery) == "" {
 		return ""
@@ -110,8 +140,8 @@ func SanitizeQuery(rawQuery string) string {
 		return ""
 	}
 	for key := range values {
-		if _, sensitive := sensitiveAuditFields[strings.ToLower(key)]; sensitive || strings.EqualFold(key, "ticket") {
-			values[key] = []string{"***"}
+		if _, allowed := auditQueryAllowlist[key]; !allowed {
+			delete(values, key)
 		}
 	}
 	return values.Encode()

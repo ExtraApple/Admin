@@ -77,6 +77,47 @@ func TestCleanupRegistrationRetainsFileAndReusesJob(t *testing.T) {
 	}
 }
 
+func TestCleanupFailurePersistsWithMillisecondTimePrecision(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(files.Models()...); err != nil {
+		t.Fatal(err)
+	}
+	repository := gormadapter.NewRepository(db)
+	ctx := context.Background()
+	attemptedAt := time.Date(2026, 9, 14, 0, 0, 0, 123456789, time.FixedZone("PDT", -7*60*60))
+	expired := attemptedAt.Add(-time.Minute)
+	file := domain.File{Purpose: "message_image", Bucket: "files", ObjectName: "message-images/precision.png", BindingExpiresAt: &expired}
+	if err := repository.CreateMessageImage(ctx, &file); err != nil {
+		t.Fatal(err)
+	}
+
+	job, created, err := repository.RegisterMessageImageCleanup(ctx, file.ID, attemptedAt, attemptedAt)
+	if err != nil || !created {
+		t.Fatalf("register: %+v %v %v", job, created, err)
+	}
+	wantNextRetryAt := attemptedAt.UTC().Truncate(time.Millisecond).Add(time.Hour)
+	if job.NextRetryAt == nil || !job.NextRetryAt.Equal(wantNextRetryAt) {
+		t.Fatalf("returned next retry time = %v, want %v", job.NextRetryAt, wantNextRetryAt)
+	}
+
+	var stored files.MessageImageCleanupJob
+	if err := db.First(&stored, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.NextRetryAt == nil || !stored.NextRetryAt.Equal(wantNextRetryAt) {
+		t.Fatalf("persisted next retry time = %v, want %v", stored.NextRetryAt, wantNextRetryAt)
+	}
+	if ok, err := repository.FailMessageImageCleanup(ctx, job, "storage_unavailable"); err != nil || !ok {
+		t.Fatalf("initial failure update: %v %v", ok, err)
+	}
+	if err := db.First(&stored, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "pending" || stored.RetryCount != 0 || stored.LastErrorCode != "storage_unavailable" || stored.NextRetryAt == nil {
+		t.Fatalf("initial failure state = %+v", stored)
+	}
+}
+
 func TestCleanupRegistrationRollsBackAndRejectsSharedLocation(t *testing.T) {
 	db := testutil.OpenIsolatedSQLite(t)
 	if err := db.AutoMigrate(files.Models()...); err != nil {

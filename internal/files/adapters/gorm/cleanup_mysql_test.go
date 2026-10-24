@@ -40,7 +40,7 @@ func TestMySQLCleanupConcurrentRegistrationAndRetry(t *testing.T) {
 	r := adapter.NewRepository(db)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	now := time.Now().UTC().Truncate(time.Millisecond)
+	now := time.Now().UTC()
 	expired := now.Add(-time.Minute)
 	file := domain.File{Purpose: "message_image", Bucket: "probe", ObjectName: "message-images/" + uuid.NewString() + ".png", BindingExpiresAt: &expired, UploaderID: 7}
 	if err := r.CreateMessageImage(ctx, &file); err != nil {
@@ -119,6 +119,55 @@ func TestMySQLCleanupConcurrentRegistrationAndRetry(t *testing.T) {
 	}
 	if ok, err := r.CompleteMessageImageCleanup(ctx, job); err != nil || !ok {
 		t.Fatalf("completion recovery: %v %v", ok, err)
+	}
+}
+
+func TestMySQLCleanupPersistsInitialFailureWithDatetimePrecision(t *testing.T) {
+	dsn := os.Getenv("ADMIN_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Fatal("ADMIN_TEST_MYSQL_DSN required")
+	}
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	if err := db.AutoMigrate(files.Models()...); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	attemptedAt := time.Date(2026, 9, 14, 0, 0, 0, 987654321, time.FixedZone("PDT", -7*60*60))
+	expired := attemptedAt.Add(-time.Minute)
+	file := domain.File{Purpose: "message_image", Bucket: "probe", ObjectName: "message-images/" + uuid.NewString() + ".png", BindingExpiresAt: &expired, UploaderID: 7}
+	if err := adapter.NewRepository(db).CreateMessageImage(ctx, &file); err != nil {
+		t.Fatal(err)
+	}
+	repository := adapter.NewRepository(db)
+	defer func() {
+		db.Where("file_id = ?", file.ID).Delete(&files.MessageImageCleanupJob{})
+		db.Unscoped().Delete(&files.File{}, file.ID)
+	}()
+
+	job, created, err := repository.RegisterMessageImageCleanup(ctx, file.ID, attemptedAt, attemptedAt)
+	if err != nil || !created {
+		t.Fatalf("register: %+v %v %v", job, created, err)
+	}
+	if ok, err := repository.FailMessageImageCleanup(ctx, job, "storage_unavailable"); err != nil || !ok {
+		t.Fatalf("initial failure update: %v %v", ok, err)
+	}
+	var stored files.MessageImageCleanupJob
+	if err := db.First(&stored, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	wantNextRetryAt := attemptedAt.UTC().Truncate(time.Millisecond).Add(time.Hour)
+	if stored.Status != "pending" || stored.RetryCount != 0 || stored.LastErrorCode != "storage_unavailable" || stored.NextRetryAt == nil || !stored.NextRetryAt.Equal(wantNextRetryAt) {
+		t.Fatalf("initial failure state = %+v, want next_retry_at=%v", stored, wantNextRetryAt)
 	}
 }
 

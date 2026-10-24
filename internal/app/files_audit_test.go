@@ -74,7 +74,7 @@ func TestAppRegistersFilesAuditAndPersistsAPIRequestsAsynchronously(t *testing.T
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/audit-probe?source=test", bytes.NewBufferString(`{"password":"secret"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/audit-probe?page=2&source=test", bytes.NewBufferString(`{"password":"secret"}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
@@ -94,7 +94,7 @@ func TestAppRegistersFilesAuditAndPersistsAPIRequestsAsynchronously(t *testing.T
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if log.UserID != 7 || log.Username != "alice" || log.Status != http.StatusAccepted || log.Query != "source=test" || log.Body != `{"password":"***"}` || log.Category != audit.AuditCategoryOperation {
+	if log.UserID != 7 || log.Username != "alice" || log.Status != http.StatusAccepted || log.Query != "page=2" || log.Body != `{"password":"***"}` || log.Category != audit.AuditCategoryOperation {
 		t.Fatalf("persisted audit log = %#v", log)
 	}
 	var metadata map[string]any
@@ -106,5 +106,25 @@ func TestAppRegistersFilesAuditAndPersistsAPIRequestsAsynchronously(t *testing.T
 	}
 	if _, exists := metadata["object_name"]; exists {
 		t.Fatalf("private object name persisted: %#v", metadata)
+	}
+
+	messageRequest := httptest.NewRequest(http.MethodPost, "/api/user/messages/private?page=2&signature=secret", bytes.NewBufferString(`{"title":"Notice","markdown":"private body","external_url":"https://secret.example"}`))
+	messageRequest.Header.Set("Content-Type", "application/json")
+	messageResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(messageResponse, messageRequest)
+	var messageLog audit.AuditLog
+	messageDeadline := time.Now().Add(2 * time.Second)
+	for {
+		err = db.Where("path = ?", "/api/user/messages/private").Order("id DESC").First(&messageLog).Error
+		if err == nil {
+			break
+		}
+		if time.Now().After(messageDeadline) {
+			t.Fatalf("wait for message audit log: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if messageLog.Query != "page=2" || messageLog.Body != "[message omitted]" || messageLog.Category != audit.AuditCategoryMessage {
+		t.Fatalf("message audit log = %#v", messageLog)
 	}
 }

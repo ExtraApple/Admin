@@ -333,6 +333,9 @@ func TestMessagingCleanupLoggingEmitsScopeAndDeadCodesWithoutSensitiveDetails(t 
 	}
 }
 
-func ptrCleanupTime(value time.Time) *time.Time { return &value }
+func ptrCleanupTime(value time.Time) *time.Time {
+	normalized := value.UTC().Truncate(time.Millisecond)
+	return &normalized
+}
 
 var _ filesapplication.ObjectStorage = (*cleanupLoggingStorage)(nil)

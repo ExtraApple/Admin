@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func TestMiddlewareCapturesRedactedRequestAndAllowlistedUploadMetadata(t *testin
 		c.JSON(http.StatusCreated, gin.H{"ok": true})
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/files?source=test", bytes.NewBufferString(`{"password":"secret","nested":{"token":"private"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/files?page=2&source=test", bytes.NewBufferString(`{"password":"secret","nested":{"token":"private"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("User-Agent", "audit-test")
 	response := httptest.NewRecorder()
@@ -74,7 +75,7 @@ func TestMiddlewareCapturesRedactedRequestAndAllowlistedUploadMetadata(t *testin
 		t.Fatalf("recorded logs = %d", len(recorder.logs))
 	}
 	log := recorder.logs[0]
-	if log.UserID != 7 || log.Username != "alice" || log.Method != http.MethodPost || log.Path != "/api/admin/files" || log.Query != "source=test" || log.Status != http.StatusCreated || log.Duration != 25 || log.UserAgent != "audit-test" || log.Category != audit.AuditCategoryOperation || !log.CreatedAt.Equal(start) {
+	if log.UserID != 7 || log.Username != "alice" || log.Method != http.MethodPost || log.Path != "/api/admin/files" || log.Query != "page=2" || log.Status != http.StatusCreated || log.Duration != 25 || log.UserAgent != "audit-test" || log.Category != audit.AuditCategoryOperation || !log.CreatedAt.Equal(start) {
 		t.Fatalf("audit log = %#v", log)
 	}
 	var body map[string]any
@@ -106,5 +107,30 @@ func TestMiddlewareNeverReadsMultipartFileContent(t *testing.T) {
 	}
 	if len(recorder.logs) != 1 || recorder.logs[0].Body != "[multipart omitted]" {
 		t.Fatalf("multipart audit log = %#v", recorder.logs)
+	}
+}
+
+func TestMiddlewareOmitsMessageBodyAndUnapprovedQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := &recordingRecorder{}
+	router := gin.New()
+	router.Use(httpadapter.NewMiddleware(recorder))
+	router.POST("/api/user/messages/private", func(c *gin.Context) { c.Status(http.StatusAccepted) })
+
+	request := httptest.NewRequest(http.MethodPost, "/api/user/messages/private?page=2&signature=secret&source=unexpected", bytes.NewBufferString(`{"title":"Notice","markdown":"private body","external_url":"https://secret.example"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || len(recorder.logs) != 1 {
+		t.Fatalf("message audit response=%d logs=%#v", response.Code, recorder.logs)
+	}
+	log := recorder.logs[0]
+	if log.Body != "[message omitted]" || log.Query != "page=2" || log.Category != audit.AuditCategoryMessage {
+		t.Fatalf("message audit log = %#v", log)
+	}
+	for _, secret := range []string{"Notice", "private body", "secret.example", "signature", "unexpected"} {
+		if strings.Contains(log.Body+" "+log.Query, secret) {
+			t.Fatalf("message audit leaked %q: body=%q query=%q", secret, log.Body, log.Query)
+		}
 	}
 }

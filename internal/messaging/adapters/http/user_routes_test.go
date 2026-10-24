@@ -104,6 +104,7 @@ func (*userHandlerInboxStoreFake) CountUnreadInbox(context.Context, application.
 type userHandlerFilesFake struct {
 	upload  application.MessageImageUpload
 	binding application.MessageImageBinding
+	openErr error
 }
 
 func (files *userHandlerFilesFake) UploadMessageImage(_ context.Context, upload application.MessageImageUpload) (application.TemporaryMessageImage, error) {
@@ -114,7 +115,10 @@ func (files *userHandlerFilesFake) BindMessageImages(_ context.Context, binding 
 	files.binding = binding
 	return nil
 }
-func (*userHandlerFilesFake) OpenMessageImage(context.Context, application.VisibleMessageImage) (application.MessageImageContent, error) {
+func (files *userHandlerFilesFake) OpenMessageImage(context.Context, application.VisibleMessageImage) (application.MessageImageContent, error) {
+	if files.openErr != nil {
+		return application.MessageImageContent{}, files.openErr
+	}
 	return application.MessageImageContent{Reader: io.NopCloser(strings.NewReader("img")), ContentType: "image/png", Size: 3}, nil
 }
 
@@ -190,6 +194,33 @@ func TestUserMessageHandlerReadsVisibleImageThroughMessagingService(t *testing.T
 	descriptor.Handler(context)
 	if response.Code != http.StatusOK || response.Body.String() != "img" || response.Header().Get("Content-Type") != "image/png" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatalf("image response=%d headers=%#v body=%q", response.Code, response.Header(), response.Body.String())
+	}
+}
+
+func TestUserMessageHandlerMapsImageAccessErrorsToStableContracts(t *testing.T) {
+	tests := []struct {
+		name, errorCode string
+		err             error
+		status          int
+	}{
+		{name: "not found", errorCode: CodeNotFound, err: application.ErrNotFound, status: http.StatusNotFound},
+		{name: "dependency", errorCode: CodeInternalError, err: application.ErrMessagingDependency, status: http.StatusInternalServerError},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message := domain.Message{ID: 41, LogicalID: "logical-41", Status: domain.MessageStatusPublished}
+			inbox := &userHandlerInboxStoreFake{items: map[uint]application.InboxMessage{7: {Message: message}}}
+			files := &userHandlerFilesFake{openErr: test.err}
+			service := application.NewService(application.Dependencies{Inbox: inbox, Organizations: userHandlerOrganizationFake{}, Files: files})
+			descriptor := findMessageRoute(t, Routes(service), http.MethodGet, "/api/user/messages/:id/images/:image_id")
+			context, response := newGinRequest(t, http.MethodGet, "/api/user/messages/41/images/9", "")
+			context.Params = gin.Params{{Key: "id", Value: "41"}, {Key: "image_id", Value: "9"}}
+			context.Set("userID", uint(7))
+			descriptor.Handler(context)
+			if response.Code != test.status || !strings.Contains(response.Body.String(), `"error_code":"`+test.errorCode+`"`) {
+				t.Fatalf("image error response=%d body=%s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

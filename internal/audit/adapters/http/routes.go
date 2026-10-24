@@ -34,7 +34,7 @@ func NewMiddleware(recorder Recorder, options ...MiddlewareOptions) gin.HandlerF
 			return
 		}
 		recorder.Submit(audit.AuditLog{UserID: c.GetUint("userID"), Username: c.GetString("username"), Method: c.Request.Method,
-			Path: c.Request.URL.Path, Query: audit.SanitizeQuery(c.Request.URL.RawQuery), Body: audit.SanitizeBody(body), Status: c.Writer.Status(),
+			Path: c.Request.URL.Path, Query: audit.SanitizeQuery(c.Request.URL.RawQuery), Body: audit.SanitizeBodyForPath(c.Request.Method, c.Request.URL.Path, body), Status: c.Writer.Status(),
 			Duration: clock.Now().Sub(start).Milliseconds(), ClientIP: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 			Category: audit.Classify(c.Request.Method, c.Request.URL.Path), Metadata: metadata(c), CreatedAt: start})
 	}

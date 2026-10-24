@@ -56,3 +56,30 @@ func TestSanitizeAuditBodyRedactsEmailAddresses(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeMessageAuditBodyUsesFixedOmissionMarker(t *testing.T) {
+	got := SanitizeBodyForPath("POST", "/api/user/messages/private", []byte(`{"title":"Notice","markdown":"body","image_ids":[7],"external_url":"https://secret.example"}`))
+	if got != "[message omitted]" {
+		t.Fatalf("message audit body = %q, want fixed omission marker", got)
+	}
+	if strings.Contains(got, "Notice") || strings.Contains(got, "secret.example") {
+		t.Fatalf("message audit body leaked content: %q", got)
+	}
+	if got := SanitizeBodyForPath("POST", "/api/user/messages/images", []byte("[multipart omitted]")); got != "[multipart omitted]" {
+		t.Fatalf("multipart audit body = %q", got)
+	}
+}
+
+func TestSanitizeAuditQueryUsesExplicitAllowlist(t *testing.T) {
+	got := SanitizeQuery("page=2&size=20&user_id=7&method=GET&path=%2Fapi%2Fadmin%2Faudit-logs&status=200&category=message&start_time=2026-01-01&end_time=2026-01-31&signature=secret&expires=123&ticket=private&token=private&source=unexpected")
+	for _, allowed := range []string{"page=2", "size=20", "user_id=7", "method=GET", "path=%2Fapi%2Fadmin%2Faudit-logs", "status=200", "category=message", "start_time=2026-01-01", "end_time=2026-01-31"} {
+		if !strings.Contains(got, allowed) {
+			t.Fatalf("allowlisted query value %q missing from %q", allowed, got)
+		}
+	}
+	for _, forbidden := range []string{"signature", "expires", "ticket", "token", "source", "secret", "private", "unexpected"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("unapproved query value %q persisted: %s", forbidden, got)
+		}
+	}
+}

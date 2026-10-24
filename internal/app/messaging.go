@@ -20,6 +20,7 @@ import (
 	platformconfig "admin/internal/platform/config"
 	platformdatabase "admin/internal/platform/database"
 	platformrabbitmq "admin/internal/platform/rabbitmq"
+	"admin/internal/uploadsecurity"
 
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -526,6 +527,9 @@ func (reader messagingOrganizationReader) Memberships(ctx context.Context, userI
 func (reader messagingOrganizationReader) DescendantOrganizationIDs(ctx context.Context, organizationIDs []uint) ([]uint, error) {
 	return reader.scope.DescendantOrganizationIDs(ctx, organizationIDs)
 }
+func (reader messagingOrganizationReader) AllOrganizationIDs(ctx context.Context) ([]uint, error) {
+	return reader.scope.AllOrganizationIDs(ctx)
+}
 
 func (reader messagingOrganizationReader) MemberUserIDs(ctx context.Context, organizationID uint) ([]uint, error) {
 	return reader.scope.MemberUserIDs(ctx, organizationID)
@@ -597,7 +601,23 @@ func (reader messagingFilesReader) BindMessageImages(ctx context.Context, input 
 
 func (reader messagingFilesReader) OpenMessageImage(ctx context.Context, input messagingapplication.VisibleMessageImage) (messagingapplication.MessageImageContent, error) {
 	image, err := reader.service.OpenMessageImage(ctx, filesapplication.MessageImageOpenRequest{ID: input.ID, MessageLogicalID: input.MessageLogicalID})
-	return messagingapplication.MessageImageContent{Reader: image.Reader, ContentType: image.ContentType, Size: image.Size}, err
+	if err != nil {
+		return messagingapplication.MessageImageContent{}, translateMessagingImageError(err)
+	}
+	return messagingapplication.MessageImageContent{Reader: image.Reader, ContentType: image.ContentType, Size: image.Size}, nil
+}
+
+func translateMessagingImageError(err error) error {
+	code, ok := uploadsecurity.CodeOf(err)
+	if !ok {
+		return messagingapplication.ErrMessagingDependency
+	}
+	switch code {
+	case uploadsecurity.CodeFileNotFound, uploadsecurity.CodeFileAccessInvalid, uploadsecurity.CodeStorageObjectNotFound:
+		return messagingapplication.ErrNotFound
+	default:
+		return messagingapplication.ErrMessagingDependency
+	}
 }
 
 var _ messagingapplication.IdentityReader = messagingIdentityReader{}
