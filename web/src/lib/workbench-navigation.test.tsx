@@ -17,7 +17,7 @@ const administrator: UserContext = {
   ...restrictedContext, roles: ['admin'], permissions: ['admin.authorization.overview.get'],
   menus: [moduleMenu('roles'), moduleMenu('users'), moduleMenu('organizations')],
 };
-const allClosed = { 'authorization-review': false, 'identity-organization': false, account: false };
+const allClosed = { 'authorization-review': false, 'identity-organization': false };
 
 function visibleEntries(context: UserContext | null) {
   return getWorkbenchGroups(context).map(group => ({ id: group.id, routes: group.items.map(item => item.to) }));
@@ -42,9 +42,8 @@ describe('permission-filtered workbench groups', () => {
     const usersOnly = { ...restrictedContext, permissions: ['admin.users.get', 'admin.roles.get'], menus: [moduleMenu('users'), moduleMenu('organizations')] };
     expect(visibleEntries(usersOnly)).toEqual([
       { id: 'identity-organization', routes: ['/users'] },
-      { id: 'account', routes: ['/profile'] },
     ]);
-    expect(visibleEntries(restrictedContext)).toEqual([{ id: 'account', routes: ['/profile'] }]);
+    expect(visibleEntries(restrictedContext)).toEqual([]);
     expect(getWorkbenchGroups(null)).toEqual([]);
   });
 
@@ -56,11 +55,11 @@ describe('permission-filtered workbench groups', () => {
     { description: 'lookalike backend path', permissions: ['admin.users.get'], menus: [moduleMenu('users', { path: '/system/users-disabled' })] },
     { description: 'ungranted menu permission', permissions: ['admin.users.get'], menus: [moduleMenu('users', { permission_code: 'admin.users.private.get' })] },
   ])('hides the identity group for $description', ({ permissions, menus }) => {
-    expect(getWorkbenchGroups({ ...restrictedContext, permissions, menus }).map(group => group.id)).toEqual(['account']);
+    expect(getWorkbenchGroups({ ...restrictedContext, permissions, menus }).map(group => group.id)).toEqual([]);
   });
 
   it('keeps backend admin fallback without inventing menus, and honors existing nested-menu access', () => {
-    expect(getWorkbenchGroups({ ...administrator, menus: [] }).map(group => group.id)).toEqual(['authorization-review', 'account']);
+    expect(getWorkbenchGroups({ ...administrator, menus: [] }).map(group => group.id)).toEqual(['authorization-review']);
     const nested = { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users', { path: '/system', type: 1, permission_code: '', children: [moduleMenu('users')] })] };
     expect(getWorkbenchGroups(nested).find(group => group.id === 'identity-organization')?.items.map(item => item.to)).toEqual(['/users']);
   });
@@ -72,12 +71,11 @@ describe('workbench path matching and initialization', () => {
     ['/roles', 'identity-organization'], ['/roles/12', 'identity-organization'], ['/roles/12/permissions', 'identity-organization'],
     ['/users', 'identity-organization'], ['/users/7/roles', 'identity-organization'],
     ['/organizations', 'identity-organization'], ['/organizations/4', 'identity-organization'],
-    ['/profile', 'account'],
   ] as const)('opens only the visible group for %s', (pathname, groupId) => {
     expect(getInitialOpenGroups(getWorkbenchGroups(administrator), pathname)).toEqual({ ...allClosed, [groupId]: true });
   });
 
-  it.each(['/', '/no-management', '/unknown', '/roles-extra', '/usersettings', '/organizations-other/1', '/authorization-overview/extra', '/authorization-risks/extra', '/profile/edit', '/profile/'])('leaves all groups closed for unmatched pathname %s', pathname => {
+  it.each(['/', '/no-management', '/unknown', '/roles-extra', '/usersettings', '/organizations-other/1', '/authorization-overview/extra', '/authorization-risks/extra', '/profile', '/profile/edit', '/profile/'])('leaves all groups closed for unmatched pathname %s', pathname => {
     expect(getInitialOpenGroups(getWorkbenchGroups(administrator), pathname)).toEqual(allClosed);
   });
 
@@ -130,7 +128,6 @@ describe('mounted workbench navigation state', () => {
     render(administrator, '/users/7');
     expectExpanded('identity-organization', true);
     expectExpanded('authorization-review', false);
-    expectExpanded('account', false);
     expect(container.querySelector('a[href="/users"]')).not.toBeNull();
 
     act(() => button('identity-organization').click());
@@ -144,25 +141,20 @@ describe('mounted workbench navigation state', () => {
 
     act(() => {
       button('authorization-review').click();
-      button('account').click();
     });
     expectExpanded('authorization-review', true);
-    expectExpanded('account', true);
     render(administrator, '/profile', 'mobile');
     expectExpanded('authorization-review', true);
     expectExpanded('identity-organization', false);
-    expectExpanded('account', true);
     render(administrator, '/roles/12', 'desktop');
     expectExpanded('authorization-review', true);
     expectExpanded('identity-organization', false);
-    expectExpanded('account', true);
   });
 
   it('updates visible permissions without resetting state, retaining choices when groups disappear and return', () => {
     render(restrictedContext, '/profile');
-    expectExpanded('account', true);
+    expect(container.querySelector('button[data-group]')).toBeNull();
     render(administrator, '/users/7');
-    expectExpanded('account', true);
     expectExpanded('authorization-review', false);
     expectExpanded('identity-organization', false);
     act(() => button('identity-organization').click());
@@ -171,20 +163,17 @@ describe('mounted workbench navigation state', () => {
     render(restrictedContext, '/profile');
     expect(container.querySelector('button[data-group="identity-organization"]')).toBeNull();
     expect(container.querySelector('button[data-group="authorization-review"]')).toBeNull();
-    expectExpanded('account', true);
     render({ ...administrator, permissions: [...administrator.permissions] }, '/authorization-overview', 'mobile');
     expectExpanded('identity-organization', true);
     expectExpanded('authorization-review', false);
-    expectExpanded('account', true);
   });
 
   it('initializes unmatched routes closed and resets choices only on a new mount', () => {
     render(administrator, '/unknown');
     expectExpanded('authorization-review', false);
     expectExpanded('identity-organization', false);
-    expectExpanded('account', false);
     render(administrator, '/profile');
-    expectExpanded('account', false);
+    expectExpanded('identity-organization', false);
     act(() => button('identity-organization').click());
     expectExpanded('identity-organization', true);
 
@@ -193,6 +182,5 @@ describe('mounted workbench navigation state', () => {
     render(administrator, '/profile');
     expectExpanded('authorization-review', false);
     expectExpanded('identity-organization', false);
-    expectExpanded('account', true);
   });
 });

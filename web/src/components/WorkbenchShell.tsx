@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarSeparator, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import type { UserContext } from '@/lib/models';
 import { ThemeSelector } from '@/components/ThemeSelector';
@@ -92,8 +93,20 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
         </div>
         <div className="top-actions">
           <ThemeSelector />
-          <Link className="identity" to="/profile" aria-label={`${name}的个人资料`}><UserAvatar id={context.user.id} name={name} /><span>{name}</span></Link>
-          <Button variant="ghost" asChild><Link to="/logout"><LogOut size={17} aria-hidden="true" />退出</Link></Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="identity" aria-label={`${name}的账号菜单`}>
+                <UserAvatar id={context.user.id} name={name} />
+                <span className="identity-name">{name}</span>
+                <ChevronDown className="identity-chevron" size={14} aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="account-menu">
+              <DropdownMenuItem asChild><Link to="/profile"><UserRound size={17} aria-hidden="true" />个人资料</Link></DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild><Link to="/logout"><LogOut size={17} aria-hidden="true" />退出登录</Link></DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
       <main id="main-content" ref={main} tabIndex={-1} className="content"><Outlet /></main>
