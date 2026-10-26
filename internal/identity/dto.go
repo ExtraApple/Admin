@@ -2,6 +2,7 @@ package identity
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"admin/internal/identity/domain"
@@ -25,9 +26,18 @@ type LoginRequest struct {
 	CaptchaCode string `json:"captcha_code" binding:"required,len=6"`
 }
 
-// RefreshTokenRequest is the public refresh request contract.
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+// SessionControlRequest accepts only an empty JSON object, never credentials.
+type SessionControlRequest struct{}
+
+func (*SessionControlRequest) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if fields == nil || len(fields) != 0 {
+		return fmt.Errorf("expected an empty JSON object")
+	}
+	return nil
 }
 
 type UserInfo struct {
@@ -43,14 +53,14 @@ type UserInfo struct {
 }
 
 type LoginResponse struct {
-	AccessToken  string   `json:"access_token"`
-	RefreshToken string   `json:"refresh_token"`
-	User         UserInfo `json:"user"`
+	AccessToken string   `json:"access_token"`
+	SessionID   string   `json:"session_id"`
+	User        UserInfo `json:"user"`
 }
 
-type RefreshTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+type RefreshResponse struct {
+	AccessToken string `json:"access_token"`
+	SessionID   string `json:"session_id"`
 }
 type UpdateSelfRequest struct {
 	Nickname        string `json:"nickname" binding:"max=100"`
@@ -60,7 +70,6 @@ type UpdateSelfRequest struct {
 	avatarPresent bool
 }
 
-
 // UpdateSelfRequestSchema describes the conditional email re-authentication
 // contract without changing the custom wire decoder used by the handler.
 type UpdateSelfRequestSchema struct {
@@ -68,6 +77,7 @@ type UpdateSelfRequestSchema struct {
 	Email           string `json:"email"`
 	CurrentPassword string `json:"current_password" binding:"required"`
 }
+
 func (request *UpdateSelfRequest) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		Nickname        string          `json:"nickname"`
@@ -97,7 +107,6 @@ type ChangePasswordRequest struct {
 type EmailVerificationRequest struct {
 	Token string `json:"token" binding:"required"`
 }
-
 
 type AdminUpdateUserRequest struct {
 	Nickname string `json:"nickname" binding:"max=100"`

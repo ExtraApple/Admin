@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,26 @@ func TestApplicationRegistersIdentityAuthenticationRoutes(t *testing.T) {
 	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/captcha", nil))
 	if response.Code == http.StatusNotFound {
 		t.Fatalf("Identity captcha route was not registered")
+	}
+	for _, test := range []struct {
+		method, path, body, origin string
+		status                     int
+	}{
+		{http.MethodPost, "/api/user/logout", `{}`, "https://admin.example.test", http.StatusOK},
+		{http.MethodPost, "/api/user/logout", `{}`, "https://evil.example.test", http.StatusForbidden},
+		{http.MethodGet, "/api/user/info", "", "", http.StatusUnauthorized},
+		{http.MethodGet, "/api/user/context", "", "", http.StatusUnauthorized},
+		{http.MethodGet, "/api/admin/users", "", "", http.StatusUnauthorized},
+	} {
+		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+		request.Header.Set("Origin", test.origin)
+		request.Header.Set("X-Admin-Request", "1")
+		request.Header.Set("Content-Type", "application/json")
+		result := httptest.NewRecorder()
+		application.Handler().ServeHTTP(result, request)
+		if result.Code != test.status {
+			t.Fatalf("%s %s status=%d, want %d", test.method, test.path, result.Code, test.status)
+		}
 	}
 }
 
@@ -180,5 +201,35 @@ func TestApplicationAdminUserUpdatesPreserveEmailOwnership(t *testing.T) {
 				t.Fatalf("rejected update changed access version: %d -> %d", version, got)
 			}
 		})
+	}
+}
+
+func TestApplicationRejectsInvalidBrowserSessionBeforeModuleConstruction(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+	t.Cleanup(func() { _ = client.Close() })
+	minioClient, err := minio.New("127.0.0.1:9000", &minio.Options{Creds: credentials.NewStaticV4("test", "test", ""), Secure: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, condition := range []string{"missing origin", "non-loopback http", "nonpositive duration"} {
+		conf := testAppConfig()
+		switch condition {
+		case "missing origin":
+			conf.BrowserSession.Origin = ""
+		case "non-loopback http":
+			conf.BrowserSession.Origin = "http://192.168.1.10:5173"
+			conf.BrowserSession.AllowLoopbackHTTP = true
+		case "nonpositive duration":
+			conf.Jwt.Expire = 0
+		}
+		seeded := false
+		application, err := app.New(context.Background(), conf, app.Resources{DB: db, Redis: client, MinIO: minioClient, Logger: zap.NewNop()}, app.Options{Seed: func(context.Context, platformconfig.Config, []routecatalog.Descriptor) error {
+			seeded = true
+			return nil
+		}})
+		if err == nil || application != nil || seeded {
+			t.Fatalf("invalid browser configuration was not rejected before seeding: %s", condition)
+		}
 	}
 }

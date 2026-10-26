@@ -3,7 +3,8 @@ import type { AuthorizationOverview, AuthorizationRiskPage, AuthorizationRiskQue
 export interface FieldError { field: string; error_code: string; message: string }
 export interface SafeErrorData { remaining_attempts?: number; retry_after_seconds?: number }
 interface Envelope { code: number; error_code: string; msg: string; data: unknown }
-interface AuthBridge { token(): string | null; unauthorized(token: string | null): void }
+interface AuthBridge { token(path: string): string | null; rejected(token: string | null, status: number, code: string): void }
+interface RequestOptions { refreshAttemptId?: string }
 let auth: AuthBridge | null = null;
 export function configureApiAuth(bridge: AuthBridge) { auth = bridge; }
 
@@ -28,9 +29,9 @@ export function fieldMessages(error: unknown): Record<string, string[]> {
   return result;
 }
 const publicPaths: Readonly<Record<string, true>> = { '/api/captcha': true, '/api/login': true, '/api/register': true, '/api/refresh': true };
-function isPublicPath(path: string) {
+function isPublicPath(path: string, method: string) {
   const pathname = path.split(/[?#]/)[0];
-  return !!publicPaths[pathname] || /^\/api\/avatars\/(?:default|[1-9]\d*)$/.test(pathname) || pathname === '/docs' || pathname.startsWith('/docs/');
+  return !!publicPaths[pathname] || (method === 'POST' && pathname === '/api/user/logout') || /^\/api\/avatars\/(?:default|[1-9]\d*)$/.test(pathname) || pathname === '/docs' || pathname.startsWith('/docs/');
 }
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -75,25 +76,37 @@ function failure(response: Response, value: Envelope): ApiError {
     Object.keys(safeData).length ? safeData : null,
     Math.max(retryAfter(response), safeData.retry_after_seconds ?? 0));
 }
-async function request<T>(path: string, method: string, body: unknown, mode: 'json' | 'blob' | 'raw'): Promise<T> {
+async function request<T>(path: string, method: string, body: unknown, mode: 'json' | 'blob' | 'raw', options?: RequestOptions): Promise<T> {
   // Restrict bearer credentials to same-origin API/resources, never an arbitrary URL.
   if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) throw new ApiError(0, 'HTTP_REQUEST_INVALID', 'Request path is invalid.');
-  const publicRequest = isPublicPath(path);
-  const token = publicRequest ? null : auth?.token() ?? null;
+  const pathname = path.split(/[?#]/)[0];
+  const publicRequest = isPublicPath(path, method);
+  const token = publicRequest ? null : auth?.token(pathname) ?? null;
+  const control = method === 'POST' && (pathname === '/api/login' || pathname === '/api/refresh' || pathname === '/api/user/logout');
   const headers = new Headers({ Accept: mode === 'blob' ? '*/*' : 'application/json' });
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (body !== undefined) headers.set('Content-Type', 'application/json');
-  let response: Response;
-  try { response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' }); }
-  catch { throw new ApiError(0, 'CLIENT_NETWORK_ERROR', 'Network request failed.'); }
-  if (response.status === 401 && !publicRequest) auth?.unauthorized(token);
-  if (response.ok && mode === 'blob') return await response.blob() as T;
-  let value: unknown;
-  try { value = await response.json(); } catch { throw invalid(response.status); }
-  if (response.ok && mode === 'raw') return value as T;
-  const payload = envelope(value, response.status);
-  if (!response.ok) throw failure(response, payload);
-  return payload.data as T;
+  if (control) headers.set('X-Admin-Request', '1');
+  if (options?.refreshAttemptId) headers.set('X-Refresh-Attempt-ID', options.refreshAttemptId);
+  const controller = control || pathname === '/api/user/context' ? new AbortController() : null;
+  // Cancel the real fetch, including body reads, before releasing an authentication lock.
+  const timeout = controller ? globalThis.setTimeout(() => controller.abort(), 15_000) : undefined;
+  try {
+    let response: Response;
+    try { response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', signal: controller?.signal }); }
+    catch { throw new ApiError(0, 'CLIENT_NETWORK_ERROR', 'Network request failed.'); }
+    if (response.ok && mode === 'blob') return await response.blob() as T;
+    let value: unknown;
+    try { value = await response.json(); }
+    catch { throw controller?.signal.aborted ? new ApiError(0, 'CLIENT_NETWORK_ERROR', 'Network request failed.') : invalid(response.status); }
+    if (response.ok && mode === 'raw') return value as T;
+    const payload = envelope(value, response.status);
+    if (!response.ok) {
+      if (!publicRequest && (response.status === 401 || payload.error_code === 'IDENTITY_ACCOUNT_DISABLED')) auth?.rejected(token, response.status, payload.error_code);
+      throw failure(response, payload);
+    }
+    return payload.data as T;
+  } finally { clearTimeout(timeout); }
 }
 function authorizationRiskPath(query: AuthorizationRiskQuery = {}): string {
   const params = new URLSearchParams();
@@ -107,7 +120,7 @@ function authorizationRiskPath(query: AuthorizationRiskQuery = {}): string {
 
 export const api = {
   get: <T>(path: string) => request<T>(path, 'GET', undefined, 'json'),
-  post: <T>(path: string, body: unknown) => request<T>(path, 'POST', body, 'json'),
+  post: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>(path, 'POST', body, 'json', options),
   put: <T>(path: string, body?: unknown) => request<T>(path, 'PUT', body, 'json'),
   delete: <T = void>(path: string) => request<T>(path, 'DELETE', undefined, 'json'),
   blob: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),

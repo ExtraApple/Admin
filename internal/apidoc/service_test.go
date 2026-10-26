@@ -203,3 +203,132 @@ func TestDocumentDescribesEnvelopeAndErrorCodeEnums(t *testing.T) {
 		t.Fatalf("error_code enum = %#v", got)
 	}
 }
+
+func TestDocumentProjectsCookieControlWithoutPathSpecificRules(t *testing.T) {
+	type accessData struct {
+		AccessToken string `json:"access_token"`
+		SessionID   string `json:"session_id"`
+	}
+	var descriptors []routecatalog.Descriptor
+	for _, operation := range []struct {
+		path     string
+		required bool
+		data     reflect.Type
+	}{
+		{"/api/browser/start", false, reflect.TypeOf(accessData{})},
+		{"/api/browser/resume", true, reflect.TypeOf(accessData{})},
+		{"/api/browser/end", false, nil},
+	} {
+		success := routecatalog.JSONResponse("success", operation.data)
+		success.Headers = []routecatalog.Header{
+			{Name: "Cache-Control", Description: "Do not cache credentials", Required: true, Value: "no-store"},
+			{Name: "Set-Cookie", Description: "Set or clear the same scoped session Cookie", Required: true},
+		}
+		responses := map[int]routecatalog.Response{200: success}
+		for _, definition := range []httpresponse.ErrorDefinition{
+			httpresponse.RequestInvalidDefinition(),
+			{Owner: "identity", Code: "AUTHN_REFRESH_TOKEN_INVALID", Status: 401, Message: "refresh token is invalid"},
+			{Owner: "identity", Code: "AUTHN_CSRF_INVALID", Status: 403, Message: "browser request verification failed"},
+			{Owner: "identity", Code: "AUTHN_REFRESH_SUPERSEDED", Status: 409, Message: "refresh attempt was superseded"},
+			{Owner: "identity", Code: "IDENTITY_INTERNAL_ERROR", Status: 500, Message: "identity operation failed"},
+		} {
+			response := routecatalog.ErrorResponse(definition.Message, definition)
+			response.Headers = []routecatalog.Header{{Name: "Cache-Control", Description: "Do not cache authentication errors", Required: true, Value: "no-store"}}
+			responses[definition.Status] = response
+		}
+		descriptors = append(descriptors, routecatalog.Descriptor{
+			Method: http.MethodPost, Path: operation.path, Access: routecatalog.Public,
+			Handler: func(*gin.Context) {}, Name: operation.path, Group: "browser", DefaultAuditCategory: "identity",
+			OpenAPI: routecatalog.Operation{
+				Summary: operation.path,
+				Cookie:  &routecatalog.CookieSecurity{Name: "admin_refresh", Description: "Secure on HTTPS; only explicit loopback HTTP may disable Secure", Path: "/api", SameSite: "Strict", Required: operation.required, HTTPOnly: true, Secure: true, HostOnly: true, Session: true},
+				Headers: []routecatalog.Header{
+					{Name: "Origin", Description: "Exact configured origin", Required: true},
+					{Name: "X-Admin-Request", Description: "Browser request verification", Required: true, Value: "1"},
+					{Name: "X-Refresh-Attempt-ID", Description: "Unpredictable attempt identifier; reuse only within 30 seconds", Required: true},
+				},
+				Request:   routecatalog.RequestBody{Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(struct{}{}), Required: true},
+				Responses: responses,
+			},
+		})
+	}
+	catalog, err := routecatalog.New(descriptors)
+	if err != nil {
+		t.Fatalf("create Cookie catalog: %v", err)
+	}
+	document, err := apidoc.New(catalog, metadataFake{entries: []apidoc.Metadata{
+		{Method: "POST", Path: "/api/browser/end", Status: 1, NeedAuth: 1, PermissionCode: "historical.setting"},
+	}}, apidoc.Config{}).Document(context.Background(), "https://admin.test")
+	if err != nil {
+		t.Fatalf("generate Cookie document: %v", err)
+	}
+	schemes := document["components"].(map[string]any)["securitySchemes"].(map[string]any)
+	cookie := schemes["admin_refresh"].(map[string]any)
+	if cookie["type"] != "apiKey" || cookie["in"] != "cookie" || cookie["name"] != "admin_refresh" {
+		t.Fatalf("Cookie security scheme = %#v", cookie)
+	}
+	wantAttributes := map[string]any{"path": "/api", "httpOnly": true, "secure": true, "sameSite": "Strict", "hostOnly": true, "session": true}
+	if !reflect.DeepEqual(cookie["x-cookie-attributes"], wantAttributes) {
+		t.Fatalf("Cookie attributes = %#v", cookie["x-cookie-attributes"])
+	}
+	paths := document["paths"].(map[string]any)
+	for _, descriptor := range descriptors {
+		operation := paths[descriptor.Path].(map[string]any)["post"].(map[string]any)
+		security := operation["security"].([]map[string][]string)
+		if descriptor.OpenAPI.Cookie.Required {
+			if len(security) != 1 || len(security[0]) != 1 {
+				t.Fatalf("required Cookie security = %#v", security)
+			}
+		} else if len(security) != 2 || len(security[0]) != 0 {
+			t.Fatalf("optional Cookie security = %#v", security)
+		}
+		for _, requirement := range security {
+			if _, found := requirement["BearerAuth"]; found {
+				t.Fatal("Public Cookie operation gained a Bearer prerequisite from Metadata")
+			}
+		}
+		parameters := operation["parameters"].([]map[string]any)
+		if len(parameters) != 3 || parameters[0]["in"] != "header" || parameters[0]["required"] != true || parameters[1]["schema"].(map[string]any)["enum"].([]string)[0] != "1" {
+			t.Fatalf("required request headers = %#v", parameters)
+		}
+		requestSchema := operation["requestBody"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+		if requestSchema["additionalProperties"] != false || len(requestSchema["properties"].(map[string]any)) != 0 {
+			t.Fatalf("empty-object request must reject the old credential body: %#v", requestSchema)
+		}
+		responses := operation["responses"].(map[string]any)
+		for _, status := range []string{"200", "400", "401", "403", "409", "500"} {
+			response := responses[status].(map[string]any)
+			headers := response["headers"].(map[string]any)
+			if headers["Cache-Control"].(map[string]any)["schema"].(map[string]any)["enum"].([]string)[0] != "no-store" {
+				t.Fatalf("response %s lost no-store: %#v", status, response)
+			}
+			if status == "200" {
+				if headers["Set-Cookie"].(map[string]any)["required"] != true {
+					t.Fatal("success lost required Set-Cookie")
+				}
+			} else if _, found := headers["Set-Cookie"]; found {
+				t.Fatalf("response %s invented a Cookie write", status)
+			}
+			if status != "200" {
+				schema := response["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+				properties := schema["properties"].(map[string]any)
+				want := map[string]string{"400": "HTTP_REQUEST_INVALID", "401": "AUTHN_REFRESH_TOKEN_INVALID", "403": "AUTHN_CSRF_INVALID", "409": "AUTHN_REFRESH_SUPERSEDED", "500": "IDENTITY_INTERNAL_ERROR"}
+				if len(properties) != 4 || properties["error_code"].(map[string]any)["enum"].([]string)[0] != want[status] || properties["data"].(map[string]any)["nullable"] != true {
+					t.Fatalf("response %s lost the safe four-field error contract: %#v", status, schema)
+				}
+			}
+		}
+		success := responses["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+		data := success["properties"].(map[string]any)["data"].(map[string]any)
+		if descriptor.OpenAPI.Responses[200].DataSchema == nil {
+			if data["nullable"] != true || !reflect.DeepEqual(data["enum"], []any{nil}) {
+				t.Fatalf("logout data must be null: %#v", data)
+			}
+		} else {
+			properties := data["properties"].(map[string]any)
+			if len(properties) != 2 || properties["access_token"] == nil || properties["session_id"] == nil {
+				t.Fatalf("Cookie response leaked or omitted credential fields: %#v", data)
+			}
+		}
+	}
+}

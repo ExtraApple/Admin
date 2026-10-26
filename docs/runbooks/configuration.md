@@ -41,13 +41,14 @@ RabbitMQ 和其他必需凭据应由开发环境 `.env`、CI/CD Secret、Docker 
 |---|---|
 | `server` | HTTP 端口 |
 | `mysql`、`redis`、`minio` | 基础设施连接和凭据环境变量名 |
-| `jwt` | Token 有效期和存量 Token 兼容有效期 |
+| `jwt` | Access／Refresh 有效期（分钟，必须正数） |
 | `admin` | 超级管理员初始化资料和密码环境变量名 |
 | `logger` | Zap 级别、格式、文件和轮转 |
 | `file_upload` | 普通文件、头像大小及下载 URL 有效期 |
 | `file_rotation` | 文件热冷 bucket 轮转 |
 | `audit_log_archive` | 审计日志冷热归档 |
 | `api_docs` | Swagger UI 与 OpenAPI JSON |
+| `browser_session` | 精确可信页面 Origin 与显式回环 HTTP 开发例外 |
 
 ### RabbitMQ 和 Messaging
 
@@ -99,7 +100,41 @@ Seed 依据 `users -> user_roles -> roles.code = admin` 判断超级管理员：
 - Linux、Docker 和 Kubernetes 不依赖 `.env` 文件，只要向进程注入同名环境变量。
 - 挂载 `config.yaml` 的容器或 ConfigMap 必须随版本同步更新非敏感配置结构。
 - 生产环境是否开启 `api_docs.enabled` 由暴露策略决定。
-- JWT 存量兼容有效期应保持为切换时固定值；最后一个存量 Refresh Token 到期后再通过独立变更移除。
+- 浏览器会话协议必须按下述同窗口切换规则发布，不能保留旧 JWT 兼容期。
+
+### 浏览器会话与反向代理
+
+根 `config.yaml` 当前是本地开发配置：
+
+```yaml
+jwt:
+  expire: 15
+  refresh_expire: 10080
+browser_session:
+  origin: http://localhost:5173
+  allow_loopback_http: true
+```
+
+这表示浏览器访问 Vite 的 `http://localhost:5173`，不是 Go 上游地址 `http://127.0.0.1:8080`。`localhost` 与 `127.0.0.1`、不同端口都不是同一 Origin；Vite 改端口或改成 preview 时必须同步显式配置可信页面 Origin，不能因为上游不变而沿用。`allow_loopback_http` 的配置类型默认值为 **false**；根文件显式 true 仅供回环开发，不能复制为生产模板。它只允许主机为 `localhost` 或 `127.0.0.1` 的 HTTP，不允许局域网 IP、任意域名或通配符。
+
+生产配置示例（替换为实际对外站点，不是已执行部署）：
+
+```yaml
+browser_session:
+  origin: https://admin.example.com
+  allow_loopback_http: false
+```
+
+Origin 必须是规范的 scheme＋host＋必要端口，无路径（包括尾 `/`）、query、fragment、userinfo、`null` 或通配符；省略默认端口，host 小写。Login／Refresh／Logout 精确校验它及 JSON／自定义 Header，不根据请求 Host、`X-Forwarded-*` 推断白名单或降低 Secure。反代向 Go 使用内部 HTTP 不改变对外 HTTPS 配置；保留原始 Origin 和控制 Header，原样转发 Set-Cookie，不添加 Domain、不扩大 Path、不剥离 Secure／HttpOnly／SameSite、不缓存控制响应。只将对外同源 `/api` 代理到 Go；不开放跨域凭据 CORS，不能用允许任意 Origin 的方式修复 403。
+
+部署前检查浏览器安全上下文、原生 `navigator.locks` 和实际可读写 localStorage；禁用／隐私策略导致必要能力不可用时工作台明确不可用，不回退到不安全协议。开发 HTTP 回环虽可受浏览器视为可信上下文，仍需在目标浏览器检查能力；生产必须 HTTPS 和受信任证书。会话 Cookie 不设置长期有效期；浏览器关闭／重启不能作为服务端撤销保证。完整请求、Cookie 和错误排障见[登录安全策略](login-security.md)。
+
+### 一次性切换与回滚边界
+
+1. 在隔离环境准备配置与真实 MySQL／Redis、前后端联合及浏览器验收；保留受控备份和可发布构建，不记录凭据。本节是操作要求，不声称已执行生产操作。
+2. 同一维护窗口部署新后端与新前端，更新可信外部 Origin、反代和配置结构；停止旧实例、避免旧缓存客户端继续请求，不混跑新旧协议。所有旧 Access／Refresh 均要求重新登录；不保留旧用途推断、JSON Refresh 或黑名单登出兼容路径。
+3. 使用现有 AutoMigrate／Seed／Route Catalog 同步。保留管理员维护的 API Metadata 字段及历史，不批量回填历史 Public `need_auth`、不新增权限策略、不批量提升 `user_access_versions`、不清空 Redis。旧历史 key 自然到期，不通过 Redis purge 实现切换。
+4. 回滚目标也必须严格校验 SID 和活动会话事实，不能让已撤销的新 Access 恢复有效。直接回到不检查 SID 的旧后端不安全；旧协议回滚需另行批准的事故方案及签名密钥切换，不能靠恢复旧 TTL 或只回滚前端。不得把此说明当作已获批准的生产回滚执行授权。
 
 ## 工作台隔离联调环境
 

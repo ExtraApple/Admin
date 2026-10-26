@@ -4,7 +4,7 @@
 
 ## 模块边界
 
-`internal/identity` 负责用户身份资料、验证码、登录、JWT、Refresh Token、黑名单、密码和头像。角色、权限、数据范围与授权版本由 `internal/authorization` 拥有。
+`internal/identity` 负责用户身份资料、验证码、登录、JWT、Redis 登录会话、Cookie 单次续期、当前会话退出、密码和头像。角色、权限、数据范围与授权版本由 `internal/authorization` 拥有；普通退出不提升用户授权版本，也不再依赖 Access 黑名单。
 
 ## 功能入口
 
@@ -68,4 +68,4 @@ Swagger UI 的 `identity` 标签包含：
 
 纯成员写入与组织层级移动是不同失效来源：前者仅处理实际归属变化目标，后者按改变的`org_and_children`成员范围根识别子树内外依赖者，不能只处理移动节点成员，也不能以另一角色`all`或最终范围相同豁免。有限I4已完成[原程序定向验收](../reviews/evidence/organization-hierarchy-dependents-2026-10-18.json)，与用户定向CAS协议共同工作，不引入额外版本字段或请求级全局最小集合算法。
 
-工作台只保留内存 Access／Refresh Token，完整刷新需重新登录；Client、原生资源入口及部署规则见 [README](../../README.md#管理工作台)。
+工作台只在页面内存保留 Access 与用户上下文；Refresh 仅通过 HttpOnly 会话 Cookie 传输。完整刷新先续期并读取真实上下文，确认前不展示受保护内容；退出失败保留跨刷新／标签的待确认标记。Client、浏览器能力与部署规则见 [README](../../README.md#管理工作台)，控制协议和故障处置见[登录安全策略](../runbooks/login-security.md)，架构取舍见 [ADR 0014](../adr/0014-browser-session-recovery.md)。

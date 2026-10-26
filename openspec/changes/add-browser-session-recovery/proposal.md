@@ -34,6 +34,7 @@
 - `admin-workbench`：启动恢复、运行中失效与手动恢复、跨标签协调、退出待确认和浏览器能力失败，不改变现有业务编辑及主题职责。
 - `route-catalog`：Cookie 会话控制端点的静态访问声明、Header／Cookie／响应文档及完整安全错误来源；保持单一 Snapshot 和其余路由的 JWT 最低身份边界。
 - `logging`：把浏览器会话 Cookie、Set-Cookie 和续期凭据纳入既有敏感数据保护，不新增敏感日志字段或扩大运行日志白名单。
+- `modular-layered-architecture`：经用户确认，仅把两处过时的黑名单校验／归属描述同步为活动登录会话及其撤销；不改变分层、Principal 或授权版本归属。
 
 ## Impact
 
@@ -44,4 +45,4 @@
 - **状态与模型**：新增 Identity 登录会话、续期代和短期幂等结果模型；JWT 增加不可省略的会话绑定和 Refresh 凭据标识。新增 Redis 命名空间 `auth:session:<sid>` 与 `auth:refresh-attempt:<sid>:<attempt-id>`；不用原始 JWT 作新 key，不新建 MySQL 表，不批量提升 `user_access_versions`。已有验证码、失败计数、锁定 key 保持原样。
 - **浏览器与配置**：只允许会话 Cookie 持有 Refresh Token；Web Storage 仅新增不含凭据、用户资料或权限的协调与退出待确认标记。新增明确的可信页面 Origin 和仅回环开发 HTTP 例外配置；Cookie 不设置长期 Expires／Max-Age。具体名称、原子性和能力前提见 design。
 - **保持不变**：MinIO bucket、业务表、管理员 Permission Code、其他路由访问等级、已保存 API Metadata 管理配置及既有运行日志事件名均不改。API Metadata 默认值和 OpenAPI 消费同一新 Snapshot，不回填历史 Public 记录。
-- **交付**：本轮只生成 change-local 工件，不修改当前主规格、代码或依赖。实施时迁移所有仓库调用者，更新 README、认证／配置运行说明、领域术语及相关 ADR；完成真实 MySQL／Redis／HTTP／浏览器联合验收后同步上述主规格，再归档，不沿用此前四项修复的 `--skip-specs` 策略。
+- **交付**：提案阶段只生成 change-local 工件；实施时迁移所有仓库调用者，更新 README、认证／配置运行说明、领域术语及相关 ADR。完成真实 MySQL／Redis／HTTP／浏览器联合验收后，同步协议主规格及经确认的架构归属；归档另行执行，不沿用此前四项修复的 `--skip-specs` 策略。

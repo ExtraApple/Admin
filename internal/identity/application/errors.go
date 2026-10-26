@@ -9,6 +9,7 @@ const (
 	CodeCredentialsInvalid              ErrorCode = "AUTHN_CREDENTIALS_INVALID"
 	CodeLoginLocked                     ErrorCode = "AUTHN_LOGIN_LOCKED"
 	CodeRefreshTokenInvalid             ErrorCode = "AUTHN_REFRESH_TOKEN_INVALID"
+	CodeRefreshSuperseded               ErrorCode = "AUTHN_REFRESH_SUPERSEDED"
 	CodeTokenInvalid                    ErrorCode = "AUTHN_TOKEN_INVALID"
 	CodeAccountDisabled                 ErrorCode = "IDENTITY_ACCOUNT_DISABLED"
 	CodeUserNotFound                    ErrorCode = "IDENTITY_USER_NOT_FOUND"

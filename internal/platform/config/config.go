@@ -3,8 +3,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
@@ -32,6 +36,7 @@ type Config struct {
 	Logger          LoggerConfig          `yaml:"logger"`
 	AuditLogArchive AuditLogArchiveConfig `yaml:"audit_log_archive"`
 	APIDocs         APIDocsConfig         `yaml:"api_docs"`
+	BrowserSession  BrowserSessionConfig  `yaml:"browser_session"`
 }
 
 type ServerConfig struct {
@@ -58,12 +63,15 @@ type MinIOConfig struct {
 }
 
 type JWTConfig struct {
-	Secret              string `yaml:"secret"`
-	SecretEnv           string `yaml:"secret_env"`
-	Expire              int    `yaml:"expire"`
-	RefreshExpire       int    `yaml:"refresh_expire"`
-	LegacyAccessExpire  int    `yaml:"legacy_access_expire"`
-	LegacyRefreshExpire int    `yaml:"legacy_refresh_expire"`
+	Secret        string `yaml:"secret"`
+	SecretEnv     string `yaml:"secret_env"`
+	Expire        int    `yaml:"expire"`
+	RefreshExpire int    `yaml:"refresh_expire"`
+}
+
+type BrowserSessionConfig struct {
+	Origin            string `yaml:"origin"`
+	AllowLoopbackHTTP bool   `yaml:"allow_loopback_http"`
 }
 
 type RedisConfig struct {
@@ -196,8 +204,52 @@ func Load(path string) (Config, error) {
 	if err := validateSMTP(result.SMTP); err != nil {
 		return Config{}, fmt.Errorf("validate config: %w", err)
 	}
+	if err := ValidateBrowserSession(result); err != nil {
+		return Config{}, fmt.Errorf("validate config: %w", err)
+	}
 	return result, nil
 
+}
+
+// ValidateBrowserSession also protects programmatic composition entrypoints.
+func ValidateBrowserSession(config Config) error {
+	if config.Jwt.Expire <= 0 || config.Jwt.RefreshExpire <= 0 {
+		return errors.New("jwt.expire and jwt.refresh_expire must be positive")
+	}
+	origin := config.BrowserSession.Origin
+	parsed, err := url.Parse(origin)
+	if err != nil || origin == "" || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.ContainsAny(origin, "*\\#") || parsed.Opaque != "" {
+		return errors.New("browser_session.origin must be a canonical Origin without path, query, fragment, or userinfo")
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" || parsed.Host != strings.ToLower(parsed.Host) || origin != parsed.Scheme+"://"+parsed.Host {
+		return errors.New("browser_session.origin must be a canonical HTTP(S) Origin")
+	}
+	host := parsed.Hostname()
+	if host == "" || strings.Contains(host, "%") || strings.HasSuffix(parsed.Host, ":") {
+		return errors.New("browser_session.origin has an invalid host")
+	}
+	if net.ParseIP(host) == nil {
+		for _, label := range strings.Split(host, ".") {
+			if len(label) < 1 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+				return errors.New("browser_session.origin has an invalid host")
+			}
+			for _, char := range label {
+				if !(char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-') {
+					return errors.New("browser_session.origin has an invalid host")
+				}
+			}
+		}
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 || strconv.Itoa(number) != port || parsed.Scheme == "https" && number == 443 || parsed.Scheme == "http" && number == 80 {
+			return errors.New("browser_session.origin has a noncanonical port")
+		}
+	}
+	if parsed.Scheme == "http" && (!config.BrowserSession.AllowLoopbackHTTP || host != "localhost" && host != "127.0.0.1") {
+		return errors.New("browser_session.origin requires HTTPS or an explicit localhost/127.0.0.1 HTTP exception")
+	}
+	return nil
 }
 
 func applySMTPDefaults(result *Config) {

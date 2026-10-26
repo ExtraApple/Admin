@@ -80,10 +80,6 @@ func syncCatalogAPIs(ctx context.Context, db *gorm.DB, descriptors []routecatalo
 				updates["deleted_at"] = nil
 				updates["status"] = 1
 			}
-			if method == "POST" && path == "/api/refresh" {
-				updates["need_auth"] = 0
-				updates["permission_code"] = ""
-			}
 			if len(updates) > 0 {
 				if err := db.WithContext(ctx).Unscoped().Model(&existing).Updates(updates).Error; err != nil {
 					return errors.New("同步API配置失败: " + err.Error())

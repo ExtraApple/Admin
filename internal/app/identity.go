@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	authgorm "admin/internal/authorization/adapters/gorm"
@@ -48,11 +49,9 @@ type identityComposition struct {
 func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore, organizations identityapplication.AdminOrganizationReader) (identityComposition, error) {
 	store := identityredis.NewStore(resources.Redis)
 	tokens := identityjwt.NewService(identityjwt.Config{
-		Secret:                  config.Jwt.Secret,
-		AccessExpireMins:        config.Jwt.Expire,
-		RefreshExpireMins:       config.Jwt.RefreshExpire,
-		LegacyAccessExpireMins:  config.Jwt.LegacyAccessExpire,
-		LegacyRefreshExpireMins: config.Jwt.LegacyRefreshExpire,
+		Secret:            config.Jwt.Secret,
+		AccessExpireMins:  config.Jwt.Expire,
+		RefreshExpireMins: config.Jwt.RefreshExpire,
 	})
 	authorizationReader := identityAuthorization{authorization: authorization}
 	service := identityapplication.NewService(
@@ -86,11 +85,9 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 	return identityComposition{service: service, users: users, adminUsers: adminUsers, context: contextService, avatars: avatars, store: store, emailVerification: emailVerification, repository: core.repository}, nil
 }
 func identityDescriptors(composition identityComposition, config platformconfig.Config) []routecatalog.Descriptor {
-	routes := identityhttp.RoutesWithEmailVerification(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, durationMinutes(config.Jwt.Expire), composition.emailVerification)
+	routes := identityhttp.RoutesWithEmailVerification(composition.service, composition.users, composition.context, composition.avatars, composition.store, config.FileUpload.AvatarMaxSizeMB, identityhttp.BrowserSessionConfig{Origin: config.BrowserSession.Origin, Secure: !config.BrowserSession.AllowLoopbackHTTP || !strings.HasPrefix(config.BrowserSession.Origin, "http://")}, composition.emailVerification)
 	return append(routes, identityhttp.AdminUserRoutes(composition.adminUsers)...)
 }
-
-func durationMinutes(minutes int) time.Duration { return time.Duration(minutes) * time.Minute }
 
 type identityAuthorization struct{ authorization *authapplication.Service }
 

@@ -13,7 +13,7 @@ import (
 )
 
 func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
-	routes := httpadapter.Routes(nil, nil, nil, nil, nil, 5)
+	routes := httpadapter.Routes(nil, nil, nil, nil, nil, 5, httpadapter.BrowserSessionConfig{Origin: "https://admin.example.test", Secure: true})
 	want := map[string]routecatalog.AccessLevel{
 		"GET /api/captcha":                           routecatalog.Public,
 		"POST /api/register":                         routecatalog.Public,
@@ -27,7 +27,7 @@ func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
 		"PUT /api/user/password":                     routecatalog.Authenticated,
 		"POST /api/user/avatar":                      routecatalog.Authenticated,
 		"DELETE /api/user/avatar":                    routecatalog.Authenticated,
-		"POST /api/user/logout":                      routecatalog.Authenticated,
+		"POST /api/user/logout":                      routecatalog.Public,
 		"PUT /api/admin/users/:id":                   routecatalog.PermissionControlled,
 		"DELETE /api/admin/users/:id":                routecatalog.PermissionControlled,
 		"PUT /api/admin/users/:id/status":            routecatalog.PermissionControlled,
@@ -50,7 +50,7 @@ func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
 }
 
 func TestEmailVerificationRoutesDeclareSafeSchemasAndStableErrors(t *testing.T) {
-	routes := httpadapter.Routes(nil, nil, nil, nil, nil, 5)
+	routes := httpadapter.Routes(nil, nil, nil, nil, nil, 5, httpadapter.BrowserSessionConfig{Origin: "https://admin.example.test", Secure: true})
 	byPath := make(map[string]routecatalog.Descriptor, len(routes))
 	for _, route := range routes {
 		byPath[route.Method+" "+route.Path] = route
@@ -78,7 +78,7 @@ func TestEmailVerificationRoutesDeclareSafeSchemasAndStableErrors(t *testing.T) 
 func TestEmailVerificationConfirmErrorUsesSafeEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	verification := application.NewEmailVerificationService(nil, nil)
-	routes := httpadapter.RoutesWithEmailVerification(nil, nil, nil, nil, nil, 5, 0, verification)
+	routes := httpadapter.RoutesWithEmailVerification(nil, nil, nil, nil, nil, 5, httpadapter.BrowserSessionConfig{Origin: "https://admin.example.test", Secure: true}, verification)
 	var confirm routecatalog.Descriptor
 	for _, route := range routes {
 		if route.Path == "/api/user/email-verifications/confirm" {

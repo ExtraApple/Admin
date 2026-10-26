@@ -74,6 +74,9 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	if err := validateResources(resources); err != nil {
 		return nil, err
 	}
+	if err := platformconfig.ValidateBrowserSession(conf); err != nil {
+		return nil, err
+	}
 	filesModule, err := newFilesComposition(resources, conf)
 	if err != nil {
 		return nil, fmt.Errorf("build Files module: %w", err)

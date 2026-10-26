@@ -19,10 +19,11 @@ var (
 )
 
 type LoginRequest struct {
-	Username    string
-	Password    string
-	CaptchaID   string
-	CaptchaCode string
+	Username             string
+	Password             string
+	CaptchaID            string
+	CaptchaCode          string
+	PreviousRefreshToken string
 }
 
 type RegisterRequest struct {
@@ -34,18 +35,29 @@ type RegisterRequest struct {
 	CaptchaCode string
 }
 
-type RefreshRequest struct{ RefreshToken string }
+type RefreshRequest struct {
+	RefreshToken string
+	AttemptID    string
+}
 
 type TokenIssue struct {
-	UserID       uint
-	TokenVersion int
-	Roles        []string
-	Permissions  []string
+	UserID           uint
+	TokenVersion     int
+	Roles            []string
+	Permissions      []string
+	SessionID        string
+	Generation       int64
+	RefreshID        string
+	IssuedAt         time.Time
+	AccessExpiresAt  time.Time
+	RefreshExpiresAt time.Time
 }
 
 type TokenPair struct {
 	AccessToken  string
 	RefreshToken string
+	SessionID    string
+	Material     TokenIssue
 }
 
 type TokenPurpose string
@@ -59,6 +71,11 @@ type TokenClaims struct {
 	UserID       uint
 	TokenVersion int
 	Purpose      TokenPurpose
+	SessionID    string
+	Generation   int64
+	RefreshID    string
+	ExpiresAt    time.Time
+	Expired      bool
 }
 
 type AuthenticatedIdentity struct {
@@ -69,6 +86,7 @@ type AuthenticatedIdentity struct {
 type LoginResult struct {
 	AccessToken  string
 	RefreshToken string
+	SessionID    string
 	User         domain.User
 }
 
@@ -79,7 +97,7 @@ type Service struct {
 	captcha                 CaptchaVerifier
 	passwords               PasswordHasher
 	attempts                LoginAttemptStore
-	blacklist               BlacklistStore
+	sessions                SessionStore
 	authorization           AuthorizationReader
 	tokens                  TokenService
 	emailVerificationIssuer EmailVerificationIssuer
@@ -91,11 +109,11 @@ func NewService(
 	captcha CaptchaVerifier,
 	passwords PasswordHasher,
 	attempts LoginAttemptStore,
-	blacklist BlacklistStore,
+	sessions SessionStore,
 	authorization AuthorizationReader,
 	tokens TokenService,
 ) *Service {
-	return &Service{users: users, captcha: captcha, passwords: passwords, attempts: attempts, blacklist: blacklist, authorization: authorization, tokens: tokens}
+	return &Service{users: users, captcha: captcha, passwords: passwords, attempts: attempts, sessions: sessions, authorization: authorization, tokens: tokens}
 }
 
 func (service *Service) ConfigureEmailVerification(issuer EmailVerificationIssuer, sender VerificationEmailSender) {
@@ -179,7 +197,16 @@ func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginR
 	if err := service.attempts.Clear(ctx, request.Username); err != nil {
 		return LoginResult{}, NewError(CodeInternalError, err)
 	}
-	return LoginResult{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, User: user}, nil
+	var previous *TokenClaims
+	if request.PreviousRefreshToken != "" {
+		if claims, err := service.tokens.Parse(ctx, request.PreviousRefreshToken); err == nil && claims.Purpose == TokenPurposeRefresh {
+			previous = &claims
+		}
+	}
+	if err := service.sessions.Create(ctx, SessionFromIssue(tokens.Material), previous); err != nil {
+		return LoginResult{}, NewError(CodeInternalError, err)
+	}
+	return LoginResult{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, SessionID: tokens.Material.SessionID, User: user}, nil
 }
 
 func (service *Service) recordCredentialFailure(ctx context.Context, username string) error {
@@ -197,23 +224,54 @@ func (service *Service) recordCredentialFailure(ctx context.Context, username st
 }
 
 func (service *Service) Refresh(ctx context.Context, request RefreshRequest) (TokenPair, error) {
-	claims, err := service.tokens.Parse(ctx, request.RefreshToken)
+	if !ValidSessionIdentifier(request.AttemptID) {
+		return TokenPair{}, ErrRefreshTokenInvalid
+	}
+	claims, err := service.tokens.ParseRefresh(ctx, request.RefreshToken)
 	if err != nil || claims.Purpose != TokenPurposeRefresh {
 		return TokenPair{}, ErrRefreshTokenInvalid
 	}
-	blacklisted, err := service.blacklist.Contains(ctx, request.RefreshToken)
-	if err != nil || blacklisted {
-		return TokenPair{}, ErrRefreshTokenInvalid
-	}
 	user, err := service.users.FindByID(ctx, claims.UserID)
-	if err != nil || !user.Enabled() {
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return TokenPair{}, ErrRefreshTokenInvalid
+		}
+		return TokenPair{}, NewError(CodeInternalError, err)
+	}
+	if !user.Enabled() {
 		return TokenPair{}, ErrRefreshTokenInvalid
 	}
 	snapshot, err := service.authorization.Snapshot(ctx, claims.UserID)
-	if err != nil || claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {
+	if err != nil {
+		if errors.Is(err, ErrAuthorizationVersionMissing) {
+			return TokenPair{}, ErrRefreshTokenInvalid
+		}
+		return TokenPair{}, NewError(CodeInternalError, err)
+	}
+	if claims.TokenVersion <= 0 || claims.TokenVersion != snapshot.Version {
 		return TokenPair{}, ErrRefreshTokenInvalid
 	}
-	pair, err := service.tokens.Issue(ctx, TokenIssue{UserID: claims.UserID, TokenVersion: snapshot.Version, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)})
+	// Probe before generating material or signing. A retry recovers the exact
+	// committed result even when fresh entropy or signing is unavailable.
+	rotation := RefreshRotation{Credential: claims, AttemptID: request.AttemptID}
+	material, err := service.sessions.Rotate(ctx, rotation)
+	if errors.Is(err, ErrRefreshUncommitted) {
+		rotation.Candidate, err = service.tokens.Prepare(ctx, TokenIssue{UserID: claims.UserID, TokenVersion: snapshot.Version, SessionID: claims.SessionID, Generation: claims.Generation + 1, Roles: snapshot.Roles, Permissions: snapshot.Permissions})
+		if err != nil {
+			return TokenPair{}, NewError(CodeInternalError, err)
+		}
+		material, err = service.sessions.Rotate(ctx, rotation)
+	}
+	if err != nil {
+		if errors.Is(err, ErrRefreshSuperseded) {
+			return TokenPair{}, ErrRefreshSuperseded
+		}
+		if errors.Is(err, ErrSessionMissing) || errors.Is(err, ErrRefreshReuse) {
+			return TokenPair{}, ErrRefreshTokenInvalid
+		}
+		return TokenPair{}, NewError(CodeInternalError, err)
+	}
+	pair, err := service.tokens.Issue(ctx, material)
 	if err != nil {
 		return TokenPair{}, NewError(CodeInternalError, err)
 	}
@@ -225,11 +283,14 @@ func (service *Service) Authenticate(ctx context.Context, token string) (Authent
 	if err != nil || claims.Purpose != TokenPurposeAccess {
 		return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, err)
 	}
-	blacklisted, err := service.blacklist.Contains(ctx, token)
+	session, err := service.sessions.Read(ctx, claims.SessionID)
 	if err != nil {
+		if errors.Is(err, ErrSessionMissing) {
+			return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, nil)
+		}
 		return AuthenticatedIdentity{}, NewError(CodeInternalError, err)
 	}
-	if blacklisted {
+	if session.UserID != claims.UserID || session.TokenVersion != claims.TokenVersion {
 		return AuthenticatedIdentity{}, NewError(CodeTokenInvalid, nil)
 	}
 	user, err := service.users.FindByID(ctx, claims.UserID)
@@ -255,8 +316,12 @@ func (service *Service) Authenticate(ctx context.Context, token string) (Authent
 	return AuthenticatedIdentity{UserID: claims.UserID, Roles: cloneStrings(snapshot.Roles), Permissions: cloneStrings(snapshot.Permissions)}, nil
 }
 
-func (service *Service) Logout(ctx context.Context, token string, expire time.Duration) error {
-	if err := service.blacklist.Add(ctx, token, expire); err != nil {
+func (service *Service) Logout(ctx context.Context, token string) error {
+	claims, err := service.tokens.Parse(ctx, token)
+	if err != nil || claims.Purpose != TokenPurposeRefresh {
+		return nil
+	}
+	if err := service.sessions.Revoke(ctx, claims); err != nil {
 		return NewError(CodeInternalError, err)
 	}
 	return nil

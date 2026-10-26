@@ -39,6 +39,8 @@ func TestBuildOwnsPlatformConstructionAndClosure(t *testing.T) {
 
 	config := platformconfig.Config{}
 	config.Jwt.Secret = "build-app-test-file-signing-secret"
+	config.Jwt.Expire, config.Jwt.RefreshExpire = 15, 10080
+	config.BrowserSession.Origin = "https://admin.example.test"
 	config.FileUpload.MaxSizeMB = 50
 	config.FileUpload.AvatarMaxSizeMB = 2
 	config.FileUpload.DownloadURLExpireSeconds = 300
@@ -67,7 +69,7 @@ func TestBuildFromPathUsesAppComposition(t *testing.T) {
 		t.Fatalf("create MinIO client: %v", err)
 	}
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	config := []byte("jwt:\n  secret: build-from-path-secret\nfile_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
+	config := []byte("jwt:\n  secret: build-from-path-secret\n  expire: 15\n  refresh_expire: 10080\nbrowser_session:\n  origin: https://admin.example.test\nfile_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
 	if err := os.WriteFile(configPath, config, 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

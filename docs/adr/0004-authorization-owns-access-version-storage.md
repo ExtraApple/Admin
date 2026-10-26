@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受。
+已接受；登录会话及凭据职责的后续演进见 [ADR 0014](0014-browser-session-recovery.md)。下文保留本次授权版本存储迁移的历史决策与实施记录。
 
 ## 背景
 
@@ -50,3 +50,9 @@ Authorization 拥有 `user_access_versions`，该表是 Access Token 和 Refresh
 
 因此 `user_access_versions` 现为唯一长期事实来源。应用只能回滚到仍读取新表且不依赖
 旧列或迁移状态的版本；恢复旧字段需要新的独立架构与数据库变更，不能作为常规回滚。
+
+## 后续约束：登录会话恢复
+
+[ADR 0014：浏览器会话恢复](0014-browser-session-recovery.md) 替换本记录中 Identity 使用 Redis 黑名单实现退出的约束；普通退出现为撤销 Identity 拥有的单次登录会话，不提升授权版本。Identity 仍负责凭据签名／验证和用户身份状态核验，Authorization 仍独占 MySQL `user_access_versions` 的初始化、读取、比较与提升，不产生第二套版本事实。
+
+Access 与最小 Refresh 都绑定授权版本和登录会话。Refresh 不再复制角色／权限集合；续期须以实时授权快照形成新的 Access。授权或身份安全变化导致的版本提升仍使该用户所有旧版本凭据失效，而当前浏览器退出只撤销对应 SID，不能误伤其他独立登录。本补充不恢复已退役的旧列、镜像写或迁移回滚路径。

@@ -65,7 +65,7 @@ minio.exe server D:\WORK\minio\data --console-address ":9001"
 
 工作台侧栏入口按“授权核对”“身份与组织”分组，只显示当前用户可访问的入口，空分组不显示。桌面侧栏固定 228px；850px 及以下使用导航 Sheet。首次挂载只展开当前路由所属分组，后续路由切换不重置用户选择，也不持久化分组状态。未保存编辑的导航确认取消后保留编辑与 Sheet；确认离开后关闭导航并恢复菜单按钮焦点。
 
-右上角头像／昵称用于展开账号菜单，提供“个人资料”和“退出登录”；不再单独显示顶部退出按钮或侧栏“账户”分组。个人资料保留原页面与 Breadcrumb 名称，没有管理权限的用户仍可通过账号菜单访问。退出不新增二次确认，继续使用既有登出、内存会话清除及失败提示，并遵守页面的未保存修改保护。菜单支持键盘操作、Escape 和点击外部关闭，窄屏保留可访问的头像触发器。
+右上角头像／昵称用于展开账号菜单，提供“个人资料”和“退出登录”；不再单独显示顶部退出按钮或侧栏“账户”分组。个人资料保留原页面与 Breadcrumb 名称，没有管理权限的用户仍可通过账号菜单访问。退出不新增二次确认，遵守页面原有未保存修改保护；允许离开后先记录退出意图并清理内存，真实 Cookie 登出失败则显示“服务端退出未确认”和重试入口，不宣称退出成功。菜单支持键盘操作、Escape 和点击外部关闭，窄屏保留可访问的头像触发器。
 
 正式前端在HTML内容和React挂载前同步加载同源`/theme.js`，提供“亮色”“暗色”“跟随系统”三种外观模式。所选模式仅按当前浏览器、同一站点保存在`admin-workbench.theme`；它不绑定用户、不保存Token、不改变导航分组或业务数据。系统模式跟随`prefers-color-scheme`，固定模式不受系统变化覆盖；同源其他标签通过浏览器`storage`事件同步，不刷新页面、不重建业务页面。
 
@@ -80,7 +80,7 @@ npm run build
 npm run preview
 ```
 
-Radix primitives 使用同一兼容发布系列，Sheet、确认框、Select 等浮层需要共享 FocusScope 和 DismissableLayer。升级依赖后先停止旧的开发服务器，再执行 `npm run dev -- --force` 刷新 Vite 预构建缓存；旧缓存仍可能保留重复的浮层核心，仅安装成功或 HMR 刷新不足以验证嵌套浮层。完整刷新后需要重新登录。
+Radix primitives 使用同一兼容发布系列，Sheet、确认框、Select 等浮层需要共享 FocusScope 和 DismissableLayer。升级依赖后先停止旧的开发服务器，再执行 `npm run dev -- --force` 刷新 Vite 预构建缓存；旧缓存仍可能保留重复的浮层核心，仅安装成功或 HMR 刷新不足以验证嵌套浮层。完整刷新后通过 Cookie 与真实上下文恢复会话，明确失效才要求重新登录。
 
 `dev` 启动真实应用，`typecheck` 检查类型，`test` 运行 Vitest，`build` 输出 `web/dist/`，`preview` 仅本地预览构建产物，不是生产服务器。开发代理默认转发 `/api`、`/avatars`、`/docs` 到 `http://127.0.0.1:8080`。后端端口不同时，在启动 Vite 前设置：
 构建产物必须同时包含可直接获取的`/theme.js`静态脚本和SPA资源；`/theme.js`不是业务API或权限路由。主题切换的真实页面、Portal、原生控件和编辑状态验收由对应OpenSpec change记录，不以构建成功替代浏览器验收。
@@ -92,7 +92,13 @@ npm run dev
 
 该变量配置开发代理目标，不把跨域后端地址写入浏览器客户端。生产同源反向代理必须优先把 `/api`、`/api/*`、`/docs`、`/docs/*` 及头像资源转发给 Go 服务，再为前端路由提供 `index.html` SPA 回退；API 404/405 和文档错误不得回退成 HTML。部署 `web/dist/`，不发布样稿或把 Vite 开发服务器用于生产。
 
-Access Token 与 Refresh Token 只保存在页面内存，不写入 localStorage、sessionStorage 或持久 Cookie。完整刷新／重新打开页面需要重新登录；登录成功后在实际权限允许时返回原目的页。页面内可使用现有刷新流程，401／授权版本失效清空会话，403 保留页面显示拒绝；退出调用真实登出接口。注册不自动获得管理权限，无可用管理菜单时仍可查看个人资料并退出。
+Access Token 和用户上下文只保存在页面内存；Refresh 仅由 Host-only、`Path=/api`、HttpOnly、SameSite=Strict 的 `admin_refresh` 会话 Cookie 持有，HTTPS 必须 Secure，不设置长期 Expires／Max-Age。Refresh 不在 JSON 或 JavaScript／Web Storage 中。启动先 Cookie Refresh，再获取真实用户上下文，完成前只显示确认状态，不闪现登录或受保护内容。关闭浏览器不保证服务端退出，浏览器恢复可能保留 Cookie。
+
+Login／Refresh／Logout 都要求精确的可信页面 Origin、JSON 和 `X-Admin-Request: 1`；Refresh 另需不可预测的 `X-Refresh-Attempt-ID`。Refresh 与 Logout body 均为 `{}`，不需要 Access；业务请求仍使用 Bearer，不自动重放。登录 data 为 `access_token / session_id / user`，Refresh 为 `access_token / session_id`，退出为 `null`。协议、Cookie jar 示例和 401／403／409／500 处置见[登录安全策略](docs/runbooks/login-security.md)。
+
+工作台要求安全上下文、原生 Web Locks 和可用 localStorage，无能力时明确不可用，不降级为仅内存会话。三个 `admin-workbench.auth.*` 存储 key 只协调非凭据事件、续期尝试和退出待确认，不持久化用户或权限。退出失败标记跨刷新／标签保留并阻止自动登录；只在确认退出或用户真实重新登录且 context 成功后清除。Access 仍有效的续期故障保留编辑，到期挂起不卸载；手动恢复需同 SID／上下文，新身份清除旧编辑。403 权限拒绝仍保留页面，注册不自动获得管理权限，无菜单用户可查看个人资料并退出。
+
+根配置 `browser_session.origin: http://localhost:5173`、`allow_loopback_http: true` 仅用于 Vite 回环开发，不是上游 8080 Origin。`ADMIN_API_TARGET` 不改变可信页面 Origin；换页面主机／端口须同步配置。生产设置实际对外 HTTPS Origin、关闭 HTTP 例外，遵守[配置与同窗口切换规则](docs/runbooks/configuration.md#浏览器会话与反向代理)：前后端一次切换、旧 Token 全部重新登录、禁止混跑旧实例；回滚仍必须校验 SID，不能直接回到旧后端。切换不清 Redis、不批量提升授权版本、不覆盖管理员 API Metadata 或回填历史 Public 配置。
 
 ### API Client 与发布边界
 

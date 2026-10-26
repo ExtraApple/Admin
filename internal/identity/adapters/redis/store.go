@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	captchaPrefix   = "captcha:"
-	failurePrefix   = "fail:"
-	lockPrefix      = "lock:"
-	blacklistPrefix = "blacklist:"
+	captchaPrefix = "captcha:"
+	failurePrefix = "fail:"
+	lockPrefix    = "lock:"
 )
 
 type Store struct{ client *redis.Client }
@@ -67,15 +66,6 @@ func (store *Store) Clear(ctx context.Context, username string) error {
 	return store.client.Del(ctx, failurePrefix+username, lockPrefix+username).Err()
 }
 
-func (store *Store) Contains(ctx context.Context, token string) (bool, error) {
-	count, err := store.client.Exists(ctx, blacklistPrefix+token).Result()
-	return count > 0, err
-}
-
-func (store *Store) Add(ctx context.Context, token string, duration time.Duration) error {
-	return store.client.Set(ctx, blacklistPrefix+token, "1", duration).Err()
-}
-
 var _ application.CaptchaVerifier = (*Store)(nil)
 var _ application.LoginAttemptStore = (*Store)(nil)
-var _ application.BlacklistStore = (*Store)(nil)
+var _ application.SessionStore = (*Store)(nil)

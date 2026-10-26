@@ -10,7 +10,7 @@ export interface Organization { id: number; parent_id: number; name: string; cod
 export interface DataScope { role_id: number; data_scope: string; organization_ids: number[] }
 export interface UserContext { user: UserInfo; roles: string[]; permissions: string[]; menus: Menu[] }
 export interface LoginInput { username: string; password: string; captcha_id: string; captcha_code: string }
-export interface TokenPair { access_token: string; refresh_token: string }
+export interface SessionGrant { access_token: string; session_id: string }
 export interface Captcha { captcha_id: string; captcha_img: string }
 
 export type AuthorizationRiskKind = 'disabled_assigned_menu' | 'missing_menu_permission' | 'used_role_without_permissions' | 'managed_user_without_role';

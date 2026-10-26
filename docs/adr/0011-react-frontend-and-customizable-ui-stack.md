@@ -28,3 +28,9 @@ Admin 将在根目录 `web/` 建立管理端，以用户、角色和组织授权
 - **仅用 Radix UI 自建所有控件** 提供最大控制权，但会增加通用按钮、表单控件及交互样式的维护工作；shadcn/ui 提供可按需调整的组件源码。
 
 该路线要求项目维护引入后的组件源码与主题变量；复杂表格、表单错误及响应状态仍须按业务契约自行组合和验证。现有实现采用 npm、React Router 和 Radix 组件，版本由 `web/package.json` 与 `web/package-lock.json` 固定；入口在 `web/src/App.tsx`，集中 Client 在 `web/src/lib/api.ts`。实现与联合验收门禁见 [`build-admin-workbench`](../../openspec/changes/archive/2026-10-01-build-admin-workbench/)；开发、部署及内存会话限制见 [README](../../README.md#管理工作台)。
+
+## 后续约束：浏览器会话恢复
+
+[ADR 0014：浏览器会话恢复](0014-browser-session-recovery.md) 替换初期“两种 Token 仅驻内存、整页刷新后重新登录”的会话限制，不改变本记录的 React／组件选型、集中 Client、视觉基线及编辑页面决策。Access 和用户上下文仍仅驻内存；Refresh 改由 HttpOnly 会话 Cookie 承载，不进入 WebStorage 或 JSON 响应。启动必须先续期并读取真实上下文，再显示受保护内容。
+
+认证 Cookie 副作用通过跨标签 Web Lock 串行化，短状态锁保护无凭据的协调状态；持久退出意图阻止失败退出后自动恢复。有效 Access 期间的暂时续期失败保留编辑，到期后暂停而不卸载同一会话编辑；仅同 SID 且真实上下文复核通过才能恢复，换身份则清除旧编辑。必要 Cookie／存储／Web Locks 能力不可用时明确报告不可用，不回退到旧内存模式。具体失败语义与部署前提由 ADR 0014 规定；本补充不宣称联合或浏览器验收已经通过。

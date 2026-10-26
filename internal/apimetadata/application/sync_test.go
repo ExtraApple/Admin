@@ -67,7 +67,7 @@ func TestServiceSyncRoutesPreservesExistingMetadataAndReturnsOnlyCreated(t *test
 	}
 }
 
-func TestServiceSyncRoutesFiltersNonAPIPathsAndRepairsRefresh(t *testing.T) {
+func TestServiceSyncRoutesFiltersNonAPIPathsAndPreservesPublicRefreshConfiguration(t *testing.T) {
 	db := testutil.OpenIsolatedSQLite(t)
 	if err := db.AutoMigrate(gormadapter.Models()...); err != nil {
 		t.Fatalf("migrate API Metadata: %v", err)
@@ -75,15 +75,15 @@ func TestServiceSyncRoutesFiltersNonAPIPathsAndRepairsRefresh(t *testing.T) {
 	repository := gormadapter.NewRepository(db)
 	core := application.NewCore(repository, platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
 	ctx := context.Background()
-	wrongAuth := 1
-	refresh, err := core.Create(ctx, application.CreateInput{Name: "Refresh", Method: "POST", Path: "/api/refresh", NeedAuth: &wrongAuth, PermissionCode: "admin.refresh"})
+	configuredAuth := 1
+	refresh, err := core.Create(ctx, application.CreateInput{Name: "Refresh", Method: "POST", Path: "/api/refresh", NeedAuth: &configuredAuth, PermissionCode: "operator.refresh"})
 	if err != nil {
 		t.Fatalf("create refresh API: %v", err)
 	}
 	source := &routeSourceFake{facts: []application.RouteFact{
 		{Method: "GET", Path: "/ping", Name: "Ping"},
 		{Method: "GET", Path: "/docs", Name: "Docs"},
-		{Method: "POST", Path: "/api/refresh", Name: "Catalog Refresh", Authenticated: true, PermissionControlled: true, DefaultPermissionCode: "admin.refresh"},
+		{Method: "POST", Path: "/api/refresh", Name: "Catalog Refresh"},
 	}}
 	service := application.NewService(core, nil, application.WithRouteSource(source))
 	created, err := service.SyncRoutes(ctx)
@@ -104,8 +104,74 @@ func TestServiceSyncRoutesFiltersNonAPIPathsAndRepairsRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get refresh API: %v", err)
 	}
-	if refreshed.NeedAuth != 0 || refreshed.PermissionCode != "" {
-		t.Fatalf("refresh compatibility = %#v", refreshed)
+	if refreshed.NeedAuth != 1 || refreshed.PermissionCode != "operator.refresh" {
+		t.Fatalf("historical Public refresh configuration was overwritten: %#v", refreshed)
+	}
+}
+
+func TestServiceSyncRoutesCreatesCookieLogoutWithoutPermissionAndKeepsHistoricalConfiguration(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "new logout"
+		if existing {
+			name = "existing logout"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := testutil.OpenIsolatedSQLite(t)
+			if err := db.AutoMigrate(gormadapter.Models()...); err != nil {
+				t.Fatalf("migrate API Metadata: %v", err)
+			}
+			core := application.NewCore(gormadapter.NewRepository(db), platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
+			ctx := context.Background()
+			if existing {
+				disabled, auditOff := 0, 0
+				if _, err := core.Create(ctx, application.CreateInput{
+					Name: "Operator Logout", Method: "POST", Path: "/api/user/logout", Group: "custom",
+					PermissionCode: "historical.logout", Remark: "operator remark", Sort: 17, Status: &disabled, NeedAudit: &auditOff,
+				}); err != nil {
+					t.Fatalf("create historical logout metadata: %v", err)
+				}
+			}
+			source := &routeSourceFake{facts: []application.RouteFact{
+				{Method: "POST", Path: "/api/user/logout", Name: "Cookie Logout", Group: "identity", NeedAudit: true},
+				{Method: "GET", Path: "/api/user/context", Name: "Current Context", Authenticated: true, NeedAudit: true},
+				{Method: "GET", Path: "/api/admin/widgets", Name: "Widgets", PermissionControlled: true, DefaultPermissionCode: "widgets.get", NeedAudit: true},
+			}}
+			service := application.NewService(core, nil, application.WithRouteSource(source))
+			if _, err := service.SyncRoutes(ctx); err != nil {
+				t.Fatalf("sync Cookie logout routes: %v", err)
+			}
+			apis, _, err := core.List(ctx, 1, 20, application.Filter{})
+			if err != nil {
+				t.Fatalf("read synchronized APIs: %v", err)
+			}
+			if len(apis) != 3 {
+				t.Fatalf("synchronized API count = %d, want 3", len(apis))
+			}
+			for _, api := range apis {
+				switch api.Path {
+				case "/api/user/logout":
+					if existing {
+						if api.Name != "Operator Logout" || api.Group != "custom" || api.NeedAuth != 1 || api.PermissionCode != "historical.logout" || api.Status != 0 || api.NeedAudit != 0 || api.Remark != "operator remark" || api.Sort != 17 {
+							t.Fatalf("operator configuration was overwritten: %#v", api)
+						}
+					} else if api.NeedAuth != 0 || api.PermissionCode != "" {
+						t.Fatalf("new Cookie logout gained Bearer/permission defaults: %#v", api)
+					}
+				case "/api/user/context":
+					if api.NeedAuth != 1 || api.PermissionCode != "" {
+						t.Fatalf("current-user metadata boundary changed: %#v", api)
+					}
+				case "/api/admin/widgets":
+					if api.NeedAuth != 1 || api.PermissionCode != "widgets.get" {
+						t.Fatalf("administrator policy changed: %#v", api)
+					}
+				}
+			}
+			createdAgain, err := service.SyncRoutes(ctx)
+			if err != nil || len(createdAgain) != 0 {
+				t.Fatalf("repeated sync created duplicate routes: %#v, %v", createdAgain, err)
+			}
+		})
 	}
 }
 

@@ -102,6 +102,77 @@ func TestSyncCatalogAPIPublicWriteRollsBackWhenNeedAuthUpdateFails(t *testing.T)
 	}
 }
 
+func TestSeedCookieControlDefaultsAndHistoricalConfiguration(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "new Cookie controls"
+		if existing {
+			name = "historical Cookie controls"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := testutil.OpenIsolatedSQLite(t)
+			if err := db.AutoMigrate(apigorm.Models()...); err != nil {
+				t.Fatalf("migrate API metadata: %v", err)
+			}
+			for _, path := range []string{"/api/refresh", "/api/user/logout"} {
+				if existing {
+					record := apigorm.API{
+						Name: "Operator Name", Method: http.MethodPost, Path: path, Group: "operator",
+						PermissionCode: "operator.preserved", Remark: "operator remark", Sort: 23,
+						Status: 1, NeedAuth: 1, NeedAudit: 1,
+					}
+					if err := db.Create(&record).Error; err != nil {
+						t.Fatalf("create historical metadata: %v", err)
+					}
+					if err := db.Model(&record).Updates(map[string]any{"status": 0, "need_audit": 0}).Error; err != nil {
+						t.Fatalf("configure historical metadata: %v", err)
+					}
+				}
+			}
+			catalog, err := routecatalog.New([]routecatalog.Descriptor{
+				a3SeedDescriptor(http.MethodPost, "/api/refresh", routecatalog.Public, ""),
+				a3SeedDescriptor(http.MethodPost, "/api/user/logout", routecatalog.Public, ""),
+				a3SeedDescriptor(http.MethodGet, "/api/user/context", routecatalog.Authenticated, ""),
+				a3SeedDescriptor(http.MethodGet, "/api/admin/widgets", routecatalog.PermissionControlled, "widgets.get"),
+			})
+			if err != nil {
+				t.Fatalf("create seed catalog: %v", err)
+			}
+			for range 2 {
+				if err := syncCatalogAPIs(context.Background(), db, catalog.Snapshot()); err != nil {
+					t.Fatalf("seed Cookie catalog: %v", err)
+				}
+			}
+			var records []apigorm.API
+			if err := db.Find(&records).Error; err != nil {
+				t.Fatalf("read seeded metadata: %v", err)
+			}
+			if len(records) != 4 {
+				t.Fatalf("seeded API count = %d, want 4", len(records))
+			}
+			for _, record := range records {
+				switch record.Path {
+				case "/api/refresh", "/api/user/logout":
+					if existing {
+						if record.Name != "Operator Name" || record.Group != "operator" || record.PermissionCode != "operator.preserved" || record.Remark != "operator remark" || record.Sort != 23 || record.Status != 0 || record.NeedAuth != 1 || record.NeedAudit != 0 {
+							t.Fatalf("seed overwrote historical Public configuration: %#v", record)
+						}
+					} else if record.NeedAuth != 0 || record.PermissionCode != "" {
+						t.Fatalf("new Cookie control gained authentication/permission defaults: %#v", record)
+					}
+				case "/api/user/context":
+					if record.NeedAuth != 1 {
+						t.Fatalf("current context lost its identity requirement: %#v", record)
+					}
+				case "/api/admin/widgets":
+					if record.NeedAuth != 1 || record.PermissionCode != "widgets.get" {
+						t.Fatalf("administrator policy changed: %#v", record)
+					}
+				}
+			}
+		})
+	}
+}
+
 func a3SeedDescriptor(method, path string, access routecatalog.AccessLevel, permission string) routecatalog.Descriptor {
 	return routecatalog.Descriptor{
 		Method: method, Path: path, Access: access, Handler: func(*gin.Context) {},

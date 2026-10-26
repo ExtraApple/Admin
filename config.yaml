@@ -18,8 +18,10 @@ jwt:
   secret_env: JWT_SECRET
   expire: 15
   refresh_expire: 10080
-  legacy_access_expire: 15
-  legacy_refresh_expire: 10080
+
+browser_session:
+  origin: http://localhost:5173
+  allow_loopback_http: true
 
 redis:
   host: 127.0.0.1

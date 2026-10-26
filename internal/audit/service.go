@@ -72,6 +72,9 @@ func UploadMetadata(value any) json.RawMessage {
 var sensitiveAuditFields = map[string]struct{}{
 	"password": {}, "old_password": {}, "new_password": {}, "confirm_password": {}, "current_password": {},
 	"captcha_code": {}, "access_token": {}, "refresh_token": {}, "token": {}, "authorization": {},
+	"cookie": {}, "set-cookie": {}, "set_cookie": {}, "setcookie": {},
+	"accesstoken": {}, "refreshtoken": {}, "refresh_id": {}, "refreshid": {}, "jti": {}, "jwt": {},
+	"material": {}, "tokenissue": {}, "token_issue": {}, "signing_material": {}, "token_material": {},
 	"email": {}, "pending_email": {},
 	"markdown": {}, "body": {}, "body_html": {}, "html": {}, "content": {},
 	"external_url": {}, "image_url": {}, "redirect_url": {}, "url": {},

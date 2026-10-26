@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"admin/internal/app"
 	authgorm "admin/internal/authorization/adapters/gorm"
@@ -35,6 +36,7 @@ type organizationJWTFixture struct {
 	tokens      *identityjwt.Service
 	admin       identity.User
 	adminToken  string
+	sessions    map[string]identitydomain.LoginSession
 }
 
 func TestOrganizationHTTPOverwritesMembersAndInvalidatesOldTokens(t *testing.T) {
@@ -234,12 +236,14 @@ func newOrganizationJWTFixture(t *testing.T) *organizationJWTFixture {
 	conf.Jwt.Expire = 30
 	conf.Jwt.RefreshExpire = 60
 	tokens := identityjwt.NewService(identityjwt.Config{Secret: conf.Jwt.Secret, AccessExpireMins: conf.Jwt.Expire, RefreshExpireMins: conf.Jwt.RefreshExpire})
+	sessions := make(map[string]identitydomain.LoginSession)
 	authenticate := func(c *gin.Context) {
 		token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
 		claims, parseErr := tokens.Parse(c.Request.Context(), token)
+		session, active := sessions[claims.SessionID]
 		var accessVersion authgorm.UserAccessVersion
 		versionErr := db.First(&accessVersion, "user_id = ?", claims.UserID).Error
-		if parseErr != nil || claims.Purpose != identityapplication.TokenPurposeAccess || versionErr != nil || accessVersion.Version != claims.TokenVersion {
+		if parseErr != nil || claims.Purpose != identityapplication.TokenPurposeAccess || !active || !session.ExpiresAt.After(time.Now()) || session.UserID != claims.UserID || session.TokenVersion != claims.TokenVersion || versionErr != nil || accessVersion.Version != claims.TokenVersion {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -256,7 +260,7 @@ func newOrganizationJWTFixture(t *testing.T) *organizationJWTFixture {
 		t.Fatalf("assemble Organization JWT App: %v", err)
 	}
 	t.Cleanup(func() { _ = application.Close() })
-	fixture := &organizationJWTFixture{t: t, db: db, application: application, tokens: tokens, admin: admin}
+	fixture := &organizationJWTFixture{t: t, db: db, application: application, tokens: tokens, admin: admin, sessions: sessions}
 	fixture.adminToken = fixture.token(admin)
 	return fixture
 }
@@ -283,6 +287,7 @@ func (fixture *organizationJWTFixture) token(user identity.User) string {
 	if err != nil {
 		fixture.t.Fatalf("generate Organization access token: %v", err)
 	}
+	fixture.sessions[pair.SessionID] = identityapplication.SessionFromIssue(pair.Material)
 	return pair.AccessToken
 }
 
@@ -341,5 +346,22 @@ func assertOrganizationMemberIDs(t *testing.T, response *httptest.ResponseRecord
 		if payload.Data[index].ID != id {
 			t.Fatalf("Organization Member IDs = %#v, want %v", payload.Data, want)
 		}
+	}
+}
+
+func TestOrganizationJWTFixtureRequiresActiveSessionFact(t *testing.T) {
+	fixture := newOrganizationJWTFixture(t)
+	user := fixture.createUser("session-bound-member")
+	access := fixture.token(user)
+	if response := fixture.request(http.MethodGet, "/api/user/info", access, nil); response.Code != http.StatusOK {
+		t.Fatal("active-session control failed")
+	}
+	claims, err := fixture.tokens.Parse(context.Background(), access)
+	if err != nil || !identityapplication.ValidSessionIdentifier(claims.SessionID) {
+		t.Fatal("fixture did not create a real session-bound token")
+	}
+	delete(fixture.sessions, claims.SessionID)
+	if response := fixture.request(http.MethodGet, "/api/user/info", access, nil); response.Code != http.StatusUnauthorized {
+		t.Fatal("fixture allowed signed token without active session")
 	}
 }

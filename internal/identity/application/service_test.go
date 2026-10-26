@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	jwtadapter "admin/internal/identity/adapters/jwt"
 	"admin/internal/identity/application"
 	"admin/internal/identity/domain"
 )
@@ -47,10 +48,89 @@ func (loginAttemptFake) RecordFailure(context.Context, string) (int, error) { re
 func (fake *loginAttemptFake) Clear(context.Context, string) error          { fake.cleared = true; return nil }
 func (loginAttemptFake) Lock(context.Context, string, time.Duration) error  { return nil }
 
-type blacklistFake struct{}
+type sessionResult struct {
+	material application.TokenIssue
+	previous string
+	deadline time.Time
+}
+type sessionFake struct {
+	sessions  map[string]domain.LoginSession
+	results   map[string]sessionResult
+	readErr   error
+	createErr error
+	revokeErr error
+	rotateErr error
+}
 
-func (blacklistFake) Contains(context.Context, string) (bool, error)   { return false, nil }
-func (blacklistFake) Add(context.Context, string, time.Duration) error { return nil }
+func newSessionFake() *sessionFake {
+	return &sessionFake{sessions: map[string]domain.LoginSession{"test-session-00000001": {ID: "test-session-00000001", UserID: 42, TokenVersion: 4, Generation: 1, RefreshDigest: application.CredentialDigest("test-refresh-00000001"), ExpiresAt: time.Now().Add(time.Hour)}}, results: make(map[string]sessionResult)}
+}
+
+func (fake *sessionFake) Create(_ context.Context, session domain.LoginSession, previous *application.TokenClaims) error {
+	if fake.createErr != nil {
+		return fake.createErr
+	}
+	fake.sessions[session.ID] = session
+	if previous != nil {
+		delete(fake.sessions, previous.SessionID)
+	}
+	return nil
+}
+func (fake *sessionFake) Read(_ context.Context, id string) (domain.LoginSession, error) {
+	if fake.readErr != nil {
+		return domain.LoginSession{}, fake.readErr
+	}
+	session, ok := fake.sessions[id]
+	if !ok || !session.ExpiresAt.After(time.Now()) {
+		return domain.LoginSession{}, application.ErrSessionMissing
+	}
+	return session, nil
+}
+func (fake *sessionFake) Rotate(ctx context.Context, request application.RefreshRotation) (application.TokenIssue, error) {
+	if fake.rotateErr != nil {
+		return application.TokenIssue{}, fake.rotateErr
+	}
+	session, err := fake.Read(ctx, request.Credential.SessionID)
+	if err != nil {
+		return application.TokenIssue{}, err
+	}
+	if session.UserID != request.Credential.UserID || session.TokenVersion != request.Credential.TokenVersion {
+		return application.TokenIssue{}, application.ErrSessionMissing
+	}
+	key := session.ID + ":" + request.AttemptID
+	if result, ok := fake.results[key]; ok && time.Now().Before(result.deadline) {
+		nextDigest := application.CredentialDigest(result.material.RefreshID)
+		bound := request.Credential.RefreshID == result.previous && request.Credential.Generation == result.material.Generation-1 || application.CredentialDigest(request.Credential.RefreshID) == nextDigest && request.Credential.Generation == result.material.Generation
+		if bound && session.Generation > result.material.Generation {
+			return application.TokenIssue{}, application.ErrRefreshSuperseded
+		}
+		if bound && session.Generation == result.material.Generation && session.RefreshDigest == nextDigest {
+			return result.material, nil
+		}
+		delete(fake.sessions, session.ID)
+		return application.TokenIssue{}, application.ErrRefreshReuse
+	}
+	if session.Generation != request.Credential.Generation || session.RefreshDigest != application.CredentialDigest(request.Credential.RefreshID) {
+		delete(fake.sessions, session.ID)
+		return application.TokenIssue{}, application.ErrRefreshReuse
+	}
+	if request.Credential.Expired {
+		return application.TokenIssue{}, application.ErrSessionMissing
+	}
+	if request.Candidate.SessionID == "" {
+		return application.TokenIssue{}, application.ErrRefreshUncommitted
+	}
+	fake.sessions[session.ID] = application.SessionFromIssue(request.Candidate)
+	fake.results[key] = sessionResult{material: request.Candidate, previous: request.Credential.RefreshID, deadline: time.Now().Add(application.RefreshRecoveryWindow)}
+	return request.Candidate, nil
+}
+func (fake *sessionFake) Revoke(_ context.Context, claims application.TokenClaims) error {
+	if fake.revokeErr != nil {
+		return fake.revokeErr
+	}
+	delete(fake.sessions, claims.SessionID)
+	return nil
+}
 
 type authorizationFake struct{}
 
@@ -60,17 +140,43 @@ func (authorizationFake) Snapshot(context.Context, uint) (domain.AccessSnapshot,
 }
 
 type tokenFake struct {
-	issue    application.TokenIssue
-	claims   application.TokenClaims
-	parseErr error
+	issue        application.TokenIssue
+	claims       application.TokenClaims
+	parseErr     error
+	prepareErr   error
+	issueErr     error
+	prepareCalls int
+	issueCalls   int
 }
 
-func (fake *tokenFake) Issue(_ context.Context, issue application.TokenIssue) (application.TokenPair, error) {
-	fake.issue = issue
-	return application.TokenPair{AccessToken: "access", RefreshToken: "refresh"}, nil
+func (fake *tokenFake) Prepare(ctx context.Context, issue application.TokenIssue) (application.TokenIssue, error) {
+	fake.prepareCalls++
+	if fake.prepareErr != nil {
+		return application.TokenIssue{}, fake.prepareErr
+	}
+	return jwtadapter.NewService(jwtadapter.Config{Secret: "fixture-signing-secret", AccessExpireMins: 15, RefreshExpireMins: 60}).Prepare(ctx, issue)
 }
-func (fake tokenFake) Parse(context.Context, string) (application.TokenClaims, error) {
-	return fake.claims, fake.parseErr
+
+func (fake *tokenFake) Issue(ctx context.Context, issue application.TokenIssue) (application.TokenPair, error) {
+	fake.issueCalls++
+	if fake.issueErr != nil {
+		return application.TokenPair{}, fake.issueErr
+	}
+	pair, err := jwtadapter.NewService(jwtadapter.Config{Secret: "fixture-signing-secret", AccessExpireMins: 15, RefreshExpireMins: 60}).Issue(ctx, issue)
+	fake.issue = pair.Material
+	return pair, err
+}
+func (fake tokenFake) Parse(ctx context.Context, token string) (application.TokenClaims, error) {
+	if fake.claims.UserID != 0 || fake.parseErr != nil {
+		return fake.claims, fake.parseErr
+	}
+	return jwtadapter.NewService(jwtadapter.Config{Secret: "fixture-signing-secret", AccessExpireMins: 15, RefreshExpireMins: 60}).Parse(ctx, token)
+}
+func (fake tokenFake) ParseRefresh(ctx context.Context, token string) (application.TokenClaims, error) {
+	if fake.claims.UserID != 0 || fake.parseErr != nil {
+		return fake.claims, fake.parseErr
+	}
+	return jwtadapter.NewService(jwtadapter.Config{Secret: "fixture-signing-secret", AccessExpireMins: 15, RefreshExpireMins: 60}).ParseRefresh(ctx, token)
 }
 
 type rejectingPasswordFake struct{}
@@ -116,7 +222,7 @@ func TestLoginIssuesTokensFromCurrentAuthorizationSnapshot(t *testing.T) {
 		captcha,
 		passwordFake{},
 		attempts,
-		blacklistFake{},
+		newSessionFake(),
 		authorizationFake{},
 		tokens,
 	)
@@ -125,8 +231,8 @@ func TestLoginIssuesTokensFromCurrentAuthorizationSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if result.AccessToken != "access" || result.RefreshToken != "refresh" {
-		t.Fatalf("Login() tokens = %#v", result)
+	if result.AccessToken == "" || result.RefreshToken == "" || !application.ValidSessionIdentifier(result.SessionID) {
+		t.Fatal("login omitted signed credentials or session binding")
 	}
 	if tokens.issue.UserID != 42 || tokens.issue.TokenVersion != 4 || len(tokens.issue.Roles) != 1 || tokens.issue.Roles[0] != "admin" || tokens.issue.Permissions[0] != "admin.users.get" {
 		t.Fatalf("TokenIssue = %#v, want current authorization snapshot", tokens.issue)
@@ -138,7 +244,7 @@ func TestLoginIssuesTokensFromCurrentAuthorizationSnapshot(t *testing.T) {
 
 func TestRegisterValidatesPasswordAndPersistsHashedUser(t *testing.T) {
 	repository := &recordingUserRepository{}
-	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
 	user, err := service.Register(context.Background(), application.RegisterRequest{Username: "new-user", Password: "ValidPass123!", Email: "new@example.com", Nickname: "New", CaptchaID: "id", CaptchaCode: "123456"})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
@@ -164,7 +270,7 @@ func TestLoginCredentialFailuresAreIndistinguishableThroughLockout(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			attempts := &countingAttemptFake{}
-			service := application.NewService(test.users, &captchaFake{verified: true}, rejectingPasswordFake{}, attempts, blacklistFake{}, authorizationFake{}, &tokenFake{})
+			service := application.NewService(test.users, &captchaFake{verified: true}, rejectingPasswordFake{}, attempts, newSessionFake(), authorizationFake{}, &tokenFake{})
 			for attempt := 1; attempt <= 5; attempt++ {
 				result, err := service.Login(context.Background(), application.LoginRequest{Username: "alice", Password: "wrong", CaptchaID: "id", CaptchaCode: "123456"})
 				code, _ := application.CodeOf(err)
@@ -185,7 +291,7 @@ func TestLoginCredentialFailuresAreIndistinguishableThroughLockout(t *testing.T)
 }
 
 func TestPasswordValidationCarriesSafeFieldError(t *testing.T) {
-	service := application.NewService(&recordingUserRepository{}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	service := application.NewService(&recordingUserRepository{}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
 	_, err := service.Register(context.Background(), application.RegisterRequest{Username: "alice", Password: "weak", CaptchaID: "id", CaptchaCode: "123456"})
 	if code, _ := application.CodeOf(err); code != application.CodeValidationInvalid {
 		t.Fatalf("validation code = %q, want %q", code, application.CodeValidationInvalid)
@@ -197,28 +303,28 @@ func TestPasswordValidationCarriesSafeFieldError(t *testing.T) {
 }
 
 func TestRefreshUsesCurrentAuthorizationSnapshot(t *testing.T) {
-	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeRefresh}}
-	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, tokens)
-	pair, err := service.Refresh(context.Background(), application.RefreshRequest{RefreshToken: "refresh"})
+	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeRefresh, SessionID: "test-session-00000001", Generation: 1, RefreshID: "test-refresh-00000001", ExpiresAt: time.Now().Add(time.Hour)}}
+	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, tokens)
+	pair, err := service.Refresh(context.Background(), application.RefreshRequest{RefreshToken: "refresh", AttemptID: "test-attempt-00000001"})
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	if pair.AccessToken != "access" || tokens.issue.UserID != 42 || tokens.issue.TokenVersion != 4 || tokens.issue.Permissions[0] != "admin.users.get" {
-		t.Fatalf("refresh issue = %#v pair=%#v", tokens.issue, pair)
+	if pair.AccessToken == "" || tokens.issue.UserID != 42 || tokens.issue.TokenVersion != 4 || tokens.issue.Permissions[0] != "admin.users.get" {
+		t.Fatal("refresh did not use the current authorization snapshot")
 	}
 }
 
 func TestRefreshRejectsStaleAuthorizationVersion(t *testing.T) {
-	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 3, Purpose: application.TokenPurposeRefresh}}
-	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, tokens)
-	if _, err := service.Refresh(context.Background(), application.RefreshRequest{RefreshToken: "refresh"}); !errors.Is(err, application.ErrRefreshTokenInvalid) {
+	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 3, Purpose: application.TokenPurposeRefresh, SessionID: "test-session-00000001", Generation: 1, RefreshID: "test-refresh-00000001", ExpiresAt: time.Now().Add(time.Hour)}}
+	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, tokens)
+	if _, err := service.Refresh(context.Background(), application.RefreshRequest{RefreshToken: "refresh", AttemptID: "test-attempt-00000001"}); !errors.Is(err, application.ErrRefreshTokenInvalid) {
 		t.Fatalf("Refresh() error = %v, want ErrRefreshTokenInvalid", err)
 	}
 }
 
 func TestAuthenticateUsesRuntimeAuthorizationAndRejectsRefreshPurpose(t *testing.T) {
-	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeAccess}}
-	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, tokens)
+	tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeAccess, SessionID: "test-session-00000001", Generation: 1, RefreshID: "test-refresh-00000001", ExpiresAt: time.Now().Add(time.Hour)}}
+	service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, tokens)
 	identity, err := service.Authenticate(context.Background(), "access")
 	if err != nil {
 		t.Fatalf("Authenticate() error = %v", err)
@@ -252,8 +358,8 @@ func TestAuthenticateSeparatesMissingAuthorizationVersionFromInfrastructureFailu
 		{"same text without error identity", errors.New(application.ErrAuthorizationVersionMissing.Error()), application.CodeInternalError},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeAccess}}
-			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, failingAuthorization{cause: test.cause}, tokens)
+			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: 4, Purpose: application.TokenPurposeAccess, SessionID: "test-session-00000001", Generation: 1, RefreshID: "test-refresh-00000001", ExpiresAt: time.Now().Add(time.Hour)}}
+			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), failingAuthorization{cause: test.cause}, tokens)
 			identity, err := service.Authenticate(context.Background(), "access")
 			code, _ := application.CodeOf(err)
 			if code != test.code || identity.UserID != 0 || !errors.Is(err, test.cause) {
@@ -273,13 +379,187 @@ func TestAuthenticateRejectsDisabledAndStaleAccess(t *testing.T) {
 		{"stale access version", 1, 3, application.CodeTokenInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: test.tokenVer, Purpose: application.TokenPurposeAccess}}
-			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: test.status}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, tokens)
+			tokens := &tokenFake{claims: application.TokenClaims{UserID: 42, TokenVersion: test.tokenVer, Purpose: application.TokenPurposeAccess, SessionID: "test-session-00000001", Generation: 1, RefreshID: "test-refresh-00000001", ExpiresAt: time.Now().Add(time.Hour)}}
+			service := application.NewService(userRepositoryFake{user: domain.User{ID: 42, Status: test.status}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, tokens)
 			identity, err := service.Authenticate(context.Background(), "access")
 			code, _ := application.CodeOf(err)
 			if code != test.wantCode || identity.UserID != 0 {
 				t.Fatalf("Authenticate() = %#v, %v; code=%q want %q", identity, err, code, test.wantCode)
 			}
 		})
+	}
+}
+
+func loginSessionService(sessions *sessionFake, tokens *tokenFake) *application.Service {
+	return application.NewService(userRepositoryFake{user: domain.User{ID: 42, Username: "alice", Password: "stored", Status: 1}}, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, sessions, authorizationFake{}, tokens)
+}
+
+func TestRefreshRecoversCommittedMaterialWithoutPreparingAnotherCandidate(t *testing.T) {
+	ctx := context.Background()
+	sessions, tokens := newSessionFake(), &tokenFake{}
+	service := loginSessionService(sessions, tokens)
+	login, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := application.RefreshRequest{RefreshToken: login.RefreshToken, AttemptID: "recovery-attempt-00001"}
+	first, err := service.Refresh(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := sessions.results[login.SessionID+":"+request.AttemptID].deadline
+	sessionExpiry := sessions.sessions[login.SessionID].ExpiresAt
+	prepared := tokens.prepareCalls
+	tokens.prepareErr = errors.New("entropy unavailable")
+	for _, credential := range []string{login.RefreshToken, first.RefreshToken} {
+		request.RefreshToken = credential
+		recovered, err := service.Refresh(ctx, request)
+		if err != nil {
+			t.Fatalf("committed recovery failed: %v", err)
+		}
+		if recovered.AccessToken != first.AccessToken || recovered.RefreshToken != first.RefreshToken {
+			t.Fatal("recovery changed signed result")
+		}
+	}
+	if tokens.prepareCalls != prepared || !sessions.results[login.SessionID+":"+request.AttemptID].deadline.Equal(deadline) || !sessions.sessions[login.SessionID].ExpiresAt.Equal(sessionExpiry) {
+		t.Fatal("recovery prepared material or extended a deadline")
+	}
+	if _, err := service.Authenticate(ctx, login.AccessToken); err != nil {
+		t.Fatalf("normal rotation rejected earlier access: %v", err)
+	}
+}
+
+func TestRefreshSigningFailureAfterCommitRemainsRecoverable(t *testing.T) {
+	ctx := context.Background()
+	sessions, tokens := newSessionFake(), &tokenFake{}
+	service := loginSessionService(sessions, tokens)
+	login, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens.issueErr = errors.New("signing unavailable")
+	request := application.RefreshRequest{RefreshToken: login.RefreshToken, AttemptID: "signing-recovery-00001"}
+	rejected, err := service.Refresh(ctx, request)
+	if code, _ := application.CodeOf(err); code != application.CodeInternalError || rejected.AccessToken != "" || rejected.RefreshToken != "" {
+		t.Fatal("real signing failure was not an empty internal error")
+	}
+	result, committed := sessions.results[login.SessionID+":"+request.AttemptID]
+	if !committed || sessions.sessions[login.SessionID].Generation != 2 {
+		t.Fatal("signing failure lost committed recovery material")
+	}
+	tokens.issueErr, tokens.prepareErr = nil, errors.New("fresh preparation must not run")
+	recovered, err := service.Refresh(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := jwtadapter.NewService(jwtadapter.Config{Secret: "fixture-signing-secret", AccessExpireMins: 15, RefreshExpireMins: 60}).Issue(ctx, result.material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.AccessToken != expected.AccessToken || recovered.RefreshToken != expected.RefreshToken || tokens.prepareCalls != 1 {
+		t.Fatal("post-commit recovery did not reconstruct the committed result")
+	}
+}
+
+func TestLoginFailureNeverReplacesExistingBrowserSession(t *testing.T) {
+	ctx := context.Background()
+	sessions, tokens := newSessionFake(), &tokenFake{}
+	service := loginSessionService(sessions, tokens)
+	original, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []string{"signing", "session commit"} {
+		t.Run(stage, func(t *testing.T) {
+			if stage == "signing" {
+				tokens.issueErr = errors.New("signing unavailable")
+			} else {
+				tokens.issueErr = nil
+				sessions.createErr = errors.New("session store unavailable")
+			}
+			result, err := service.Login(ctx, application.LoginRequest{Username: "alice", PreviousRefreshToken: original.RefreshToken})
+			if code, _ := application.CodeOf(err); code != application.CodeInternalError || result.AccessToken != "" || result.RefreshToken != "" {
+				t.Fatal("failed login published credentials")
+			}
+			if _, err := service.Authenticate(ctx, original.AccessToken); err != nil {
+				t.Fatal("failed login replaced the original active session")
+			}
+		})
+	}
+}
+
+func TestLogoutRevokesOnlyCookieSessionAndReportsRealFailure(t *testing.T) {
+	ctx := context.Background()
+	sessions, tokens := newSessionFake(), &tokenFake{}
+	service := loginSessionService(sessions, tokens)
+	first, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions.revokeErr = errors.New("redis unavailable")
+	if code, _ := application.CodeOf(service.Logout(ctx, first.RefreshToken)); code != application.CodeInternalError {
+		t.Fatal("failed server revocation reported success")
+	}
+	if _, err := service.Authenticate(ctx, first.AccessToken); err != nil {
+		t.Fatal("failed revocation removed active session")
+	}
+	sessions.revokeErr = nil
+	for _, cookie := range []string{first.RefreshToken, first.RefreshToken, "", "invalid", first.AccessToken} {
+		if err := service.Logout(ctx, cookie); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := service.Authenticate(ctx, first.AccessToken); err == nil {
+		t.Fatal("revoked session access remained usable")
+	}
+	if _, err := service.Authenticate(ctx, other.AccessToken); err != nil {
+		t.Fatal("logout affected independent session")
+	}
+	replacement, err := service.Login(ctx, application.LoginRequest{Username: "alice", PreviousRefreshToken: other.RefreshToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Authenticate(ctx, other.AccessToken); err == nil {
+		t.Fatal("successful browser replacement preserved old session")
+	}
+	if _, err := service.Authenticate(ctx, replacement.AccessToken); err != nil {
+		t.Fatal("replacement session not usable")
+	}
+}
+
+func TestSessionStoreFaultsAreNotAuthenticationRejections(t *testing.T) {
+	ctx := context.Background()
+	sessions, tokens := newSessionFake(), &tokenFake{}
+	service := loginSessionService(sessions, tokens)
+	login, err := service.Login(ctx, application.LoginRequest{Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions.readErr = errors.New("redis query failed")
+	if _, err := service.Authenticate(ctx, login.AccessToken); err == nil {
+		t.Fatal("session query failure accepted")
+	} else if code, _ := application.CodeOf(err); code != application.CodeInternalError {
+		t.Fatal("session query failure misclassified")
+	}
+	sessions.readErr = nil
+	sessions.rotateErr = errors.New("redis rotation failed")
+	if _, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: login.RefreshToken, AttemptID: "failure-attempt-00001"}); err == nil {
+		t.Fatal("rotation failure accepted")
+	} else if code, _ := application.CodeOf(err); code != application.CodeInternalError {
+		t.Fatal("rotation failure misclassified")
+	}
+	sessions.rotateErr = nil
+	delete(sessions.sessions, login.SessionID)
+	if _, err := service.Authenticate(ctx, login.AccessToken); err == nil {
+		t.Fatal("missing session accepted")
+	} else if code, _ := application.CodeOf(err); code != application.CodeTokenInvalid {
+		t.Fatal("session missing misclassified")
+	}
+	if _, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: login.RefreshToken, AttemptID: "failure-attempt-00001"}); !errors.Is(err, application.ErrRefreshTokenInvalid) {
+		t.Fatal("missing session refresh did not reject")
 	}
 }

@@ -234,6 +234,8 @@ func TestMessagingCleanupStartsOnceAndRetriesImageInNextControlledRound(t *testi
 	db := testutil.OpenIsolatedSQLite(t)
 	config := platformconfig.Config{}
 	config.Jwt.Secret = "schedule-test-signing-secret"
+	config.Jwt.Expire, config.Jwt.RefreshExpire = 15, 10080
+	config.BrowserSession.Origin = "https://admin.example.test"
 	config.FileUpload.MaxSizeMB = 50
 	config.FileUpload.AvatarMaxSizeMB = 2
 	config.FileUpload.DownloadURLExpireSeconds = 300

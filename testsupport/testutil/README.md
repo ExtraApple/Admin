@@ -48,7 +48,7 @@ MySQL 测试文件使用：
 
 ## Redis 强制门禁
 
-认证、Refresh Token 和黑名单的真实 Redis 验收：
+认证与 SID 会话、Refresh 原子轮换／固定 30 秒幂等结果／异常重用撤销、Logout 与轮换并发的真实 Redis 验收（不再使用 Access 黑名单退出）：
 
 ```powershell
 $env:ADMIN_TEST_REDIS_ADDR = "127.0.0.1:6379"
@@ -56,6 +56,8 @@ $env:ADMIN_TEST_REDIS_ADDR = "127.0.0.1:6379"
 ```
 
 可选设置 `ADMIN_TEST_REDIS_PASSWORD` 和 `ADMIN_TEST_REDIS_DB`；门禁默认使用数据库 15。
+
+必须指向专用隔离 Redis，不连接生产、不清空共享数据库、不输出 Cookie／JWT／Secret。真实 Redis 错误必须保持基础设施失败，不能伪装为缺失会话或 401。门禁不能替代 HTTPS Cookie 属性、Web Locks／存储能力、跨标签、未知响应恢复及 logout-pending 的真实浏览器验收；见[登录安全手册](../../docs/runbooks/login-security.md)。上述命令是执行入口，不表示当前已执行或所有验收已通过。
 
 ## MinIO 强制门禁
 

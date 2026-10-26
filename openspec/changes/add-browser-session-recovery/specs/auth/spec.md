@@ -29,7 +29,7 @@
 - **AND** 系统 SHALL NOT 通过忽略旧字段保留旧 Token 请求通道
 
 ### Requirement: JWT 会话
-系统 SHALL 在登录成功后建立独立登录会话并签发包含用户 ID、授权版本、明确令牌用途、会话标识、角色码和权限码的 JWT。Access Token SHALL 只供 Bearer 认证；Refresh Token SHALL 绑定会话续期代及不可预测凭据标识，并仅通过服务端 HttpOnly 会话 Cookie 传递。
+系统 SHALL 在登录成功后建立独立登录会话，并签发包含用户 ID、授权版本、明确令牌用途和会话标识的 JWT。Access Token SHALL 保持角色码和权限码快照且只供 Bearer 认证；Refresh Token SHALL 绑定会话续期代及不可预测凭据标识，仅通过服务端 HttpOnly 会话 Cookie 传递，且 SHALL NOT 复制角色和权限快照。
 
 #### Scenario: 登录成功后返回令牌
 - **WHEN** 用户通过现有验证码、登录锁定、密码、启用状态和授权版本检查并成功建立 Redis 登录会话
@@ -37,6 +37,12 @@
 - **AND** 响应 JSON SHALL NOT 包含 `refresh_token`
 - **AND** Access 用途 SHALL 为 `access`，Refresh 用途 SHALL 为 `refresh`，两者 SHALL 绑定同一会话和授权版本
 - **AND** Access SHALL 可用于认证受保护的 `/api/user` 和 `/api/admin` 请求，Cookie 本身 SHALL NOT 直接认证这些业务请求
+
+#### Scenario: 大权限集合不扩大续期 Cookie
+- **WHEN** 用户拥有较多角色或权限并成功登录或续期
+- **THEN** 完整 Refresh Cookie SHALL 小于浏览器 4 KiB 容量，载荷 SHALL NOT 随角色／权限数量增长
+- **AND** Refresh SHALL 保留全部会话安全绑定，Access 的授权快照 SHALL 保持完整
+- **AND** 续期 SHALL 读取实时授权快照，不以 Cookie 内嵌权限替代当前授权事实
 
 #### Scenario: 拒绝旧版或缺少会话绑定的令牌
 - **WHEN** Token 没有新会话绑定、没有明确 `token_type` 或不能匹配新会话事实

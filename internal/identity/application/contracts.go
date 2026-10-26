@@ -105,11 +105,6 @@ type LoginAttemptStore interface {
 	Clear(context.Context, string) error
 }
 
-type BlacklistStore interface {
-	Contains(context.Context, string) (bool, error)
-	Add(context.Context, string, time.Duration) error
-}
-
 // ErrAuthorizationVersionMissing excludes database and other infrastructure failures.
 var ErrAuthorizationVersionMissing = errors.New("authorization version missing")
 
@@ -119,8 +114,14 @@ type AuthorizationReader interface {
 }
 
 type TokenService interface {
+	// Prepare fixes identifiers and deadlines without signing. Recovery never
+	// calls it: only an uncommitted current credential needs fresh material.
+	Prepare(context.Context, TokenIssue) (TokenIssue, error)
 	Issue(context.Context, TokenIssue) (TokenPair, error)
 	Parse(context.Context, string) (TokenClaims, error)
+	// ParseRefresh verifies the signature/bindings but exposes expiration so only
+	// an already committed attempt can recover after its predecessor expires.
+	ParseRefresh(context.Context, string) (TokenClaims, error)
 }
 
 // NavigationReader supplies only the user-visible menu value tree.

@@ -40,13 +40,12 @@ func TestRedisIntegrationIdentityStateLifecycle(t *testing.T) {
 
 	suffix := fmt.Sprintf("integration-%d", time.Now().UnixNano())
 	captchaID, mismatchID := "captcha-"+suffix, "mismatch-"+suffix
-	username, token := "user-"+suffix, "token-"+suffix
+	username := "user-" + suffix
 	keys := []string{
 		captchaPrefix + captchaID,
 		captchaPrefix + mismatchID,
 		failurePrefix + username,
 		lockPrefix + username,
-		blacklistPrefix + token,
 	}
 	t.Cleanup(func() {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -95,10 +94,4 @@ func TestRedisIntegrationIdentityStateLifecycle(t *testing.T) {
 		t.Fatalf("cleared identity remains locked: locked=%v err=%v", locked, err)
 	}
 
-	if err := store.Add(ctx, token, time.Minute); err != nil {
-		t.Fatalf("blacklist token: %v", err)
-	}
-	if contains, err := store.Contains(ctx, token); err != nil || !contains {
-		t.Fatalf("blacklist lookup = (%v, %v), want present", contains, err)
-	}
 }

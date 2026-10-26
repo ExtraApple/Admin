@@ -121,7 +121,7 @@ Domain 和 Application SHALL 与 HTTP 框架、ORM Model、基础设施 SDK 及�
 跨模块 Contract SHALL 使用业务值类型传递身份、授权快照和数据范围，不得泄漏持久化或 HTTP 实现。
 
 #### Scenario: 创建请求 Principal
-- **WHEN** Identity 完成 Token、黑名单、用户存在性和启用状态校验
+- **WHEN** Identity 完成 Token、活动登录会话、用户存在性和启用状态校验
 - **THEN** 系统 SHALL 创建只携带用户 ID 的 Principal
 - **AND** JWT 中的旧角色或权限快照 SHALL NOT 绕过运行时授权校验
 
@@ -145,7 +145,7 @@ Authorization、Navigation、API Metadata、Identity 和 Organization SHALL 按�
 
 #### Scenario: 身份和 API 元数据归属
 - **WHEN** 系统处理 JWT、Refresh Token、用户状态、用户上下文或 API 运行时策略
-- **THEN** JWT、Refresh Token、黑名单、用户状态和用户上下文编排 SHALL 由 Identity 拥有
+- **THEN** JWT、Refresh Token、登录会话及其撤销、用户状态和用户上下文编排 SHALL 由 Identity 拥有
 - **AND** `apis`、状态、认证标记、审计标记和 Permission Code 策略 SHALL 由 API Metadata 拥有
 
 #### Scenario: 组织、文件和系统能力归属

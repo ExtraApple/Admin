@@ -1,6 +1,11 @@
 export const errorTranslations: Readonly<Record<string, string>> = {
   CLIENT_NETWORK_ERROR: '无法连接服务器，请检查网络后手动重试。',
   CLIENT_RESPONSE_INVALID: '服务器响应不符合约定，请稍后重试。',
+  CLIENT_SESSION_UNAVAILABLE: '浏览器无法提供安全会话所需的 Cookie、存储或协调能力。请检查浏览器设置后重试。',
+  CLIENT_SESSION_RECOVERY_REQUIRED: '会话需要重新确认，请手动恢复或重新登录。',
+  CLIENT_AUTH_OPERATION_SUPERSEDED: '登录状态已变化，本次操作未生效。',
+  AUTHN_CSRF_INVALID: '浏览器请求校验失败，请核对访问地址与服务端配置。',
+  AUTHN_REFRESH_SUPERSEDED: '其他标签已完成更新，请手动重新恢复会话。',
   HTTP_REQUEST_INVALID: '请求格式不正确，请检查输入。',
   HTTP_NOT_FOUND: '请求的资源不存在。',
   HTTP_METHOD_NOT_ALLOWED: '此操作不受支持。',

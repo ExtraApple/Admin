@@ -28,6 +28,8 @@
 
 登录会话是一次成功登录形成的可撤销身份连续性，不是页面实例，也不是授权版本。使用服务端生成的高熵 `sid`；JWT 明确携带 `sid`、用户 ID、`token_version` 和 `token_type`，Refresh 另带不可预测的凭据标识及单调续期代。`session_id` 可作为非授权性的关联信息返回，知道它不能认证、续期或撤销任意会话。
 
+Access JWT 保持既有角色／权限快照字段；Refresh JWT 只承载用户、授权版本、用途、SID、续期代、凭据标识及签发／到期时间，不复制角色／权限集合。Refresh 从实时授权快照签发新的 Access，不能使用 Cookie 内嵌权限授权。完整 Refresh Cookie 须低于浏览器 4 KiB 容量，不能随用户权限数量增长。真实 Chrome 已证明原完整快照会触发 `NameValuePairExceedsMaxSize`；此修正由用户确认，不采用 Cookie 分片或修改 Access 载荷。
+
 Identity Application 定义最小 SessionStore interface，集中完成创建、读取活动会话、原子续期与撤销。Redis Adapter 实现原子状态变化；JWT Adapter 只做现有算法的签名与验证；HTTP Adapter 持有 Cookie／Origin／Header 规则；App 注入依赖。不要让 Handler 或页面自行组合 GET 后 SET，也不把 Redis client、Gin Context 或 MySQL 事务泄漏进 interface。
 
 所有 Access 认证仍验证签名、用途、有效期、用户启用状态和 Authorization 实时快照，并增加活动 `sid` 与用户／授权版本绑定检查。Access 不要求等于最新续期代：正常轮换不得使其他标签仍未到期的 Access 失效；退出、会话缺失或授权版本变化则使该会话凭据失效。JWT 内嵌角色／权限不替代本次实时访问快照。
@@ -96,6 +98,8 @@ Access 到期信息只用于安排主动续期、在后台标签恢复时检查�
 ### 7. 跨标签认证操作串行化，协调状态不携带凭据
 
 复用浏览器标准能力：同源 `navigator.locks` 的 `admin-workbench.auth` 锁覆盖 Login／Refresh／Logout 的请求与 Cookie 响应完成；本地 module 保留 single-flight。每个操作取得锁后重新读取退出标记、浏览器事件与待续期尝试，不依赖等待前的内存副本。锁不是永久租约，标签关闭应释放。
+
+实施时经用户确认，增加 `admin-workbench.auth.state` 短状态锁，原子保护浏览器协调状态的读写／清除，绝不跨网络等待。退出先单独取得状态锁持久化意图、清理本地状态并释放，再等待认证请求锁；其他需要两个锁的流程一律先认证请求锁、再短状态锁。不得持有状态锁等待认证请求锁，以避免死锁；不能用锁外比较后删除标记，因为另一标签的新退出意图可能在比较与删除之间丢失。
 
 仅增加下列 localStorage 状态，不保存 Token、密码、验证码、用户资料、权限或菜单：
 - `admin-workbench.auth.refresh-attempt`：尝试 ID、开始时间、操作 epoch；未知响应结果在有效窗口内复用，不能立即换 ID 把合法重试当成重用攻击。
@@ -171,11 +175,46 @@ Redis 原子竞争必须用真实 Redis、多个应用调用者及确定性屏�
 
 ## Open Questions
 
-无待用户裁决的产品分支。具体部署 Origin 由环境提供并经配置验证；原子状态、Cookie／代理行为及故障交错必须在实施门禁中证明，不视为已经通过，也不留作省略安全语义的后续设计。
+无待用户裁决的产品分支。实际部署 Origin 由环境提供并经配置验证；本次本地联合门禁结果见下方，不代表生产环境已发布或完成生产验收。
 
 ## References
 
 - 现行事实：`openspec/specs/auth/spec.md`、`admin-workbench/spec.md`、`route-catalog/spec.md`、`logging/spec.md`；ADR 0004、0006、0011。
+- 架构规格一致性：经用户确认，`modular-layered-architecture` 同步两处黑名单旧约束为活动登录会话与撤销，分层、Principal 和授权版本归属不变。
 - 已核对 Go 1.25 标准库 `net/http.CrossOriginProtection`、`Check`、`AddTrustedOrigin` 文档；标准库无 Origin 时的允许行为不能替代本协议的显式 Origin 要求。
 - [OWASP CSRF：SPA 自定义请求 Header 与严格 Origin／CORS 约束](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#employing-custom-request-headers-for-ajaxapi)。
 - [MDN Set-Cookie：HttpOnly、Secure、SameSite 与浏览器会话恢复限制](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)。
+
+## Implementation Verification
+
+### 已执行门禁
+
+| 层级 | 实际命令／环境 | 结果 |
+|---|---|---|
+| 后端完整回归 | `go test ./... -count=1` | 43 个测试包通过；包含修正后的最小 Refresh JWT 与会话行为回归 |
+| 真实 MySQL | `go test -tags=mysql_integration ./... -count=1`；通过环境变量注入隔离数据库 DSN | 43 个测试包通过；未把 DSN 或凭据写入证据 |
+| 真实 Redis | `go test -tags=redis_integration ./internal/identity/adapters/redis -count=1 -timeout=2m` | 通过；多个独立客户端和屏障覆盖竞争、30 秒边界、前代到期恢复、TTL 不延长、superseded、重用撤销与退出交错 |
+| Cookie 容量回归 | `go test ./internal/identity/adapters/jwt -count=1` | 大权限快照下 Cookie 容量回归通过，Access 授权快照保持完整 |
+| 前端现有测试 | `npm test`，目录 `web/` | 6 个文件、94 个行为测试通过 |
+| 类型与生产构建 | `npm run build`，目录 `web/` | `tsc --noEmit` 与 Vite 构建通过；仍有既有单包大于 500 kB 的构建提示，未为本次变更扩大拆包范围 |
+| OpenSpec 严格校验 | `openspec validate add-browser-session-recovery --type change --strict`；`openspec validate auth --type spec --strict`，其余四份主规格同参数逐项执行 | Change 与 auth／admin-workbench／route-catalog／logging／modular-layered-architecture 五份主规格全部通过；旧内存／JSON Refresh／黑名单契约冲突已消除 |
+
+### 真实 HTTP 与浏览器
+
+验收使用真实 MySQL、Redis、MinIO、RabbitMQ 和 `app.New` 组合根，不以 fake 会话存储或替代后端冒充运行。临时入口仅把 Access 缩短为 1 分钟以观察实际到期；仓库默认 15 分钟未改变。Chrome 使用本次本机证书的 SPKI 白名单信任 HTTPS，不全局忽略 TLS 错误、不修改系统信任库；回环 HTTP 例外使用另一明确开启开发例外的实例和独立浏览器配置。
+
+- **协议与身份**：真实验证码登录、Cookie 续期、上下文、过期 Access 退出均成功；控制响应为四字段信封和 no-store，JSON 无 Refresh。有效签名但缺少 SID 的旧格式 JWT 返回 401；仅有 Cookie 的业务请求返回 401。普通权限拒绝返回 403，等价角色 PUT 保持授权版本和原 Access 可用。
+- **Cookie**：HTTPS Chrome 确认 Host-only、`/api`、HttpOnly、Secure、Strict、session Cookie。实际 104 项权限时完整 Set-Cookie 为 428 字节。修正前 Chrome 明确拒收超大凭据，修正后登录与刷新恢复成功；只有显式回环 HTTP 实例省略 Secure。独立浏览器配置产生不同 SID，退出一个仍可用另一个访问真实上下文。
+- **故障分类**：隔离 Redis ACL 实际拒绝查询、脚本与撤销后，Access／Refresh／Logout 返回安全 500、null data，不设置删除 Cookie；恢复依赖后可续期。主动删除该测试 SID 后返回 401，不从 JWT 重建。没有通过关闭 Cookie 安全标志取得生产 HTTPS 证据。
+- **未知结果恢复**：请求阶段丢包代理将真实请求交给后端并丢弃提交后的全部响应，证明旧 Cookie 保留；另以真实后端响应 Header 加空正文证明 Cookie 已更新但结果未知。两种情况均在窗口内复用原尝试、恢复完全相同的 Access 和 SID，仅推进一代。响应阶段中断本身可能已处理 Set-Cookie，因此不把它误记为 Header 丢失证明。
+- **真实独立标签**：用 Chromium 新页面及明确目标绑定确认两个不同页面，各自发出一次续期并读取自己的有效上下文。普通刷新、直达编辑页、新标签恢复成功；延迟真实 context 时仅显示确认状态，不展示登录表单或保护内容。
+- **晚到副作用**：真实后端已提交续期但 Cookie／正文仍由丢包代理扣留时，另一标签先持久化退出意图，网络退出等待同一认证锁。释放晚到响应后旧续期被代际检查拒绝，退出撤销 SID 并清 Cookie，两个标签均无保护上下文，旧编辑被卸载。
+- **编辑与业务请求**：真实权限编辑器产生未保存勾选；浏览器断网和真实 500 时有效 Access 保留同一 DOM 与选择。实际到期后隐藏并 inert 原工作台，集中 Client 在网络前拒绝保护操作；手动恢复同一 SID 后仍为同一编辑实例和选择，失败保存没有自动重放。
+- **退出待确认与换用户**：真实撤销 500 保留 Cookie 和标记；完整刷新与新标签不发自动续期。UI 重试不含 Bearer 并成功撤销。真实错误密码登录保留退出意图；新的显式登录在 context 被扣留期间仍不清标记，确认后才清。旧标签在登录锁后等待的退出重试不请求服务器、不撤销新 SID；普通用户的真实 403 不清新身份。
+- **能力与交互**：原生禁用 localStorage、原生阻止 Cookie，以及受控移除 Web Locks API 均显示不可用且不发登录／续期。中途 Storage 写入拒绝故障配合真实离线，不伪称已保存退出标记或已撤销；网络恢复后仍可请求真实服务器退出。主题在写入拒绝时仅改变当前外观、不弱化认证不可用；既有账号菜单 Enter／Escape 焦点、取消未保存退出、外观保留均通过，320 px 能力错误界面无横向溢出。
+- **脱敏**：检查真实审计表 464 条记录及隔离运行日志，未发现 JWT、生成的密码／签名密钥或原始 Redis 故障文本；未归档请求 Header、Cookie、响应 JWT 或签发材料。
+
+### 环境清理与边界
+
+本次创建的 10 个浏览器句柄已释放，两个验收实例和 Vite 已停止，4 个自建容器及其所属匿名卷已删除；临时 Go 入口、可执行文件与浏览器配置目录已移除。未提交临时脚本、真实凭据或原始错误，未改用户 `.env`、系统证书信任或生产环境；本地验证不等于生产发布，也不承诺 Redis 状态丢失后继续登录。
+

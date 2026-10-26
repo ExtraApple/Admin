@@ -215,3 +215,31 @@ func TestUserInfoIncludesEmailVerificationStateWithoutCredentialFields(t *testin
 		}
 	}
 }
+
+func TestSessionControlDTOAcceptsOnlyEmptyObject(t *testing.T) {
+	for _, input := range []string{`null`, `[]`, `""`, `1`, `true`, `{"refresh_token":"obsolete"}`, `{"unknown":null}`, `{"unknown":1,"unknown":2}`} {
+		var request identity.SessionControlRequest
+		if err := json.Unmarshal([]byte(input), &request); err == nil {
+			t.Fatalf("session control accepted nonempty or nonobject JSON: %s", input)
+		}
+	}
+	for _, input := range []string{`{}`, " { \n } "} {
+		var request identity.SessionControlRequest
+		if err := json.Unmarshal([]byte(input), &request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, response := range []any{identity.LoginResponse{AccessToken: "fixture-access", SessionID: "fixture-session"}, identity.RefreshResponse{AccessToken: "fixture-access", SessionID: "fixture-session"}} {
+		data, err := json.Marshal(response)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if fields["access_token"] == nil || fields["session_id"] == nil || fields["refresh_token"] != nil {
+			t.Fatal("public response does not implement Cookie-only contract")
+		}
+	}
+}

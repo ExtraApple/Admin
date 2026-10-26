@@ -36,6 +36,9 @@ func (authorization *sessionAuthorization) EnsureVersion(ctx context.Context, us
 
 func (authorization *sessionAuthorization) Snapshot(ctx context.Context, userID uint) (domain.AccessSnapshot, error) {
 	version, err := authorization.versions.Current(ctx, userID)
+	if errors.Is(err, authgorm.ErrAccessVersionNotFound) {
+		err = application.ErrAuthorizationVersionMissing
+	}
 	return domain.AccessSnapshot{Version: version}, err
 }
 
@@ -57,7 +60,7 @@ func sessionFixture(t *testing.T) (*gorm.DB, *identitygorm.Repository, *sessionA
 	}
 	authorization := &sessionAuthorization{versions: authgorm.NewAccessVersions(db)}
 	tokens := jwtadapter.NewService(jwtadapter.Config{Secret: "session-regression-secret", AccessExpireMins: 15, RefreshExpireMins: 60})
-	service := application.NewService(repository, &captchaFake{verified: true}, hasher, &loginAttemptFake{}, blacklistFake{}, authorization, tokens)
+	service := application.NewService(repository, &captchaFake{verified: true}, hasher, &loginAttemptFake{}, newSessionFake(), authorization, tokens)
 	return db, repository, authorization, tokens, service, user
 }
 
@@ -187,12 +190,12 @@ func TestRefreshRejectsMalformedExpiredAndAccessTokensWithoutChangingVersions(t 
 				if err := db.Create(&authgorm.UserAccessVersion{UserID: user.ID, Version: 7}).Error; err != nil {
 					t.Fatal(err)
 				}
-				valid, err := tokens.Issue(ctx, application.TokenIssue{UserID: user.ID, TokenVersion: 7})
+				valid, err := sessionLogin(service)
 				if err != nil {
 					t.Fatal(err)
 				}
-				// The same user, blacklist and current version admit a real refresh.
-				control, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: valid.RefreshToken})
+				// A real login establishes the active session before refresh.
+				control, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: valid.RefreshToken, AttemptID: "test-attempt-00000001"})
 				if err != nil {
 					t.Fatalf("valid refresh control: %v", err)
 				}
@@ -202,7 +205,7 @@ func TestRefreshRejectsMalformedExpiredAndAccessTokensWithoutChangingVersions(t 
 				case "expired":
 					// Fixed historical dates make expiration deterministic without sleeps.
 					token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-						"user_id": user.ID, "token_version": 7, "token_type": "refresh",
+						"user_id": user.ID, "token_version": 7, "token_type": "refresh", "sid": valid.SessionID, "jti": "expired-refresh-000001", "refresh_generation": 1,
 						"iat": 946684800, "exp": 946688400,
 					}).SignedString([]byte("session-regression-secret"))
 					if err != nil {
@@ -228,7 +231,7 @@ func TestRefreshRejectsMalformedExpiredAndAccessTokensWithoutChangingVersions(t 
 						t.Fatal(err)
 					}
 				}
-				pair, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: token})
+				pair, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: token, AttemptID: "test-attempt-00000001"})
 				assertGenericRefreshRejection(t, pair, err)
 				current, currentErr := authorization.versions.Current(ctx, user.ID)
 				if versionExists {
@@ -269,7 +272,7 @@ func TestRefreshRejectsValidTokenForAbsentUserWithoutInitializingVersion(t *test
 			if err := db.Create(&authgorm.UserAccessVersion{UserID: user.ID, Version: 7}).Error; err != nil {
 				t.Fatal(err)
 			}
-			pair, err := tokens.Issue(ctx, application.TokenIssue{UserID: user.ID, TokenVersion: 7})
+			pair, err := sessionLogin(service)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -277,7 +280,7 @@ func TestRefreshRejectsValidTokenForAbsentUserWithoutInitializingVersion(t *test
 			if err != nil || claims.UserID != user.ID || claims.TokenVersion != 7 || claims.Purpose != application.TokenPurposeRefresh {
 				t.Fatalf("missing-user refresh fixture is not otherwise valid: %#v, %v", claims, err)
 			}
-			control, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: pair.RefreshToken})
+			control, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: pair.RefreshToken, AttemptID: "test-attempt-00000001"})
 			if err != nil {
 				t.Fatalf("refresh before removing user: %v", err)
 			}
@@ -297,7 +300,7 @@ func TestRefreshRejectsValidTokenForAbsentUserWithoutInitializingVersion(t *test
 			if err := db.Unscoped().First(&before, user.ID).Error; err != nil {
 				t.Fatal(err)
 			}
-			result, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: pair.RefreshToken})
+			result, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: pair.RefreshToken, AttemptID: "test-attempt-00000001"})
 			assertGenericRefreshRejection(t, result, err)
 			version, versionErr := authorization.versions.Current(ctx, user.ID)
 			if versionExists {

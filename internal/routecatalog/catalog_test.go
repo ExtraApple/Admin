@@ -209,3 +209,87 @@ func TestCatalogRejectsPublicErrorCodeOwnershipConflict(t *testing.T) {
 		t.Fatalf("catalog error = %v, want ownership conflict", err)
 	}
 }
+
+func cookieDescriptor() routecatalog.Descriptor {
+	descriptor := validDescriptor()
+	descriptor.Method = http.MethodPost
+	descriptor.Path = "/api/browser-control"
+	descriptor.OpenAPI.Request = routecatalog.RequestBody{Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(struct{}{}), Required: true}
+	descriptor.OpenAPI.Cookie = &routecatalog.CookieSecurity{
+		Name: "admin_refresh", Description: "HTTPS Secure; explicit loopback HTTP exception only",
+		Path: "/api", SameSite: "Strict", Required: true, HTTPOnly: true, Secure: true, HostOnly: true, Session: true,
+	}
+	descriptor.OpenAPI.Headers = []routecatalog.Header{
+		{Name: "Origin", Description: "Exact configured browser origin", Required: true},
+		{Name: "X-Admin-Request", Description: "Browser request protection", Required: true, Value: "1"},
+		{Name: "X-Refresh-Attempt-ID", Description: "Unpredictable refresh attempt identifier", Required: true},
+	}
+	success := routecatalog.JSONResponse("success", reflect.TypeOf(struct{}{}))
+	success.Headers = []routecatalog.Header{
+		{Name: "Cache-Control", Description: "Do not store authentication responses", Required: true, Value: "no-store"},
+		{Name: "Set-Cookie", Description: "Replace the HttpOnly refresh session cookie", Required: true},
+	}
+	descriptor.OpenAPI.Responses[http.StatusOK] = success
+	return descriptor
+}
+
+func TestCookieContractRejectsIncompleteOrInvalidMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*routecatalog.Descriptor)
+	}{
+		{"cookie name", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.Name = "invalid cookie" }},
+		{"cookie description", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.Description = "" }},
+		{"cookie path", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.Path = "/" }},
+		{"cookie same site", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.SameSite = "None" }},
+		{"cookie http only", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.HTTPOnly = false }},
+		{"cookie secure", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.Secure = false }},
+		{"cookie host only", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.HostOnly = false }},
+		{"cookie lifetime", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie.Session = false }},
+		{"missing cookie scheme", func(d *routecatalog.Descriptor) { d.OpenAPI.Cookie = nil }},
+		{"missing origin", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers = d.OpenAPI.Headers[1:] }},
+		{"optional origin", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers[0].Required = false }},
+		{"invalid protection value", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers[1].Value = "0" }},
+		{"duplicate header", func(d *routecatalog.Descriptor) {
+			d.OpenAPI.Headers = append(d.OpenAPI.Headers, routecatalog.Header{Name: "origin", Description: "duplicate"})
+		}},
+		{"invalid header name", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers[0].Name = "Origin:" }},
+		{"missing header description", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers[0].Description = "" }},
+		{"invalid header value", func(d *routecatalog.Descriptor) { d.OpenAPI.Headers[0].Value = "value\r\nInjected: true" }},
+		{"raw cookie parameter", func(d *routecatalog.Descriptor) {
+			d.OpenAPI.Headers = append(d.OpenAPI.Headers, routecatalog.Header{Name: "Cookie", Description: "raw cookie"})
+		}},
+		{"missing response headers", func(d *routecatalog.Descriptor) {
+			response := d.OpenAPI.Responses[200]
+			response.Headers = nil
+			d.OpenAPI.Responses[200] = response
+		}},
+		{"missing set cookie", func(d *routecatalog.Descriptor) {
+			response := d.OpenAPI.Responses[200]
+			response.Headers = response.Headers[:1]
+			d.OpenAPI.Responses[200] = response
+		}},
+		{"cacheable response", func(d *routecatalog.Descriptor) {
+			response := d.OpenAPI.Responses[200]
+			response.Headers[0].Value = "public"
+			d.OpenAPI.Responses[200] = response
+		}},
+		{"credential example", func(d *routecatalog.Descriptor) {
+			response := d.OpenAPI.Responses[200]
+			response.Headers[1].Value = "credential-example"
+			d.OpenAPI.Responses[200] = response
+		}},
+		{"error missing no store", func(d *routecatalog.Descriptor) {
+			d.OpenAPI.Responses[400] = routecatalog.ErrorResponse("invalid request", httpresponse.RequestInvalidDefinition())
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			descriptor := cookieDescriptor()
+			test.mutate(&descriptor)
+			if _, err := routecatalog.New([]routecatalog.Descriptor{descriptor}); err == nil {
+				t.Fatal("invalid Cookie/header contract was accepted")
+			}
+		})
+	}
+}

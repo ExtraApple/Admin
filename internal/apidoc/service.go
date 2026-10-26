@@ -68,6 +68,7 @@ func (service *Service) Document(ctx context.Context, serverURL string) (map[str
 
 	paths := make(map[string]any)
 	tags := make(map[string]struct{})
+	securitySchemes := map[string]any{"BearerAuth": map[string]any{"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}}
 	if service.catalog != nil {
 		for _, descriptor := range service.catalog.Snapshot() {
 			if !exposePath(descriptor.Path) {
@@ -82,6 +83,16 @@ func (service *Service) Document(ctx context.Context, serverURL string) (map[str
 			}
 			if tag == "" {
 				tag = "api"
+			}
+			if cookie := descriptor.OpenAPI.Cookie; cookie != nil {
+				securitySchemes[cookie.Name] = map[string]any{
+					"type": "apiKey", "in": "cookie", "name": cookie.Name,
+					"description": cookie.Description,
+					"x-cookie-attributes": map[string]any{
+						"path": cookie.Path, "httpOnly": cookie.HTTPOnly, "secure": cookie.Secure,
+						"sameSite": cookie.SameSite, "hostOnly": cookie.HostOnly, "session": cookie.Session,
+					},
+				}
 			}
 			tags[tag] = struct{}{}
 			pathItem, _ := paths[openAPIPath].(map[string]any)
@@ -99,7 +110,7 @@ func (service *Service) Document(ctx context.Context, serverURL string) (map[str
 		"tags":    sortedTags(tags),
 		"paths":   paths,
 		"components": map[string]any{
-			"securitySchemes": map[string]any{"BearerAuth": map[string]any{"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}},
+			"securitySchemes": securitySchemes,
 			"schemas":         map[string]any{"ErrorResponse": errorSchema()},
 		},
 	}, nil
@@ -173,14 +184,30 @@ func buildOperation(descriptor routecatalog.Descriptor, entry Metadata, metadata
 		operation["deprecated"] = true
 	}
 	parameters := append(pathParameters(params), queryParameters(descriptor.OpenAPI.QuerySchema)...)
+	parameters = append(parameters, headerParameters(descriptor.OpenAPI.Headers)...)
 	if len(parameters) > 0 {
 		operation["parameters"] = parameters
 	}
 	if request := buildRequestBody(descriptor.OpenAPI.Request); request != nil {
 		operation["requestBody"] = request
 	}
+	security := make(map[string][]string)
 	if descriptor.Access == routecatalog.Authenticated || descriptor.Access == routecatalog.PermissionControlled {
-		operation["security"] = []map[string][]string{{"BearerAuth": {}}}
+		security["BearerAuth"] = []string{}
+	}
+	if cookie := descriptor.OpenAPI.Cookie; cookie != nil {
+		withCookie := make(map[string][]string, len(security)+1)
+		for name, scopes := range security {
+			withCookie[name] = scopes
+		}
+		withCookie[cookie.Name] = []string{}
+		if cookie.Required {
+			operation["security"] = []map[string][]string{withCookie}
+		} else {
+			operation["security"] = []map[string][]string{security, withCookie}
+		}
+	} else if len(security) > 0 {
+		operation["security"] = []map[string][]string{security}
 	}
 	return operation
 }
@@ -219,6 +246,13 @@ func buildResponses(responses map[int]routecatalog.Response) map[string]any {
 	for _, code := range codes {
 		response := responses[code]
 		item := map[string]any{"description": firstNonEmpty(response.Description, http.StatusText(code), "response")}
+		if len(response.Headers) > 0 {
+			headers := make(map[string]any, len(response.Headers))
+			for _, header := range response.Headers {
+				headers[header.Name] = headerObject(header)
+			}
+			item["headers"] = headers
+		}
 		if response.Kind != routecatalog.NoBody {
 			contentTypes := append([]string(nil), response.ContentTypes...)
 			if len(contentTypes) == 0 {
@@ -243,6 +277,25 @@ func buildResponses(responses map[int]routecatalog.Response) map[string]any {
 	return result
 }
 
+func headerObject(header routecatalog.Header) map[string]any {
+	schema := map[string]any{"type": "string"}
+	if header.Value != "" {
+		schema["enum"] = []string{header.Value}
+	}
+	return map[string]any{"description": header.Description, "required": header.Required, "schema": schema}
+}
+
+func headerParameters(headers []routecatalog.Header) []map[string]any {
+	parameters := make([]map[string]any, 0, len(headers))
+	for _, header := range headers {
+		parameter := headerObject(header)
+		parameter["name"] = header.Name
+		parameter["in"] = "header"
+		parameters = append(parameters, parameter)
+	}
+	return parameters
+}
+
 func successEnvelopeSchema(status int, dataValue, fallback reflect.Type) map[string]any {
 	data := dataValue
 	if data == nil {
@@ -250,6 +303,9 @@ func successEnvelopeSchema(status int, dataValue, fallback reflect.Type) map[str
 	}
 	if envelopeData, ok := envelopeDataType(data); ok {
 		data = envelopeData
+	}
+	if data == nil || data.Kind() == reflect.Interface {
+		return envelopeSchema(status, []string{""}, []string{"success"}, map[string]any{"nullable": true, "enum": []any{nil}})
 	}
 	return envelopeSchema(status, []string{""}, []string{"success"}, schemaFor(data))
 }
@@ -409,6 +465,9 @@ func objectSchema(value reflect.Type, stack map[reflect.Type]bool) map[string]an
 		}
 	}
 	result := map[string]any{"type": "object", "properties": properties}
+	if value.NumField() == 0 {
+		result["additionalProperties"] = false
+	}
 	if len(required) > 0 {
 		result["required"] = required
 	}
@@ -419,7 +478,9 @@ func applyBindingConstraints(schema map[string]any, binding string) {
 	for _, rule := range strings.Split(binding, ",") {
 		if rule == "dive" {
 			items, ok := schema["items"].(map[string]any)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			schema = items
 			continue
 		}
@@ -439,20 +500,28 @@ func applyBindingConstraints(schema map[string]any, binding string) {
 			}
 			continue
 		}
-		if schema["type"] != "integer" { continue }
+		if schema["type"] != "integer" {
+			continue
+		}
 		if strings.HasPrefix(rule, "oneof=") {
 			values := strings.Fields(strings.TrimPrefix(rule, "oneof="))
 			enum := make([]int, 0, len(values))
 			for _, value := range values {
 				number, err := strconv.Atoi(value)
-				if err != nil { return }
+				if err != nil {
+					return
+				}
 				enum = append(enum, number)
 			}
 			schema["enum"] = enum
 		} else if strings.HasPrefix(rule, "min=") || strings.HasPrefix(rule, "gt=") {
 			bound, err := strconv.ParseFloat(strings.SplitN(rule, "=", 2)[1], 64)
-			if err != nil { continue }
-			if strings.HasPrefix(rule, "gt=") { bound++ }
+			if err != nil {
+				continue
+			}
+			if strings.HasPrefix(rule, "gt=") {
+				bound++
+			}
 			schema["minimum"] = bound
 		}
 	}
@@ -492,14 +561,22 @@ func pathParameters(params []string) []map[string]any {
 }
 
 func queryParameters(value reflect.Type) []map[string]any {
-	if value == nil { return nil }
-	if value.Kind() == reflect.Pointer { value = value.Elem() }
-	if value.Kind() != reflect.Struct { return nil }
+	if value == nil {
+		return nil
+	}
+	if value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil
+	}
 	result := make([]map[string]any, 0, value.NumField())
 	for index := range value.NumField() {
 		field := value.Field(index)
 		name := strings.Split(field.Tag.Get("form"), ",")[0]
-		if field.PkgPath != "" || name == "" || name == "-" { continue }
+		if field.PkgPath != "" || name == "" || name == "-" {
+			continue
+		}
 		schema := schemaFor(field.Type)
 		delete(schema, "nullable")
 		applyBindingConstraints(schema, field.Tag.Get("binding"))

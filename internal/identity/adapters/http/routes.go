@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
-	"strings"
-	"time"
 
 	"admin/internal/identity"
 	"admin/internal/identity/application"
@@ -34,7 +32,7 @@ type loginResponse struct {
 	Data identity.LoginResponse `json:"data"`
 }
 type refreshResponse struct {
-	Data identity.RefreshTokenResponse `json:"data"`
+	Data identity.RefreshResponse `json:"data"`
 }
 
 type routeHandler struct {
@@ -45,30 +43,30 @@ type routeHandler struct {
 	emailVerification *application.EmailVerificationService
 	captcha           CaptchaGenerator
 	avatarMaxBytes    int64
-	logoutExpires     time.Duration
+	browser           BrowserSessionConfig
+	crossOrigin       *http.CrossOriginProtection
+	originError       error
 }
 
-func Routes(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires ...time.Duration) []routecatalog.Descriptor {
-	expires := time.Duration(0)
-	if len(logoutExpires) > 0 {
-		expires = logoutExpires[0]
-	}
-	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, expires, nil)
+func Routes(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, browser BrowserSessionConfig) []routecatalog.Descriptor {
+	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, browser, nil)
 }
 
-func RoutesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires time.Duration, verification *application.EmailVerificationService) []routecatalog.Descriptor {
-	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, logoutExpires, verification)
+func RoutesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, browser BrowserSessionConfig, verification *application.EmailVerificationService) []routecatalog.Descriptor {
+	return routesWithEmailVerification(service, users, contextService, avatars, captcha, avatarMaxSizeMB, browser, verification)
 }
 
-func routesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, logoutExpires time.Duration, verification *application.EmailVerificationService) []routecatalog.Descriptor {
-	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, logoutExpires: logoutExpires}
+func routesWithEmailVerification(service *application.Service, users *application.UserService, contextService *application.ContextService, avatars *application.AvatarService, captcha CaptchaGenerator, avatarMaxSizeMB int, browser BrowserSessionConfig, verification *application.EmailVerificationService) []routecatalog.Descriptor {
+	protection := http.NewCrossOriginProtection()
+	originError := protection.AddTrustedOrigin(browser.Origin)
+	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, browser: browser, crossOrigin: protection, originError: originError}
 	updateUser := permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{})
 	updateUser.OpenAPI.Description = "管理保护和邮箱禁写先校验；纯昵称变更及合法全同值更新不创建或提升授权版本，旧有效会话保持。真实已接受角色／状态变化仍与资料同事务失效一次；空请求拒绝。旧 role 字段不作为 RBAC 管理身份来源，Kick 和状态翻转不适用资料豁免。"
 	return []routecatalog.Descriptor{
 		identityRoute(http.MethodGet, "/api/captcha", "Generate Captcha", routecatalog.Public, handler.captchaHandler, nil, captchaResponse{}),
 		identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{}),
-		identityRoute(http.MethodPost, "/api/login", "Login", routecatalog.Public, handler.login, identity.LoginRequest{}, loginResponse{}),
-		identityRoute(http.MethodPost, "/api/refresh", "Refresh Token", routecatalog.Public, handler.refresh, identity.RefreshTokenRequest{}, refreshResponse{}),
+		browserSessionRoute("Login", "/api/login", handler.login, identity.LoginRequest{}, loginResponse{}, false),
+		browserSessionRoute("Refresh Token", "/api/refresh", handler.refresh, identity.SessionControlRequest{}, refreshResponse{}, true),
 		identityRoute(http.MethodGet, "/api/user/context", "Get User Context", routecatalog.Authenticated, handler.initialContext, nil, identity.InitialContextResponse{}),
 		avatarContentRoute("/api/avatars/default", "Get Default Avatar", handler.getDefaultAvatar),
 		avatarContentRoute("/api/avatars/:user_id", "Get User Avatar", handler.getAvatar),
@@ -79,7 +77,7 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		identityRoute(http.MethodPost, "/api/user/email-verifications/confirm", "Confirm Email Verification", routecatalog.Authenticated, handler.confirmEmailVerification, identity.EmailVerificationRequest{}, userResponse{}),
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
-		identityRoute(http.MethodPost, "/api/user/logout", "Logout", routecatalog.Authenticated, handler.logout, nil, nil),
+		browserSessionRoute("Logout", "/api/user/logout", handler.logout, identity.SessionControlRequest{}, nil, false),
 		updateUser,
 		permissionIdentityRoute(http.MethodDelete, "/api/admin/users/:id", "Delete User", "admin.users.id.delete", handler.deleteUser, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/status", "Toggle User Status", "admin.users.id.status.put", handler.toggleStatus, nil, nil),
@@ -150,52 +148,75 @@ func (handler *routeHandler) register(c *gin.Context) {
 	}
 	user, err := handler.service.Register(c.Request.Context(), application.RegisterRequest{Username: request.Username, Password: request.Password, Email: request.Email, Nickname: request.Nickname, CaptchaID: request.CaptchaID, CaptchaCode: request.CaptchaCode})
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
 }
 
 func (handler *routeHandler) login(c *gin.Context) {
+	if !handler.checkBrowser(c) {
+		return
+	}
 	var request identity.LoginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		identityRequestError(c, err)
 		return
 	}
-	result, err := handler.service.Login(c.Request.Context(), application.LoginRequest{Username: request.Username, Password: request.Password, CaptchaID: request.CaptchaID, CaptchaCode: request.CaptchaCode})
+	previous, _ := c.Cookie(refreshCookieName)
+	result, err := handler.service.Login(c.Request.Context(), application.LoginRequest{Username: request.Username, Password: request.Password, CaptchaID: request.CaptchaID, CaptchaCode: request.CaptchaCode, PreviousRefreshToken: previous})
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
-	identitySuccess(c, identity.LoginResponse{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, User: identity.UserInfoFromDomain(result.User)})
+	handler.setRefreshCookie(c, result.RefreshToken, false)
+	identitySuccess(c, identity.LoginResponse{AccessToken: result.AccessToken, SessionID: result.SessionID, User: identity.UserInfoFromDomain(result.User)})
 }
 
 func (handler *routeHandler) refresh(c *gin.Context) {
-	var request identity.RefreshTokenRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		writeIdentityError(c, err, true)
+	if !handler.checkBrowser(c) {
 		return
 	}
-	pair, err := handler.service.Refresh(c.Request.Context(), application.RefreshRequest{RefreshToken: request.RefreshToken})
+	if !bindEmptySessionControl(c) {
+		return
+	}
+	attempt := c.GetHeader("X-Refresh-Attempt-ID")
+	if len(c.Request.Header.Values("X-Refresh-Attempt-ID")) != 1 || !application.ValidSessionIdentifier(attempt) {
+		identityRequestError(c, nil)
+		return
+	}
+	token, _ := c.Cookie(refreshCookieName)
+	pair, err := handler.service.Refresh(c.Request.Context(), application.RefreshRequest{RefreshToken: token, AttemptID: attempt})
 	if err != nil {
-		writeIdentityError(c, err, true)
+		if code, _ := application.CodeOf(err); code == application.CodeRefreshTokenInvalid {
+			handler.setRefreshCookie(c, "", true)
+		}
+		writeIdentityError(c, err)
 		return
 	}
-	identitySuccess(c, identity.RefreshTokenResponse{AccessToken: pair.AccessToken, RefreshToken: pair.RefreshToken})
+	handler.setRefreshCookie(c, pair.RefreshToken, false)
+	identitySuccess(c, identity.RefreshResponse{AccessToken: pair.AccessToken, SessionID: pair.SessionID})
 }
 
 func (handler *routeHandler) logout(c *gin.Context) {
-	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-	if err := handler.service.Logout(c.Request.Context(), token, handler.logoutExpires); err != nil {
-		writeIdentityError(c, err, false)
+	if !handler.checkBrowser(c) {
 		return
 	}
+	if !bindEmptySessionControl(c) {
+		return
+	}
+	token, _ := c.Cookie(refreshCookieName)
+	if err := handler.service.Logout(c.Request.Context(), token); err != nil {
+		writeIdentityError(c, err)
+		return
+	}
+	handler.setRefreshCookie(c, "", true)
 	identitySuccess(c, nil)
 }
 func (handler *routeHandler) getInfo(c *gin.Context) {
 	user, err := handler.users.Get(c.Request.Context(), c.GetUint("userID"))
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
@@ -209,7 +230,7 @@ func (handler *routeHandler) updateSelf(c *gin.Context) {
 	}
 	user, err := handler.users.UpdateSelf(c.Request.Context(), c.GetUint("userID"), application.UpdateSelfRequest{Nickname: request.Nickname, Email: request.Email, CurrentPassword: request.CurrentPassword, AvatarPresent: request.HasAvatarField()})
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
@@ -223,20 +244,19 @@ func (handler *routeHandler) changePassword(c *gin.Context) {
 	}
 	err := handler.users.ChangePassword(c.Request.Context(), c.GetUint("userID"), application.ChangePasswordRequest{OldPassword: request.OldPassword, NewPassword: request.NewPassword, ConfirmPassword: request.ConfirmPassword})
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, nil)
 }
 
-
 func (handler *routeHandler) resendEmailVerification(c *gin.Context) {
 	if handler.emailVerification == nil {
-		writeIdentityError(c, application.NewError(application.CodeInternalError, nil), false)
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil))
 		return
 	}
 	if err := handler.emailVerification.Resend(c.Request.Context(), c.GetUint("userID")); err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, nil)
@@ -244,7 +264,7 @@ func (handler *routeHandler) resendEmailVerification(c *gin.Context) {
 
 func (handler *routeHandler) confirmEmailVerification(c *gin.Context) {
 	if handler.emailVerification == nil {
-		writeIdentityError(c, application.NewError(application.CodeInternalError, nil), false)
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil))
 		return
 	}
 	var request identity.EmailVerificationRequest
@@ -253,12 +273,12 @@ func (handler *routeHandler) confirmEmailVerification(c *gin.Context) {
 		return
 	}
 	if err := handler.emailVerification.Confirm(c.Request.Context(), c.GetUint("userID"), request.Token); err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	user, err := handler.users.Get(c.Request.Context(), c.GetUint("userID"))
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
@@ -276,7 +296,7 @@ func (handler *routeHandler) updateUser(c *gin.Context) {
 	}
 	user, err := handler.users.UpdateByAdmin(c.Request.Context(), c.GetUint("userID"), targetID, application.AdminUpdateUserRequest{Nickname: request.Nickname, Email: request.Email, Role: request.Role, Status: request.Status})
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
@@ -288,7 +308,7 @@ func (handler *routeHandler) deleteUser(c *gin.Context) {
 		return
 	}
 	if err := handler.users.Delete(c.Request.Context(), c.GetUint("userID"), targetID); err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, nil)
@@ -301,7 +321,7 @@ func (handler *routeHandler) toggleStatus(c *gin.Context) {
 	}
 	status, err := handler.users.ToggleStatus(c.Request.Context(), c.GetUint("userID"), targetID)
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, map[string]int{"status": status})
@@ -313,7 +333,7 @@ func (handler *routeHandler) kickUser(c *gin.Context) {
 		return
 	}
 	if err := handler.users.Kick(c.Request.Context(), c.GetUint("userID"), targetID); err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, nil)
@@ -335,7 +355,7 @@ func badRequest(c *gin.Context, err error) {
 func (handler *routeHandler) initialContext(c *gin.Context) {
 	result, err := handler.context.Load(c.Request.Context(), c.GetUint("userID"))
 	if err != nil {
-		writeIdentityError(c, err, false)
+		writeIdentityError(c, err)
 		return
 	}
 	identitySuccess(c, identity.InitialContextResponse{User: identity.UserInfoFromDomain(result.User), Roles: result.Roles, Permissions: result.Permissions, Menus: identity.MenuDetailsFromDomain(result.Menus)})

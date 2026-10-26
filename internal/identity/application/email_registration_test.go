@@ -39,7 +39,7 @@ func TestRegisterSynchronouslySendsVerificationAndKeepsAccountOnDeliveryFailure(
 	repository := &recordingUserRepository{}
 	issuer := &registrationVerificationIssuerFake{token: "verification-token"}
 	sender := &verificationEmailSenderFake{err: errors.New("smtp refused password=secret")}
-	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
 	service.ConfigureEmailVerification(issuer, sender)
 
 	user, err := service.Register(context.Background(), application.RegisterRequest{Username: "new-user", Password: "ValidPass123!", Email: "new@example.com", Nickname: "New", CaptchaID: "id", CaptchaCode: "123456"})
@@ -61,7 +61,7 @@ func TestRegisterReturnsSuccessAfterVerificationDelivery(t *testing.T) {
 	repository := &recordingUserRepository{}
 	issuer := &registrationVerificationIssuerFake{token: "verification-token"}
 	sender := &verificationEmailSenderFake{}
-	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, blacklistFake{}, authorizationFake{}, &tokenFake{})
+	service := application.NewService(repository, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
 	service.ConfigureEmailVerification(issuer, sender)
 
 	user, err := service.Register(context.Background(), application.RegisterRequest{Username: "new-user", Password: "ValidPass123!", Email: "new@example.com", Nickname: "New", CaptchaID: "id", CaptchaCode: "123456"})

@@ -1,112 +1,217 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UserContext } from './models';
+
 const user = { id: 7, username: 'operator', nickname: '操作者', avatar: '/api/avatars/default', email: 'operator@example.com', role: 'user', status: 1 };
 const context: UserContext = { user, roles: ['reader'], permissions: ['admin.users.get'], menus: [] };
-const input = { username: 'operator', password: 'Private123!', captcha_id: 'real-id', captcha_code: '123456' };
+const input = { username: 'operator', password: 'TestOnly123!', captcha_id: 'real-id', captcha_code: '123456' };
+const pendingKey = 'admin-workbench.auth.logout-pending';
+const attemptKey = 'admin-workbench.auth.refresh-attempt';
+const eventKey = 'admin-workbench.auth.event';
 function envelope(status: number, data: unknown, errorCode = '') { return new Response(JSON.stringify({ code: status, error_code: errorCode, msg: errorCode ? 'request failed' : 'success', data }), { status }); }
-function token(seconds = 60, tag = 'one') {
-  return `${tag}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + seconds }))}.signature`;
-}
-beforeEach(() => { vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-30T08:00:00Z')); });
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+function token(tag: string, seconds = 60) { return `${tag}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + seconds }))}.signature`; }
+// ES2022 is the suite's supported runtime/type baseline; it has no Promise.withResolvers.
+function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(finish => { resolve = finish; }); return { promise, resolve }; }
+
+beforeEach(() => {
+  vi.resetModules(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-25T08:00:00Z'));
+  localStorage.clear();
+  const locks = new Map<string, Promise<unknown>>();
+  vi.stubGlobal('isSecureContext', true);
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('navigator', { cookieEnabled: true, locks: {
+    request<T>(name: string, work: () => Promise<T> | T) {
+      const next = (locks.get(name) ?? Promise.resolve()).catch(() => {}).then(work);
+      locks.set(name, next.then(() => undefined, () => undefined));
+      return next;
+    },
+  } });
+});
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function setup() {
-  const access = token();
-  const fetch = vi.fn(async (path: string, _init?: RequestInit) => {
-    if (path === '/api/login') return envelope(200, { access_token: access, refresh_token: 'refresh-one', user });
+  let serial = 0;
+  let sid = 'session-one';
+  const fetch = vi.fn(async (path: string, _init?: RequestInit): Promise<Response> => {
+    if (path === '/api/login') { sid = `session-login-${++serial}`; return envelope(200, { access_token: token(`login-${serial}`), session_id: sid, user }); }
+    if (path === '/api/refresh') return envelope(200, { access_token: token(`renew-${++serial}`), session_id: sid });
     if (path === '/api/user/context') return envelope(200, context);
-    if (path === '/api/refresh') return envelope(200, { access_token: token(60, 'two'), refresh_token: 'refresh-two' });
     return envelope(200, null);
   });
   vi.stubGlobal('fetch', fetch);
-  // Runtime imports intentionally exercise the fresh-page module boundary and its empty memory session.
+  // A fresh module models a page reload; a static import would retain the previous Access.
   const { sessionState } = await import('./session-state');
   const { api } = await import('./api');
-  return { sessionState, api, fetch, access };
+  return { state: sessionState, api, fetch };
 }
-describe('memory-only authenticated lifecycle', () => {
-  it('establishes context only after authenticated read, and never restores tokens across a page instance', async () => {
-    const { sessionState, api, fetch, access } = await setup();
-    expect(sessionState.getSnapshot()).toBeNull();
-    await sessionState.login(input);
-    expect(sessionState.getSnapshot()).toEqual(context);
-    await api.get('/api/user/info');
-    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe(`Bearer ${access}`);
-    vi.resetModules();
-    // A new module instance models a full page reload; static imports would reuse its tokens.
-    const fresh = await import('./session-state');
-    expect(fresh.sessionState.getSnapshot()).toBeNull();
-    const freshClient = await import('./api');
-    await freshClient.api.get('/api/user/info');
-    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBeNull();
+
+describe('Cookie-backed browser session lifecycle', () => {
+  it('does not publish identity until both startup refresh and real context read succeed', async () => {
+    const { state, fetch } = await setup();
+    const response = deferred<Response>();
+    fetch.mockImplementation(async path => path === '/api/refresh' ? envelope(200, { access_token: token('restored'), session_id: 'restored-session' }) : response.promise);
+    const boot = state.initialize();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([path]) => path === '/api/user/context')).toBe(true));
+    expect(state.getSnapshot()).toMatchObject({ phase: 'bootstrapping', context: null });
+    response.resolve(envelope(200, context)); await boot;
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context, sessionId: 'restored-session' });
+    expect(localStorage.getItem(attemptKey)).toBeNull();
   });
-  it('refreshes proactively before expiry and uses rotated access credentials', async () => {
-    const { sessionState, api, fetch, access } = await setup();
-    await sessionState.login(input);
-    await vi.advanceTimersByTimeAsync(29_000);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/refresh')).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/refresh')).toHaveLength(1);
-    expect(sessionState.getSnapshot()).toEqual(context);
-    await api.get('/api/user/info');
-    const nextToken = new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization');
-    expect(nextToken).not.toBe(`Bearer ${access}`);
-    expect(nextToken).toBe(`Bearer ${token(60, 'two')}`);
-  });
-  it('clears context and credentials on protected 401 without replaying the failed request', async () => {
-    const { sessionState, api, fetch } = await setup(); await sessionState.login(input);
-    fetch.mockResolvedValueOnce(envelope(401, null, 'AUTHN_TOKEN_INVALID'));
-    await expect(api.put('/api/admin/users/8/roles', { role_ids: [], expected_access_version: 1 })).rejects.toMatchObject({ status: 401 });
-    expect(sessionState.getSnapshot()).toBeNull();
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/admin/users/8/roles')).toHaveLength(1);
+
+  it('keeps initial network failure unconfirmed and retries only on explicit action', async () => {
+    const { state, fetch } = await setup();
+    fetch.mockRejectedValueOnce(new Error('offline'));
+    await state.initialize();
+    expect(state.getSnapshot()).toMatchObject({ phase: 'recovery-required', context: null });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/refresh')).toHaveLength(0);
-    await api.get('/api/user/info');
-    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBeNull();
-  });
-  it('retains the authenticated page context on 403', async () => {
-    const { sessionState, api, fetch } = await setup(); await sessionState.login(input);
-    fetch.mockResolvedValueOnce(envelope(403, null, 'API_META_PERMISSION_DENIED'));
-    await expect(api.get('/api/admin/roles')).rejects.toMatchObject({ status: 403 });
-    expect(sessionState.getSnapshot()).toEqual(context);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/admin/roles')).toHaveLength(1);
-  });
-  it('clears the session if proactive refresh is refused and never retries refresh automatically', async () => {
-    const { sessionState, fetch } = await setup(); await sessionState.login(input);
-    fetch.mockResolvedValueOnce(envelope(401, null, 'AUTHN_REFRESH_TOKEN_INVALID'));
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(sessionState.getSnapshot()).toBeNull();
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/refresh')).toHaveLength(1);
-  });
-  it('does not establish a session from rejected credentials or a refused context read', async () => {
-    const { sessionState, fetch } = await setup();
-    fetch.mockResolvedValueOnce(envelope(401, { remaining_attempts: 2 }, 'AUTHN_CREDENTIALS_INVALID'));
-    await expect(sessionState.login(input)).rejects.toMatchObject({ errorCode: 'AUTHN_CREDENTIALS_INVALID' });
-    expect(sessionState.getSnapshot()).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
-    fetch.mockResolvedValueOnce(envelope(200, { access_token: token(), refresh_token: 'refresh', user })).mockResolvedValueOnce(envelope(403, null, 'IDENTITY_ACCOUNT_DISABLED'));
-    await expect(sessionState.login(input)).rejects.toMatchObject({ status: 403 });
-    expect(sessionState.getSnapshot()).toBeNull();
+    // Only an explicit action starts a fresh attempt after the bounded recovery window.
+    await state.refresh();
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context });
   });
-  it('clears local credentials even when server logout fails', async () => {
-    const { sessionState, api, fetch } = await setup(); await sessionState.login(input);
+
+  it('uses the same attempt for an unknown result and sends no JSON Refresh credential', async () => {
+    const { state, fetch } = await setup();
+    fetch.mockRejectedValueOnce(new Error('response lost'));
+    await state.initialize();
+    const first = new Headers(fetch.mock.calls[0][1]?.headers).get('X-Refresh-Attempt-ID');
+    await state.refresh();
+    const calls = fetch.mock.calls.filter(([path]) => path === '/api/refresh');
+    expect(new Headers(calls[1][1]?.headers).get('X-Refresh-Attempt-ID')).toBe(first);
+    expect(calls.map(([, init]) => init?.body)).toEqual(['{}', '{}']);
+    expect(state.getSnapshot().phase).toBe('authenticated');
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain('signature');
+  });
+
+  it('preserves a valid page on temporary renewal failure, suspends at expiry, then restores the same session', async () => {
+    const { state, api, fetch } = await setup();
+    fetch.mockResolvedValueOnce(envelope(200, { access_token: token('short', 20), session_id: 'session-one', user }));
+    await state.login(input);
+    const sid = state.getSnapshot().sessionId;
     fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
-    await expect(sessionState.logout()).rejects.toMatchObject({ status: 500 });
-    expect(sessionState.getSnapshot()).toBeNull();
-    await api.get('/api/user/info');
-    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBeNull();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context, sessionId: sid });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(state.getSnapshot()).toMatchObject({ phase: 'recovery-required', context, sessionId: sid });
+    const count = fetch.mock.calls.length;
+    await expect(api.put('/api/admin/users/8/roles', { role_ids: [] })).rejects.toMatchObject({ errorCode: 'CLIENT_SESSION_RECOVERY_REQUIRED' });
+    expect(fetch).toHaveBeenCalledTimes(count);
+    await state.refresh();
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context, sessionId: sid });
   });
-  it('does not resurrect a logged-out session from an in-flight refresh', async () => {
-    const { sessionState, fetch } = await setup(); await sessionState.login(input);
-    let finish!: (value: Response) => void;
-    fetch.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
-    const refreshing = sessionState.refresh();
-    const rejected = expect(refreshing).rejects.toMatchObject({ status: 401 });
-    await sessionState.logout();
-    finish(envelope(200, { access_token: token(60, 'late'), refresh_token: 'late-refresh' }));
-    await rejected;
-    expect(sessionState.getSnapshot()).toBeNull();
+
+  it('resumes the same context after an in-window temporary renewal failure without replaying a business operation', async () => {
+    const { state, api, fetch } = await setup(); await state.login(input);
+    const sid = state.getSnapshot().sessionId;
+    fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
+    await expect(state.refresh()).rejects.toMatchObject({ status: 500 });
+    await state.refresh();
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context, sessionId: sid });
+    fetch.mockResolvedValueOnce(envelope(403, null, 'API_META_PERMISSION_DENIED'));
+    await expect(api.put('/api/admin/users/8/roles', {})).rejects.toMatchObject({ status: 403 });
+    expect(state.getSnapshot().phase).toBe('authenticated');
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/admin/users/8/roles')).toHaveLength(1);
+  });
+
+  it('does not let a late protected 401 clear a newer explicit login', async () => {
+    const { state, api, fetch } = await setup(); await state.login(input);
+    const old = deferred<Response>();
+    fetch.mockImplementationOnce(() => old.promise);
+    const request = api.get('/api/user/info');
+    const rejected = expect(request).rejects.toMatchObject({ status: 401 });
+    await state.login(input);
+    const next = state.getSnapshot().sessionId;
+    old.resolve(envelope(401, null, 'AUTHN_TOKEN_INVALID')); await rejected;
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', sessionId: next });
+  });
+
+  it('clears a definitively invalid identity without replay or automatic renewal', async () => {
+    const { state, api, fetch } = await setup(); await state.login(input);
+    fetch.mockResolvedValueOnce(envelope(401, null, 'AUTHN_TOKEN_INVALID'));
+    await expect(api.put('/api/admin/users/8/roles', {})).rejects.toMatchObject({ status: 401 });
+    expect(state.getSnapshot()).toMatchObject({ phase: 'anonymous', context: null });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(fetch.mock.calls.filter(call => call[0] === '/api/refresh')).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/admin/users/8/roles')).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/refresh')).toHaveLength(0);
+  });
+
+  it('keeps failed logout durable across a fresh page, and retry does not require Access', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
+    await expect(state.logout()).rejects.toMatchObject({ status: 500 });
+    expect(state.getSnapshot()).toMatchObject({ phase: 'logout-pending', context: null });
+    expect(JSON.parse(localStorage.getItem(pendingKey)!)).toMatchObject({ sessionId: 'session-login-1' });
+    vi.resetModules();
+    // Reload must lose module memory while retaining the browser's durable logout intent.
+    const fresh = (await import('./session-state')).sessionState;
+    const before = fetch.mock.calls.length;
+    await fresh.initialize();
+    expect(fresh.getSnapshot().phase).toBe('logout-pending');
+    expect(fetch).toHaveBeenCalledTimes(before);
+    await fresh.retryLogout();
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBeNull();
+    expect(fresh.getSnapshot()).toMatchObject({ phase: 'anonymous', context: null });
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+  });
+
+  it('clears a pending logout only after explicit login and confirmed context', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
+    await expect(state.logout()).rejects.toMatchObject({ status: 500 });
+    const contextRead = deferred<Response>();
+    fetch.mockResolvedValueOnce(envelope(200, { access_token: token('new-login'), session_id: 'new-login', user })).mockImplementationOnce(() => contextRead.promise);
+    const loggingIn = state.login(input);
+    await vi.waitFor(() => expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/user/context'));
+    expect(localStorage.getItem(pendingKey)).not.toBeNull();
+    expect(state.getSnapshot().context).toBeNull();
+    contextRead.resolve(envelope(200, context)); await loggingIn;
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', sessionId: 'new-login' });
+    await expect(state.retryLogout()).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    expect(state.getSnapshot().phase).toBe('authenticated');
+  });
+
+  it('records logout during an in-flight renewal and waits for its body before sending the exit', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const response = deferred<Response>();
+    fetch.mockImplementationOnce(() => response.promise);
+    const refreshing = state.refresh();
+    const refused = expect(refreshing).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    await vi.waitFor(() => expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/refresh'));
+    const exit = state.logout();
+    await vi.waitFor(() => expect(state.getSnapshot().phase).toBe('logout-pending'));
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/user/logout')).toHaveLength(0);
+    response.resolve(envelope(200, { access_token: token('late'), session_id: 'session-login-1' }));
+    await refused; await exit;
+    expect(state.getSnapshot()).toMatchObject({ phase: 'anonymous', context: null });
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+  });
+
+  it('removes old context when another tab changes identity, including a missed-event focus check', async () => {
+    const { state } = await setup(); await state.login(input);
+    localStorage.setItem(eventKey, JSON.stringify({ epoch: 9, kind: 'login', sessionId: 'another-user-session' }));
+    window.dispatchEvent(new Event('focus'));
+    expect(state.getSnapshot()).toMatchObject({ phase: 'anonymous', context: null, sessionId: null });
+  });
+
+  it('does not retain pending logout or revoke a new login after another tab completes the switch', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
+    await expect(state.logout()).rejects.toMatchObject({ status: 500 });
+    localStorage.setItem(eventKey, JSON.stringify({ epoch: 9, kind: 'login', sessionId: 'new-browser-session' }));
+    localStorage.removeItem(pendingKey);
+    window.dispatchEvent(new Event('focus'));
+    expect(state.getSnapshot()).toMatchObject({ phase: 'anonymous', context: null });
+    const count = fetch.mock.calls.length;
+    await expect(state.retryLogout()).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    expect(fetch).toHaveBeenCalledTimes(count);
+  });
+
+  it('reports unavailable storage rather than silently falling back to memory-only login', async () => {
+    const { state, fetch } = await setup();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('blocked', 'SecurityError'); });
+    await state.initialize();
+    expect(state.getSnapshot()).toMatchObject({ phase: 'unavailable', context: null });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

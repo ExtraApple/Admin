@@ -59,10 +59,6 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 				updates["deleted_at"] = nil
 				updates["status"] = 1
 			}
-			if method == "POST" && path == "/api/refresh" {
-				updates["need_auth"] = 0
-				updates["permission_code"] = ""
-			}
 			if len(updates) > 0 {
 				if err := service.core.repository.Restore(ctx, api.ID, updates); err != nil {
 					return nil, NewError(CodeInternalError, err)

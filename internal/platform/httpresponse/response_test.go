@@ -149,7 +149,7 @@ func TestSharedAPIResponseContractFixture(t *testing.T) {
 	definitions := map[string]httpresponse.ErrorDefinition{
 		"HTTP_INTERNAL_ERROR": httpresponse.InternalErrorDefinition(),
 	}
-	for _, route := range identityhttp.Routes(nil, nil, nil, nil, nil, 5) {
+	for _, route := range identityhttp.Routes(nil, nil, nil, nil, nil, 5, identityhttp.BrowserSessionConfig{Origin: "https://admin.example.test", Secure: true}) {
 		for _, response := range route.OpenAPI.Responses {
 			for _, definition := range response.Errors {
 				definitions[definition.Code] = definition

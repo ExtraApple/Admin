@@ -29,6 +29,12 @@ func authnLoginLocked() httpresponse.ErrorDefinition {
 func authnRefreshInvalid() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "identity", Code: "AUTHN_REFRESH_TOKEN_INVALID", Status: http.StatusUnauthorized, Message: "refresh token is invalid"}
 }
+func authnCSRFInvalid() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "AUTHN_CSRF_INVALID", Status: http.StatusForbidden, Message: "browser request verification failed"}
+}
+func authnRefreshSuperseded() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "AUTHN_REFRESH_SUPERSEDED", Status: http.StatusConflict, Message: "refresh attempt was superseded"}
+}
 func authnTokenInvalid() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "identity", Code: "AUTHN_TOKEN_INVALID", Status: http.StatusUnauthorized, Message: "authentication token is invalid"}
 }
@@ -74,6 +80,7 @@ func identityEmailVerificationInvalid() httpresponse.ErrorDefinition {
 func identityErrorDefinitions() []httpresponse.ErrorDefinition {
 	return []httpresponse.ErrorDefinition{
 		httpresponse.RequestInvalidDefinition(), authnCaptchaInvalid(), authnCredentialsInvalid(), authnLoginLocked(), authnRefreshInvalid(), authnTokenInvalid(), identityAccountDisabled(), identityValidationInvalid(), identityConflict(), identityPermissionDenied(), identityEmailVerificationRateLimited(), identityEmailVerificationDeliveryFailed(), identityEmailVerificationInvalid(), identityInternal(),
+		authnCSRFInvalid(), authnRefreshSuperseded(),
 	}
 }
 
@@ -90,11 +97,7 @@ func identityErrorResponse(status int) routecatalog.Response {
 	return routecatalog.ErrorResponse(definitions[0].Message, definitions...)
 }
 
-func writeIdentityError(c *gin.Context, err error, refresh bool) {
-	if refresh {
-		httpresponse.WriteError(c, authnRefreshInvalid(), err, nil)
-		return
-	}
+func writeIdentityError(c *gin.Context, err error) {
 	definition, data := classifyIdentityError(err)
 	if code, _ := application.CodeOf(err); code == application.CodeLoginLocked || code == application.CodeEmailVerificationRateLimited {
 		if details, ok := application.DetailsOf(err); ok && details.RetryAfterSeconds > 0 {
@@ -122,6 +125,8 @@ func classifyIdentityError(err error) (httpresponse.ErrorDefinition, any) {
 			return identityEmailVerificationInvalid(), nil
 		case application.CodeRefreshTokenInvalid:
 			return authnRefreshInvalid(), nil
+		case application.CodeRefreshSuperseded:
+			return authnRefreshSuperseded(), nil
 		case application.CodeTokenInvalid:
 			return authnTokenInvalid(), nil
 		case application.CodeAccountDisabled:

@@ -30,8 +30,6 @@ jwt:
   secret: jwt-secret
   expire: 15
   refresh_expire: 10080
-  legacy_access_expire: 30
-  legacy_refresh_expire: 20160
 redis:
   host: redis.local
   port: 6380
@@ -76,7 +74,7 @@ api_docs:
   version: 1.0.0
   description: Admin API documentation
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -91,7 +89,7 @@ api_docs:
 	if got.Minio.Host != "minio.local" || got.Minio.Port != 9001 || got.Minio.Username != "minio-user" || got.Minio.Password != "minio-secret" {
 		t.Fatalf("minio config changed: %+v", got.Minio)
 	}
-	if got.Jwt.Secret != "jwt-secret" || got.Jwt.Expire != 15 || got.Jwt.RefreshExpire != 10080 || got.Jwt.LegacyAccessExpire != 30 || got.Jwt.LegacyRefreshExpire != 20160 {
+	if got.Jwt.Secret != "jwt-secret" || got.Jwt.Expire != 15 || got.Jwt.RefreshExpire != 10080 {
 		t.Fatalf("jwt config changed: %+v", got.Jwt)
 	}
 	if got.Redis.Host != "redis.local" || got.Redis.Port != 6380 || got.Redis.Password != "redis-secret" || got.Redis.DB != 3 {
@@ -161,7 +159,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -198,7 +196,7 @@ func TestLoadRejectsExistingInvalidUploadLimits(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			configPath := filepath.Join(t.TempDir(), "config.yaml")
 			data := []byte("file_upload:\n  " + test.uploadYAML + "\n")
-			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+			if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 				t.Fatalf("write config: %v", err)
 			}
 
@@ -227,7 +225,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, configData, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(configData), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envName+"=dotenv-secret\n"), 0o600); err != nil {
@@ -267,7 +265,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -314,7 +312,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `
-			if err := os.WriteFile(configPath, []byte(data), 0o600); err != nil {
+			if err := os.WriteFile(configPath, browserConfigFixture([]byte(data)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			got, err := platformconfig.Load(configPath)
@@ -343,7 +341,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("TEST_SMTP_USERNAME", "mailer")
@@ -379,7 +377,7 @@ func TestLoadRejectsInvalidSMTPConfiguration(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			configPath := filepath.Join(t.TempDir(), "config.yaml")
 			data := []byte("smtp:\n  enabled: true\n  username_env: TEST_SMTP_USERNAME\n  password_env: TEST_SMTP_PASSWORD\n  " + strings.ReplaceAll(strings.TrimSuffix(test.yaml, "\n"), "\n", "\n  ") + "\nfile_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n")
-			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+			if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 				t.Fatalf("write config: %v", err)
 			}
 			if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), test.field) {
@@ -405,7 +403,7 @@ file_upload:
   download_url_expire_seconds: 300
 `)
 	t.Setenv("TEST_SMTP_USERNAME", "mailer")
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), "smtp.password") {
@@ -434,7 +432,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-			if err := os.WriteFile(configPath, data, 0o600); err != nil {
+			if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := platformconfig.Load(configPath); err == nil || !strings.Contains(err.Error(), missing) {
@@ -460,7 +458,7 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -566,8 +564,73 @@ file_upload:
   avatar_max_size_mb: 2
   download_url_expire_seconds: 300
 `)
-	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+	if err := os.WriteFile(configPath, browserConfigFixture(data), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return configPath
+}
+
+func browserConfigFixture(data []byte) []byte {
+	text := string(data)
+	if !strings.Contains(text, "jwt:\n") {
+		text += "\njwt:\n  expire: 15\n  refresh_expire: 10080\n"
+	} else if !strings.Contains(text, "  expire:") {
+		text = strings.Replace(text, "jwt:\n", "jwt:\n  expire: 15\n  refresh_expire: 10080\n", 1)
+	}
+	return []byte(text + "\nbrowser_session:\n  origin: https://admin.example.test\n")
+}
+
+func TestBrowserSessionConfigurationRejectsUnsafeOriginsAndDurations(t *testing.T) {
+	for _, origin := range []string{
+		"", "null", "*", "https://*.example.test", "https://admin.example.test/",
+		"https://admin.example.test/path", "https://admin.example.test?x=1",
+		"https://admin.example.test#", "https://user@admin.example.test",
+		"https://ADMIN.example.test", "https://admin.example.test:443",
+		"https://admin.example.test:0443", "https://admin.example.test:0",
+		"https://admin.example.test:65536", "http://localhost",
+		"http://127.0.0.1:5173", "http://192.168.1.10:5173",
+		"http://localhost.evil.test:5173", "http://[::1]:5173",
+	} {
+		t.Run(origin, func(t *testing.T) {
+			config := platformconfig.Config{Jwt: platformconfig.JWTConfig{Expire: 15, RefreshExpire: 10080}, BrowserSession: platformconfig.BrowserSessionConfig{Origin: origin}}
+			if err := platformconfig.ValidateBrowserSession(config); err == nil {
+				t.Fatal("unsafe or noncanonical origin accepted")
+			}
+		})
+	}
+	for _, origin := range []string{"https://admin.example.test", "https://admin.example.test:8443", "http://localhost:5173", "http://127.0.0.1:5173"} {
+		config := platformconfig.Config{Jwt: platformconfig.JWTConfig{Expire: 15, RefreshExpire: 10080}, BrowserSession: platformconfig.BrowserSessionConfig{Origin: origin, AllowLoopbackHTTP: true}}
+		if err := platformconfig.ValidateBrowserSession(config); err != nil {
+			t.Fatalf("valid origin rejected: %v", err)
+		}
+		for _, duration := range []int{0, -1} {
+			invalid := config
+			invalid.Jwt.Expire = duration
+			if err := platformconfig.ValidateBrowserSession(invalid); err == nil {
+				t.Fatal("nonpositive access duration accepted")
+			}
+			invalid = config
+			invalid.Jwt.RefreshExpire = duration
+			if err := platformconfig.ValidateBrowserSession(invalid); err == nil {
+				t.Fatal("nonpositive refresh duration accepted")
+			}
+		}
+	}
+	for _, origin := range []string{"http://192.168.1.10:5173", "http://localhost.evil.test:5173", "http://[::1]:5173"} {
+		config := platformconfig.Config{Jwt: platformconfig.JWTConfig{Expire: 15, RefreshExpire: 10080}, BrowserSession: platformconfig.BrowserSessionConfig{Origin: origin, AllowLoopbackHTTP: true}}
+		if err := platformconfig.ValidateBrowserSession(config); err == nil {
+			t.Fatal("loopback exception widened")
+		}
+	}
+}
+
+func TestLoadRejectsMissingBrowserSessionConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := "jwt:\n  expire: 15\n  refresh_expire: 10080\nfile_upload:\n  max_size_mb: 50\n  avatar_max_size_mb: 2\n  download_url_expire_seconds: 300\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := platformconfig.Load(path); err == nil || !strings.Contains(err.Error(), "browser_session.origin") {
+		t.Fatal("load did not fail for absent browser origin")
+	}
 }

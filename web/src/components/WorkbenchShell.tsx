@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarSeparator, SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
 import type { UserContext } from '@/lib/models';
 import { ThemeSelector } from '@/components/ThemeSelector';
+import { SessionStatus } from '@/components/SessionStatus';
 
 const modules: ManagementModule[] = ['roles', 'users', 'organizations'];
 export function UserAvatar({ id, name }: { id: number; name: string }) {
@@ -31,16 +32,20 @@ export function UserAvatar({ id, name }: { id: number; name: string }) {
   return <span className="avatar" title={failed ? '头像加载失败' : name}>{url ? <img src={url} alt={`${name}的头像`} /> : <span aria-label={failed ? '头像加载失败' : '头像加载中'}>{name.slice(0, 1) || <UserRound size={18} />}</span>}</span>;
 }
 export function WorkbenchShell() {
-  const { context } = useSession();
+  const { context, phase, sessionId } = useSession();
   const location = useLocation();
-  if (!context) return <Navigate to="/login" state={{ from: `${location.pathname}${location.search}${location.hash}` }} replace />;
-  return <SidebarProvider className="app-shell"><WorkbenchLayout context={context} /></SidebarProvider>;
+  if (!context) return phase === 'anonymous'
+    ? <Navigate to="/login" state={{ from: `${location.pathname}${location.search}${location.hash}` }} replace />
+    : <main className="content"><SessionStatus /></main>;
+  const suspended = phase !== 'authenticated';
+  return <><div hidden={suspended} inert={suspended}><SidebarProvider key={sessionId} className="app-shell"><WorkbenchLayout context={context} /></SidebarProvider></div>{suspended && <main className="content"><SessionStatus /></main>}</>;
 }
 
 function WorkbenchLayout({ context }: { context: UserContext }) {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
   const { setOpenMobile } = useSidebar();
+  const { notice, refresh } = useSession();
   const { groups, openGroups, setGroupOpen } = useWorkbenchNavigation(context, location.pathname);
   const name = context.user.nickname || context.user.username;
 
@@ -80,6 +85,7 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
       <SidebarFooter><strong>{name}</strong><span>仅显示你的可用功能</span></SidebarFooter>
     </Sidebar>
     <SidebarInset className="workspace">
+      {notice && <Alert role="status"><AlertDescription>{notice} <Button variant="link" onClick={() => void refresh().catch(() => {})}>手动恢复会话</Button></AlertDescription></Alert>}
       <header className="topbar">
         <div className="topbar-location">
           <SidebarTrigger className="workbench-menu-trigger" />
@@ -119,7 +125,7 @@ export function LogoutPage() {
   useEffect(() => {
     void logout().then(
       () => navigate('/login', { replace: true }),
-      error => navigate('/login', { replace: true, state: { notice: `本地会话已清除。服务端退出未确认：${errorMessage(error)}` } }),
+      () => navigate('/login', { replace: true }),
     );
   }, [logout, navigate]);
   return <main className="content" role="status">正在退出…</main>;
