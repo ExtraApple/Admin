@@ -95,4 +95,4 @@ Redis 从辅助能力变为每次会话认证和续期的安全依赖：故障�
 - [ADR 0004](0004-authorization-owns-access-version-storage.md)：授权版本存储所有权及历史迁移。
 - [ADR 0006](0006-modular-layered-monolith-contracts-and-composition-root.md)：分层、最小 Contract 与唯一组合根继续有效。
 - [ADR 0011](0011-react-frontend-and-customizable-ui-stack.md)：前端选型与集中 Client。
-- [变更设计](../../openspec/changes/add-browser-session-recovery/design.md)：协议、错误、安全边界与验证要求。
+- [变更设计](../../openspec/changes/archive/2026-10-26-add-browser-session-recovery/design.md)：协议、错误、安全边界与验证要求。
