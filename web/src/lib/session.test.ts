@@ -124,6 +124,83 @@ describe('Cookie-backed browser session lifecycle', () => {
     old.resolve(envelope(401, null, 'AUTHN_TOKEN_INVALID')); await rejected;
     expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', sessionId: next });
   });
+  it('returns the freshly read context and refreshes display revision without renewing Access', async () => {
+    const { state, api, fetch } = await setup(); await state.login(input);
+    const revision = state.getSnapshot().userRevision;
+    const updated = { ...context, user: { ...user, nickname: '已保存的昵称' } };
+    fetch.mockResolvedValueOnce(envelope(200, updated));
+    await expect(state.reloadContext()).resolves.toEqual(updated);
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', context: updated, userRevision: revision + 1 });
+    await api.get('/api/user/info');
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer ' + token('login-1'));
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/refresh')).toHaveLength(0);
+  });
+
+  it('rejects an older reload instead of replacing a newer confirmed display', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const old = deferred<Response>();
+    fetch.mockImplementationOnce(() => old.promise);
+    const loading = state.reloadContext();
+    const obsolete = expect(loading).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    const updated = { ...context, user: { ...user, nickname: '最新读取' } };
+    fetch.mockResolvedValueOnce(envelope(200, updated));
+    await state.reloadContext();
+    const revision = state.getSnapshot().userRevision;
+    old.resolve(envelope(200, context)); await obsolete;
+    expect(state.getSnapshot()).toMatchObject({ context: updated, userRevision: revision });
+  });
+
+  it('rejects a reload from a previous login generation even for the same user', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const old = deferred<Response>();
+    fetch.mockImplementationOnce(() => old.promise);
+    const loading = state.reloadContext();
+    const obsolete = expect(loading).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    await state.login(input);
+    const current = state.getSnapshot();
+    old.resolve(envelope(200, { ...context, user: { ...user, nickname: '旧会话' } })); await obsolete;
+    expect(state.getSnapshot()).toBe(current);
+  });
+
+  it('does not let a reload begun before renewal overwrite the newer renewal context', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const old = deferred<Response>();
+    fetch.mockImplementationOnce(() => old.promise);
+    const loading = state.reloadContext();
+    const obsolete = expect(loading).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    const updated = { ...context, user: { ...user, nickname: '续期后读取' } };
+    fetch.mockResolvedValueOnce(envelope(200, { access_token: token('renewed'), session_id: 'session-login-1' }))
+      .mockResolvedValueOnce(envelope(200, updated));
+    await state.refresh();
+    old.resolve(envelope(200, context)); await obsolete;
+    expect(state.getSnapshot()).toMatchObject({ context: updated });
+  });
+
+  it('installs renewed Access without rolling back a later confirmed profile reload', async () => {
+    const { state, api, fetch } = await setup(); await state.login(input);
+    const old = deferred<Response>();
+    fetch.mockResolvedValueOnce(envelope(200, { access_token: token('renewed'), session_id: 'session-login-1' }))
+      .mockImplementationOnce(() => old.promise);
+    const refreshing = state.refresh();
+    await vi.waitFor(() => expect(fetch.mock.calls.filter(([path]) => path === '/api/user/context')).toHaveLength(2));
+    const updated = { ...context, user: { ...user, nickname: '更新的资料读取' } };
+    fetch.mockResolvedValueOnce(envelope(200, updated));
+    await state.reloadContext();
+    const revision = state.getSnapshot().userRevision;
+    old.resolve(envelope(200, context)); await refreshing;
+    expect(state.getSnapshot()).toMatchObject({ context: updated, userRevision: revision });
+    await api.get('/api/user/info');
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer ' + token('renewed'));
+  });
+
+  it('keeps confirmed display and revision when a read fails without an authentication rejection', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const before = state.getSnapshot();
+    fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
+    await expect(state.reloadContext()).rejects.toMatchObject({ status: 500 });
+    expect(state.getSnapshot()).toBe(before);
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/refresh')).toHaveLength(0);
+  });
 
   it('clears a definitively invalid identity without replay or automatic renewal', async () => {
     const { state, api, fetch } = await setup(); await state.login(input);
@@ -135,10 +212,10 @@ describe('Cookie-backed browser session lifecycle', () => {
     expect(fetch.mock.calls.filter(([path]) => path === '/api/refresh')).toHaveLength(0);
   });
 
-  it('keeps failed logout durable across a fresh page, and retry does not require Access', async () => {
+  it('keeps failed password-change logout durable across a fresh page, and retry does not require Access', async () => {
     const { state, fetch } = await setup(); await state.login(input);
     fetch.mockResolvedValueOnce(envelope(500, null, 'IDENTITY_INTERNAL_ERROR'));
-    await expect(state.logout()).rejects.toMatchObject({ status: 500 });
+    await expect(state.logout('password-changed')).rejects.toMatchObject({ status: 500 });
     expect(state.getSnapshot()).toMatchObject({ phase: 'logout-pending', context: null });
     expect(JSON.parse(localStorage.getItem(pendingKey)!)).toMatchObject({ sessionId: 'session-login-1' });
     vi.resetModules();
@@ -205,6 +282,20 @@ describe('Cookie-backed browser session lifecycle', () => {
     const count = fetch.mock.calls.length;
     await expect(state.retryLogout()).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
     expect(fetch).toHaveBeenCalledTimes(count);
+  });
+
+  it('does not let a queued old logout cancel or revoke a newer explicit login', async () => {
+    const { state, fetch } = await setup(); await state.login(input);
+    const gate = deferred<void>();
+    const holding = navigator.locks.request('admin-workbench.auth.state', () => gate.promise);
+    const exiting = state.logout('password-changed');
+    const obsolete = expect(exiting).rejects.toMatchObject({ errorCode: 'CLIENT_AUTH_OPERATION_SUPERSEDED' });
+    const loggingIn = state.login(input);
+    gate.resolve(); await holding;
+    await obsolete; await loggingIn;
+    expect(state.getSnapshot()).toMatchObject({ phase: 'authenticated', sessionId: 'session-login-2' });
+    expect(localStorage.getItem(pendingKey)).toBeNull();
+    expect(fetch.mock.calls.filter(([path]) => path === '/api/user/logout')).toHaveLength(0);
   });
 
   it('reports unavailable storage rather than silently falling back to memory-only login', async () => {

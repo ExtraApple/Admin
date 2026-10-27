@@ -48,6 +48,7 @@ func TestApplicationRegistersIdentityAuthenticationRoutes(t *testing.T) {
 		{http.MethodPost, "/api/user/logout", `{}`, "https://evil.example.test", http.StatusForbidden},
 		{http.MethodGet, "/api/user/info", "", "", http.StatusUnauthorized},
 		{http.MethodGet, "/api/user/context", "", "", http.StatusUnauthorized},
+		{http.MethodGet, "/api/user/avatar-upload-policy", "", "", http.StatusUnauthorized},
 		{http.MethodGet, "/api/admin/users", "", "", http.StatusUnauthorized},
 	} {
 		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
@@ -231,5 +232,28 @@ func TestApplicationRejectsInvalidBrowserSessionBeforeModuleConstruction(t *test
 		if err == nil || application != nil || seeded {
 			t.Fatalf("invalid browser configuration was not rejected before seeding: %s", condition)
 		}
+	}
+}
+
+func TestApplicationAvatarUploadPolicyRequiresAccessButNoPermission(t *testing.T) {
+	fixture := newOrganizationJWTFixture(t)
+	user := fixture.createUser("profile-policy-user")
+	path := "/api/user/avatar-upload-policy"
+	response := fixture.request(http.MethodGet, path, fixture.token(user), nil)
+	var envelope struct {
+		Data identity.AvatarUploadPolicy `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || envelope.Data.MaxBytes != int64(testAppConfig().FileUpload.AvatarMaxSizeMB)*1024*1024 || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("ordinary user's policy = %d %s", response.Code, response.Body)
+	}
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.AddCookie(&http.Cookie{Name: "admin_refresh", Value: "cookie-alone"})
+	recorder := httptest.NewRecorder()
+	fixture.application.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("cookie-alone policy = %d %s", recorder.Code, recorder.Body)
 	}
 }

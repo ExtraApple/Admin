@@ -17,19 +17,29 @@ import { ThemeSelector } from '@/components/ThemeSelector';
 import { SessionStatus } from '@/components/SessionStatus';
 
 const modules: ManagementModule[] = ['roles', 'users', 'organizations'];
-export function UserAvatar({ id, name }: { id: number; name: string }) {
-  const [url, setUrl] = useState('');
+export function UserAvatar({ id, name, revision, onLoad, onError }: { id: number; name: string; revision?: number; onLoad?: () => void; onError?: () => void }) {
+  const [image, setImage] = useState<{ id: number; revision: number | undefined; url: string; loaded(): void; failed(): void } | null>(null);
   const [failed, setFailed] = useState(false);
+  const callbacks = useRef({ onLoad, onError });
+  callbacks.current = { onLoad, onError };
   useEffect(() => {
     let active = true; let objectUrl = '';
-    setUrl(''); setFailed(false);
-    void api.image(`/api/avatars/${id}`).then(blob => {
+    const controller = new AbortController();
+    setImage(null); setFailed(false);
+    function fail() {
       if (!active) return;
-      objectUrl = URL.createObjectURL(blob); setUrl(objectUrl);
-    }).catch(() => { if (active) setFailed(true); });
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [id]);
-  return <span className="avatar" title={failed ? '头像加载失败' : name}>{url ? <img src={url} alt={`${name}的头像`} /> : <span aria-label={failed ? '头像加载失败' : '头像加载中'}>{name.slice(0, 1) || <UserRound size={18} />}</span>}</span>;
+      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = ''; }
+      setImage(null); setFailed(true); callbacks.current.onError?.();
+    }
+    void api.image(`/api/avatars/${id}`, { cache: revision ? 'reload' : undefined, signal: controller.signal }).then(blob => {
+      if (!active) return;
+      objectUrl = URL.createObjectURL(blob);
+      setImage({ id, revision, url: objectUrl, loaded: () => { if (active) callbacks.current.onLoad?.(); }, failed: fail });
+    }).catch(fail);
+    return () => { active = false; controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [id, revision]);
+  const current = image?.id === id && image.revision === revision ? image : null;
+  return <span className="avatar" title={failed ? '头像加载失败' : name}>{current ? <img src={current.url} alt={`${name}的头像`} onLoad={current.loaded} onError={current.failed} /> : <span aria-label={failed ? '头像加载失败' : '头像加载中'}>{name.slice(0, 1) || <UserRound size={18} />}</span>}</span>;
 }
 export function WorkbenchShell() {
   const { context, phase, sessionId } = useSession();
@@ -45,7 +55,7 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
   const { setOpenMobile } = useSidebar();
-  const { notice, refresh } = useSession();
+  const { notice, refresh, userRevision } = useSession();
   const { groups, openGroups, setGroupOpen } = useWorkbenchNavigation(context, location.pathname);
   const name = context.user.nickname || context.user.username;
 
@@ -102,7 +112,7 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="identity" aria-label={`${name}的账号菜单`}>
-                <UserAvatar id={context.user.id} name={name} />
+                <UserAvatar id={context.user.id} name={name} revision={userRevision} />
                 <span className="identity-name">{name}</span>
                 <ChevronDown className="identity-chevron" size={14} aria-hidden="true" />
               </Button>

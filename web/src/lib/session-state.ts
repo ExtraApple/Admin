@@ -3,13 +3,16 @@ import { checkBrowserCapabilities, isAuthStorageEvent, readAuthSignals, unavaila
 import type { LoginInput, SessionGrant, UserContext, UserInfo } from './models';
 
 export type SessionPhase = 'bootstrapping' | 'anonymous' | 'authenticated' | 'recovery-required' | 'logout-pending' | 'unavailable';
-export interface SessionSnapshot { phase: SessionPhase; context: UserContext | null; sessionId: string | null; notice: string | null }
-const initialSnapshot: SessionSnapshot = { phase: 'bootstrapping', context: null, sessionId: null, notice: null };
+export interface SessionSnapshot { phase: SessionPhase; context: UserContext | null; sessionId: string | null; notice: string | null; userRevision: number }
+const initialSnapshot: SessionSnapshot = { phase: 'bootstrapping', context: null, sessionId: null, notice: null, userRevision: 0 };
 let snapshot = initialSnapshot;
 let grant: SessionGrant | null = null;
 let verifying: SessionGrant | null = null;
 let verificationPermit: { pendingId: string | null; epoch: number } | null = null;
 let generation = 0;
+let contextRequest = 0;
+let publishedContextRequest = 0;
+let passwordChangedLogout: string | null = null;
 let eventEpoch = 0;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -24,7 +27,7 @@ function clear(phase: SessionPhase, notice: string | null = null) {
   generation++;
   grant = null; verifying = null; verificationPermit = null;
   clearTimeout(refreshTimer); clearTimeout(expiryTimer);
-  publish({ phase, context: null, sessionId: null, notice });
+  publish({ phase, context: null, sessionId: null, notice, userRevision: snapshot.userRevision });
 }
 function superseded() { return new ApiError(0, 'CLIENT_AUTH_OPERATION_SUPERSEDED', 'Authentication operation was superseded.'); }
 function assertGeneration(expected: number) { if (generation !== expected) throw superseded(); }
@@ -135,6 +138,7 @@ function refresh(): Promise<void> {
         assertGeneration(expected); validateGrant(next);
         verifying = next;
         verificationPermit = { pendingId: null, epoch: permit.epoch };
+        const request = ++contextRequest;
         const context = await api.get<UserContext>('/api/user/context');
         validateContext(context);
         await withAuthState(state => {
@@ -144,8 +148,11 @@ function refresh(): Promise<void> {
           state.saveAttempt(null);
           if (state.event?.kind !== 'login' || state.event.sessionId !== next.session_id) eventEpoch = state.emit('login', next.session_id).epoch;
           else eventEpoch = state.event.epoch;
+          const latestContext = request < publishedContextRequest ? snapshot.context : context;
+          if (!latestContext || (request < publishedContextRequest && (snapshot.sessionId !== next.session_id || latestContext.user.id !== context.user.id))) throw superseded();
+          publishedContextRequest = Math.max(publishedContextRequest, request);
           grant = next; verifying = null;
-          publish({ phase: 'authenticated', context, sessionId: next.session_id, notice: changed ? '登录身份已变化，旧编辑已清除。' : null });
+          publish({ phase: 'authenticated', context: latestContext, sessionId: next.session_id, notice: changed ? '登录身份已变化，旧编辑已清除。' : null, userRevision: snapshot.userRevision });
           schedule();
         });
       });
@@ -184,6 +191,7 @@ async function login(input: LoginInput) {
       assertGeneration(expected); validateGrant(next);
       verifying = next;
       verificationPermit = intent;
+      const request = ++contextRequest;
       const context = await api.get<UserContext>('/api/user/context');
       validateContext(context);
       await withAuthState(state => {
@@ -195,8 +203,10 @@ async function login(input: LoginInput) {
         }
         eventEpoch = state.emit('login', next.session_id).epoch;
         state.saveAttempt(null); state.savePending(null);
+        publishedContextRequest = request;
+        passwordChangedLogout = null;
         grant = next; verifying = null;
-        publish({ phase: 'authenticated', context, sessionId: next.session_id, notice: null });
+        publish({ phase: 'authenticated', context, sessionId: next.session_id, notice: null, userRevision: snapshot.userRevision });
         schedule();
       });
     });
@@ -210,25 +220,31 @@ async function login(input: LoginInput) {
     throw error;
   } finally { verifying = null; }
 }
-function performLogout(retry: boolean): Promise<void> {
+function logoutNotice(message: string, passwordChanged: boolean) { return passwordChanged ? `密码已修改，请重新登录。${message}` : message; }
+function performLogout(retry: boolean, reason?: 'password-changed'): Promise<void> {
   if (logoutFlight) return logoutFlight;
   const target = snapshot.sessionId;
+  const expected = generation;
   const flight = (async () => {
     let intent: LogoutIntent | null = null;
     let durable = true;
+    let passwordChanged = reason === 'password-changed';
     try {
       intent = await withAuthState(state => {
+        assertGeneration(expected);
         if (retry && !state.pending) throw superseded();
         if (target && state.event?.kind === 'login' && state.event.sessionId !== target) throw superseded();
         const value = state.pending ?? { id: crypto.randomUUID(), sessionId: target ?? state.event?.sessionId ?? null, epoch: state.event?.epoch ?? 0 };
         state.savePending(value);
-        clear('logout-pending', '正在撤销当前浏览器会话。');
+        passwordChanged ||= passwordChangedLogout === value.id;
+        if (passwordChanged) passwordChangedLogout = value.id;
+        clear('logout-pending', logoutNotice('正在撤销当前浏览器会话。', passwordChanged));
         return value;
       });
     } catch (error) {
       if (!(error instanceof ApiError) || error.errorCode !== 'CLIENT_SESSION_UNAVAILABLE') { syncBrowserState(); throw error; }
       durable = false;
-      clear('unavailable', '本地退出意图无法保存。仍将尝试服务端撤销；未确认前不能保证跨刷新退出。');
+      clear('unavailable', logoutNotice('本地退出意图无法保存。仍将尝试服务端撤销；未确认前不能保证跨刷新退出。', passwordChanged));
     }
     try {
       await withAuthenticationLock(async () => {
@@ -243,15 +259,16 @@ function performLogout(retry: boolean): Promise<void> {
           if (!pending || pending.id !== intent?.id) throw superseded();
           eventEpoch = state.emit('logout', pending.sessionId).epoch;
           state.saveAttempt(null); state.savePending(null);
-          clear('anonymous', '已退出登录。');
+          clear('anonymous', logoutNotice('已退出登录。', passwordChanged));
+          passwordChangedLogout = null;
         });
       });
     } catch (error) {
       try {
-        if (durable && readAuthSignals().pending?.id === intent?.id) clear('logout-pending', `服务端退出未确认：${errorMessage(error)}`);
-        else if (!durable) clear('unavailable', `退出尚未可靠完成：${errorMessage(error)}`);
+        if (durable && readAuthSignals().pending?.id === intent?.id) clear('logout-pending', logoutNotice(`服务端退出未确认：${errorMessage(error)}`, passwordChanged));
+        else if (!durable) clear('unavailable', logoutNotice(`退出尚未可靠完成：${errorMessage(error)}`, passwordChanged));
         else syncBrowserState();
-      } catch { clear('unavailable', '退出尚未可靠完成，无法保存或读取本地退出意图。'); }
+      } catch { clear('unavailable', logoutNotice('退出尚未可靠完成，无法保存或读取本地退出意图。', passwordChanged)); }
       throw error;
     }
   })();
@@ -259,12 +276,18 @@ function performLogout(retry: boolean): Promise<void> {
   void flight.finally(() => { if (logoutFlight === flight) logoutFlight = null; }).catch(() => { /* State reports retryable failure. */ });
   return flight;
 }
-async function reloadContext() {
+async function reloadContext(): Promise<UserContext> {
   const expected = generation;
+  const request = ++contextRequest;
+  const userId = snapshot.context?.user.id;
+  const sessionId = snapshot.sessionId;
   const context = await api.get<UserContext>('/api/user/context');
   validateContext(context); assertGeneration(expected);
-  if (!observeSignals() || snapshot.phase !== 'authenticated') throw superseded();
-  publish({ ...snapshot, context });
+  if (request !== contextRequest || !observeSignals() || snapshot.phase !== 'authenticated'
+    || snapshot.sessionId !== sessionId || snapshot.context?.user.id !== userId || context.user.id !== userId) throw superseded();
+  publishedContextRequest = request;
+  publish({ ...snapshot, context, userRevision: snapshot.userRevision + 1 });
+  return context;
 }
 configureApiAuth({
   token(path) {
@@ -294,7 +317,7 @@ export const sessionState = {
   getServerSnapshot: () => initialSnapshot,
   subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   initialize, login, refresh, reloadContext,
-  logout: () => performLogout(false),
+  logout: (reason?: 'password-changed') => performLogout(false, reason),
   retryLogout: () => performLogout(true),
   beginLogin: () => {
     try { clear(readAuthSignals().pending ? 'logout-pending' : 'anonymous', '请重新输入凭据登录。'); }

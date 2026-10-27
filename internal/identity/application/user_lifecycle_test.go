@@ -209,3 +209,41 @@ func TestDeleteRetainsManagementFactsAndVersionButHidesPublicDirectory(t *testin
 		t.Fatalf("retained version = %d, %v", version, err)
 	}
 }
+
+func TestPasswordAndAuthorizationVersionCommitAtomically(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		name := "commit"
+		if fail {
+			name = "rollback-version-failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, repository, access, service, user := lifecycleFixture(t)
+			if fail {
+				access.versionErr = errors.New("version write failed")
+			}
+			err := service.ChangePassword(context.Background(), user.ID, application.ChangePasswordRequest{OldPassword: "OldPass123!", NewPassword: "NewPass123!", ConfirmPassword: "NewPass123!"})
+			if fail {
+				if code, _ := application.CodeOf(err); code != application.CodeInternalError {
+					t.Fatalf("password failure = %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			persisted, err := repository.FindByID(context.Background(), user.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			version, err := authgorm.NewAccessVersions(db).Current(context.Background(), user.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantPassword, wantVersion := "hash", 8
+			if fail {
+				wantPassword, wantVersion = user.Password, 7
+			}
+			if persisted.Password != wantPassword || version != wantVersion {
+				t.Fatalf("password/version = %q/%d, want atomic %q/%d", persisted.Password, version, wantPassword, wantVersion)
+			}
+		})
+	}
+}

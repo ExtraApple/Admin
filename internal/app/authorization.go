@@ -72,14 +72,17 @@ func (source authorizationRouteSource) Routes(context.Context) ([]authdomain.Rou
 }
 
 func routeFacts(descriptors []routecatalog.Descriptor) []authdomain.RouteFact {
-	facts := make([]authdomain.RouteFact, len(descriptors))
-	for index, descriptor := range descriptors {
-		facts[index] = authdomain.RouteFact{
+	facts := make([]authdomain.RouteFact, 0, len(descriptors))
+	for index := range descriptors {
+		descriptor := &descriptors[index]
+		if descriptor.Access != routecatalog.PermissionControlled {
+			continue
+		}
+		facts = append(facts, authdomain.RouteFact{
 			Method:         descriptor.Method,
 			Path:           descriptor.Path,
 			PermissionCode: descriptor.DefaultPermissionCode,
-			Public:         descriptor.Access == routecatalog.Public,
-		}
+		})
 	}
 	return facts
 }

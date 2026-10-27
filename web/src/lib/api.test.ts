@@ -116,6 +116,23 @@ describe('single business response contract', () => {
     await expect(api.raw('/\\example.com/openapi')).rejects.toMatchObject({ errorCode: 'HTTP_REQUEST_INVALID' });
     expect(fetch).not.toHaveBeenCalled();
   });
+  it('lets the browser encode a readable multipart file with its generated boundary', async () => {
+    const received: { file: File | null; boundary: string | null } = { file: null, boundary: null };
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init: RequestInit) => {
+      const request = new Request(`https://workbench.example${path}`, init);
+      received.boundary = request.headers.get('Content-Type');
+      const form = await request.formData();
+      received.file = form.get('file') as File | null;
+      return response(200, '', { id: 7 });
+    }));
+    const form = new FormData();
+    form.append('file', new File([new Uint8Array([137, 80, 78, 71])], 'avatar.png', { type: 'image/png' }));
+    await api.post('/api/user/avatar', form);
+    expect(received.boundary).toMatch(/^multipart\/form-data; boundary=.+/);
+    expect(received.file?.name).toBe('avatar.png');
+    expect(received.file?.type).toBe('image/png');
+    expect(new Uint8Array(await received.file!.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
+  });
 });
 describe('explicit native resource paths', () => {
   it('parses pre-stream errors on all native paths through the same typed error', async () => {

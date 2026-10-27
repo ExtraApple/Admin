@@ -34,10 +34,11 @@
 
 注册和修改密码都要求：
 
-- 长度不少于 6 位。
+- 至少 6 个 Unicode 字符。
+- UTF-8 编码后不超过 72 字节；该限制在 bcrypt 之前检查，不截断、不换算法。
 - 大写字母、小写字母、数字、特殊符号中至少包含 3 类。
 - 密码使用 bcrypt 存储，不记录明文或哈希到日志。
-
+- 72 字节限制只约束注册和新密码设置，不收紧登录或旧密码比较；服务端验证优先于前端提示。
 ## Token、会话与授权版本
 
 - Access 必须携带 `token_type=access` 与 SID；Refresh 必须携带 `token_type=refresh`、SID、jti 和代号。不推断旧 Token 用途，所有旧 Token 均需重新登录。
@@ -57,6 +58,12 @@
 三者要求 `Content-Type: application/json`、唯一且精确匹配配置的 `Origin`、`X-Admin-Request: 1`；Refresh 额外要求不可预测的 `X-Refresh-Attempt-ID`（16～128 字符，base64url 或 UUID）。浏览器使用同源请求与 `credentials: 'same-origin'`；Origin 由浏览器发送，不在 JavaScript 中伪造。不增加跨域凭据 CORS。Refresh／Logout 不需要有效 Access，不接受 JSON `refresh_token` 或其他未知字段。响应统一 `Cache-Control: no-store`。
 
 `admin_refresh` 是 Host-only、`Path=/api`、HttpOnly、SameSite=Strict 的会话 Cookie；HTTPS 必须 Secure，不设置 Domain 或长期 Expires／Max-Age，删除时使用同范围属性。唯一 HTTP 例外见[配置手册](configuration.md#浏览器会话与反向代理)。Refresh 不进入 JSON、JavaScript、Web Storage、日志或截图。HttpOnly／SameSite 不消除 XSS 风险；浏览器恢复可能保留会话 Cookie，关闭窗口不等于可靠退出，服务端到期／撤销事实才是依据。
+
+## 个人资料自助与改密退出
+
+- `/profile` 只在页内编辑昵称、头像和密码；昵称保存原始首尾空白与大小写，其他身份资料保持只读。头像上传前先读取已生效配置的 `GET /api/user/avatar-upload-policy`，响应只给正整数 `data.max_bytes` 并使用 `Cache-Control: no-store`；规则读取失败只禁用选图与上传，不回退到默认上限，恢复默认仍可用。
+- 密码 `PUT /api/user/password` 返回明确 200 后，前端先清除三项敏感输入，再复用现有 Cookie Logout。密码已改与退出结果分开处理；Logout 的 500 或网络中断保留用于重试的 Cookie 和 `admin-workbench.auth.logout-pending`，显示“服务端退出未确认”，不伪报成功、不重交密码、不自动试登录。
+- 恢复网络后只重试 `POST /api/user/logout`；用户也可通过既有“重新登录”显式完成 Login 与真实 context 读取。只有 Logout 成功或显式登录完整成功后才清除待确认标记，退出流程不新增二次确认。
 
 ### 安全的本地命令示例
 

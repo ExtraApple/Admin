@@ -66,6 +66,9 @@ minio.exe server D:\WORK\minio\data --console-address ":9001"
 工作台侧栏入口按“授权核对”“身份与组织”分组，只显示当前用户可访问的入口，空分组不显示。桌面侧栏固定 228px；850px 及以下使用导航 Sheet。首次挂载只展开当前路由所属分组，后续路由切换不重置用户选择，也不持久化分组状态。未保存编辑的导航确认取消后保留编辑与 Sheet；确认离开后关闭导航并恢复菜单按钮焦点。
 
 右上角头像／昵称用于展开账号菜单，提供“个人资料”和“退出登录”；不再单独显示顶部退出按钮或侧栏“账户”分组。个人资料保留原页面与 Breadcrumb 名称，没有管理权限的用户仍可通过账号菜单访问。退出不新增二次确认，遵守页面原有未保存修改保护；允许离开后先记录退出意图并清理内存，真实 Cookie 登出失败则显示“服务端退出未确认”和重试入口，不宣称退出成功。菜单支持键盘操作、Escape 和点击外部关闭，窄屏保留可访问的头像触发器。
+个人资料页 `/profile` 的昵称、头像和密码保存彼此独立：昵称只提交 `nickname`，要求非空、非全空白且最多 100 个 Unicode 字符，并保留原始首尾空白和大小写；头像先本地预览，读取实际生效的 `GET /api/user/avatar-upload-policy` 后才启用选图与上传，规则不可用时不采用默认上限，恢复默认仍可用；密码新值在 bcrypt 前按不少于 6 个 Unicode 字符、UTF-8 不超过 72 字节和至少 3 类字符校验。密码成功响应先清除敏感输入，再复用现有 Cookie Logout；Logout 未确认不会宣称成功，待确认标记跨刷新保留，只有退出成功或显式重新登录并完成 context 后才清除。
+
+本次个人资料自助的真实 HTTP、Redis／MinIO、浏览器多标签和故障恢复证据见 [`complete-profile-self-service/evidence.md`](openspec/changes/complete-profile-self-service/evidence.md)。
 
 正式前端在HTML内容和React挂载前同步加载同源`/theme.js`，提供“亮色”“暗色”“跟随系统”三种外观模式。所选模式仅按当前浏览器、同一站点保存在`admin-workbench.theme`；它不绑定用户、不保存Token、不改变导航分组或业务数据。系统模式跟随`prefers-color-scheme`，固定模式不受系统变化覆盖；同源其他标签通过浏览器`storage`事件同步，不刷新页面、不重建业务页面。
 
@@ -113,3 +116,4 @@ Login／Refresh／Logout 都要求精确的可信页面 Origin、JSON 和 `X-Adm
 统一响应是 breaking contract。`standardize-api-response-contract` 仅达到 Backend Accepted 时仍为 Release Blocked；必须与 `build-admin-workbench` 共用同一 Client，并完成前端及真实联合验收后才可视为可发布，不单独上线已切换协议的后端。路由／权限／读模型及归属编辑边界见 [用户管理](docs/modules/user-management.md)、[角色管理](docs/modules/role-management.md)、[组织管理](docs/modules/organization-management.md)；隔离联调环境见 [配置手册](docs/runbooks/configuration.md)。
 
 2026-09-30 两份 change 的后端、前端与真实联合验收已通过，记录见[联合验收证据](openspec/changes/archive/2026-10-01-standardize-api-response-contract/evidence/frontend-integration-acceptance-2026-09-30.txt)。[响应基线](openspec/changes/archive/2026-10-01-standardize-api-response-contract/evidence/openapi-2026-09-30.json)按完整 Response 去重保存，`routes.responses` 指向 `responseSchemas` 索引；[错误矩阵](openspec/changes/archive/2026-10-01-standardize-api-response-contract/evidence/error-matrix-2026-09-30.json)记录错误所有者、状态、fallback、安全数据类型与 JSON 字段码。窄屏个人资料的真实长内容截图见[320px 验收截图](openspec/changes/archive/2026-10-01-build-admin-workbench/evidence/profile-320.png)。
+个人资料自助的真实联合验收记录见 [`complete-profile-self-service/evidence.md`](openspec/changes/complete-profile-self-service/evidence.md)；该记录只包含已执行且脱敏的命令、状态和观察，不替代 OpenSpec 主规格。

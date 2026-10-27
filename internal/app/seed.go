@@ -95,7 +95,7 @@ func syncCatalogAPIs(ctx context.Context, db *gorm.DB, descriptors []routecatalo
 			needAuth = 0
 		}
 		permissionCode := strings.TrimSpace(descriptor.DefaultPermissionCode)
-		if needAuth == 1 && permissionCode == "" {
+		if descriptor.Access == routecatalog.PermissionControlled && permissionCode == "" {
 			permissionCode = apiapplication.DerivePermissionCode(method, path)
 		}
 		needAudit := 0
@@ -132,7 +132,7 @@ func syncCatalogPermissions(ctx context.Context, db *gorm.DB, descriptors []rout
 			return err
 		}
 		path, err := apiapplication.NormalizePath(descriptor.Path)
-		if err != nil || path == "/ping" || !strings.HasPrefix(path, "/api/") || descriptor.Access == routecatalog.Public {
+		if err != nil || path == "/ping" || !strings.HasPrefix(path, "/api/") || descriptor.Access != routecatalog.PermissionControlled {
 			continue
 		}
 		routes = append(routes, authdomain.RouteFact{

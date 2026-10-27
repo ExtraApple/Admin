@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	apigorm "admin/internal/apimetadata/adapters/gorm"
+	authgorm "admin/internal/authorization/adapters/gorm"
 	"admin/internal/routecatalog"
 	"admin/testsupport/testutil"
 
@@ -61,8 +62,8 @@ func TestSyncCatalogAPIPersistsPublicNeedAuthZeroAndPreservesExistingMetadata(t 
 		t.Fatalf("public metadata = need_auth:%d permission_code:%q, want 0 and empty", public.NeedAuth, public.PermissionCode)
 	}
 	authenticated := assertAPI(http.MethodGet, "/api/a3-authenticated")
-	if authenticated.NeedAuth != 1 || authenticated.PermissionCode == "" {
-		t.Fatalf("authenticated metadata = need_auth:%d permission_code:%q, want authenticated policy", authenticated.NeedAuth, authenticated.PermissionCode)
+	if authenticated.NeedAuth != 1 || authenticated.PermissionCode != "" {
+		t.Fatalf("authenticated metadata gained a business permission or lost authentication: %#v", authenticated)
 	}
 	protected := assertAPI(http.MethodPost, "/api/a3-protected")
 	if protected.NeedAuth != 1 || protected.PermissionCode != "admin.a3.protected" {
@@ -183,5 +184,64 @@ func a3SeedDescriptor(method, path string, access routecatalog.AccessLevel, perm
 				http.StatusOK: {Description: "success", Kind: routecatalog.JSONBody, Schema: reflect.TypeOf(map[string]any{})},
 			},
 		},
+	}
+}
+
+func TestCatalogSeedAccessLevelsPreserveHistoricalPermissionsAndGrants(t *testing.T) {
+	fixture := newAtomicSyncGraphFixture(t, false, true)
+	descriptors := []routecatalog.Descriptor{
+		a3SeedDescriptor(http.MethodGet, "/api/atomic/first", routecatalog.Authenticated, ""),
+		a3SeedDescriptor(http.MethodGet, "/api/profile-policy", routecatalog.Authenticated, ""),
+		a3SeedDescriptor(http.MethodGet, "/api/public-policy", routecatalog.Public, ""),
+		a3SeedDescriptor(http.MethodGet, "/api/protected-policy", routecatalog.PermissionControlled, ""),
+	}
+	before := atomicSyncFacts(t, fixture.db)
+	for range 2 {
+		if err := syncCatalogAPIs(context.Background(), fixture.db, descriptors); err != nil {
+			t.Fatal(err)
+		}
+		if err := syncCatalogPermissions(context.Background(), fixture.db, descriptors); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after := atomicSyncFacts(t, fixture.db)
+	if !reflect.DeepEqual(before.RolePermissions, after.RolePermissions) || !reflect.DeepEqual(before.Versions, after.Versions) {
+		t.Fatalf("seed changed historical grants or versions: before=%#v after=%#v", before, after)
+	}
+	var permissions []authgorm.Permission
+	if err := fixture.db.Order("id").Find(&permissions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(permissions) != len(before.Permissions)+1 {
+		t.Fatalf("seed added permissions outside the controlled route: %#v", permissions)
+	}
+	for _, permission := range permissions[:len(before.Permissions)] {
+		found := false
+		for _, old := range before.Permissions {
+			if old.ID == permission.ID && old.Code == permission.Code && old.Name == permission.Name && old.Group == permission.Group && old.Sort == permission.Sort {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("historical permission changed: %#v", permission)
+		}
+	}
+	for _, old := range before.APIs {
+		found := false
+		for _, current := range after.APIs {
+			if current == old {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("historical API changed: %#v", old)
+		}
+	}
+	var authenticated apigorm.API
+	if err := fixture.db.Where("path = ?", "/api/profile-policy").First(&authenticated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if authenticated.NeedAuth != 1 || authenticated.PermissionCode != "" {
+		t.Fatalf("authenticated policy metadata = %#v", authenticated)
 	}
 }

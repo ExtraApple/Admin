@@ -1,9 +1,9 @@
 package application
 
 import (
-	"context"
-
 	"admin/internal/identity/domain"
+	"context"
+	"errors"
 )
 
 type UpdateSelfRequest struct {
@@ -48,7 +48,10 @@ func (service *UserService) Get(ctx context.Context, userID uint) (domain.User, 
 
 	user, err := service.users.FindByID(ctx, userID)
 	if err != nil {
-		return domain.User{}, ErrUserNotFound
+		if errors.Is(err, ErrUserNotFound) {
+			return domain.User{}, ErrUserNotFound
+		}
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	return user, nil
 }
@@ -57,9 +60,9 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 	if request.AvatarPresent {
 		return domain.User{}, ErrAvatarFieldNotWritable
 	}
-	user, err := service.users.FindByID(ctx, userID)
+	user, err := service.Get(ctx, userID)
 	if err != nil {
-		return domain.User{}, ErrUserNotFound
+		return domain.User{}, err
 	}
 	changes := UserChanges{}
 	if request.Nickname != "" {
@@ -161,9 +164,9 @@ func (service *UserService) ChangePassword(ctx context.Context, userID uint, req
 	if request.OldPassword == request.NewPassword {
 		return NewValidationError([]FieldError{{Field: "new_password", ErrorCode: "IDENTITY_PASSWORD_REUSE", Message: "new password must differ from the old password"}}, nil)
 	}
-	user, err := service.users.FindByID(ctx, userID)
+	user, err := service.Get(ctx, userID)
 	if err != nil {
-		return ErrUserNotFound
+		return err
 	}
 	if err := service.passwords.Compare(user.Password, request.OldPassword); err != nil {
 		return NewValidationError([]FieldError{{Field: "old_password", ErrorCode: "IDENTITY_OLD_PASSWORD_INVALID", Message: "old password is invalid"}}, nil)
@@ -272,8 +275,8 @@ func (service *UserService) mutateManagedTarget(ctx context.Context, operatorID,
 }
 
 func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID, targetID uint) (domain.User, error) {
-	if _, err := service.users.FindByID(ctx, targetID); err != nil {
-		return domain.User{}, ErrUserNotFound
+	if _, err := service.Get(ctx, targetID); err != nil {
+		return domain.User{}, err
 	}
 	// Gather operator and target identity/role locks together before revisiting
 	// the target or resolving scope, so both checks use the same current facts.
@@ -283,7 +286,10 @@ func (service *UserService) ensureManagedTarget(ctx context.Context, operatorID,
 	}
 	user, err := service.users.FindByIDForUpdate(ctx, targetID)
 	if err != nil {
-		return domain.User{}, ErrUserNotFound
+		if errors.Is(err, ErrUserNotFound) {
+			return domain.User{}, ErrUserNotFound
+		}
+		return domain.User{}, NewError(CodeInternalError, err)
 	}
 	scope, err := service.access.ManagementUserScope(ctx, operatorID)
 	if err != nil {

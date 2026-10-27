@@ -167,6 +167,9 @@ func TestAuthorizationPermissionSyncConsumesStaticCatalog(t *testing.T) {
 	if codes["runtime-only.get"] {
 		t.Fatal("Gin-only route was incorrectly synchronized")
 	}
+	if codes["user.avatar-upload-policy.get"] {
+		t.Fatal("authenticated-only avatar policy unexpectedly created a permission")
+	}
 }
 
 func TestAuthorizationHTTPMenuUpdateKeepsBoundAPIsAndRoleGrantsConsistent(t *testing.T) {

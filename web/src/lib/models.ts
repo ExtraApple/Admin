@@ -1,5 +1,6 @@
 export interface Page<T> { list: T[]; total: number; page: number; size: number }
 export interface UserInfo { id: number; username: string; nickname: string; avatar: string; email: string; role: string; status: number; pending_email?: string; email_verified?: boolean }
+export interface AvatarUploadPolicy { max_bytes: number }
 export interface Role { id: number; name: string; code: string; description: string; sort: number; status: number; data_scope: string }
 export interface RoleSummary { id: number; code: string; name: string; status: number }
 export interface OrganizationSummary { id: number; name: string }

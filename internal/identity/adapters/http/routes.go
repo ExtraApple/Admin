@@ -34,6 +34,9 @@ type loginResponse struct {
 type refreshResponse struct {
 	Data identity.RefreshResponse `json:"data"`
 }
+type avatarUploadPolicyResponse struct {
+	Data identity.AvatarUploadPolicy `json:"data"`
+}
 
 type routeHandler struct {
 	service           *application.Service
@@ -62,17 +65,29 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, browser: browser, crossOrigin: protection, originError: originError}
 	updateUser := permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{})
 	updateUser.OpenAPI.Description = "管理保护和邮箱禁写先校验；纯昵称变更及合法全同值更新不创建或提升授权版本，旧有效会话保持。真实已接受角色／状态变化仍与资料同事务失效一次；空请求拒绝。旧 role 字段不作为 RBAC 管理身份来源，Kick 和状态翻转不适用资料豁免。"
+	register := identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{})
+	register.OpenAPI.Description = "New passwords require at least 6 Unicode characters and three of uppercase, lowercase, number and punctuation/symbol categories, with at most 72 UTF-8 bytes. Oversized passwords return 422 / IDENTITY_VALIDATION_INVALID with password / IDENTITY_PASSWORD_INVALID before hashing; missing fields and minimum-length structural errors remain 400."
+	changePassword := identityRoute(http.MethodPut, "/api/user/password", "Change Password", routecatalog.Authenticated, handler.changePassword, identity.ChangePasswordRequest{}, nil)
+	changePassword.OpenAPI.Description = "New and confirmation passwords require at least 6 Unicode characters; the new password uses the shared complexity rule and at most 72 UTF-8 bytes, without truncation. Matching oversized passwords return 422 / IDENTITY_VALIDATION_INVALID with password / IDENTITY_PASSWORD_INVALID before hashing. Confirmation, policy, reuse, user lookup and old-password checks retain their order. Old passwords have no new byte limit. Password and authorization-version updates commit together; no credentials are issued."
+	avatarPolicy := identityRoute(http.MethodGet, "/api/user/avatar-upload-policy", "Get Avatar Upload Policy", routecatalog.Authenticated, handler.avatarUploadPolicy, nil, avatarUploadPolicyResponse{})
+	avatarPolicy.OpenAPI.Description = "Read the actual maximum bytes for an avatar source file and normalized output. Multipart overhead is not part of this value."
+	for _, status := range []int{http.StatusOK, http.StatusInternalServerError} {
+		response := avatarPolicy.OpenAPI.Responses[status]
+		response.Headers = append(response.Headers, routecatalog.Header{Name: "Cache-Control", Description: "Do not store deployment-specific avatar upload policy responses.", Required: true, Value: "no-store"})
+		avatarPolicy.OpenAPI.Responses[status] = response
+	}
 	return []routecatalog.Descriptor{
 		identityRoute(http.MethodGet, "/api/captcha", "Generate Captcha", routecatalog.Public, handler.captchaHandler, nil, captchaResponse{}),
-		identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{}),
+		register,
 		browserSessionRoute("Login", "/api/login", handler.login, identity.LoginRequest{}, loginResponse{}, false),
 		browserSessionRoute("Refresh Token", "/api/refresh", handler.refresh, identity.SessionControlRequest{}, refreshResponse{}, true),
 		identityRoute(http.MethodGet, "/api/user/context", "Get User Context", routecatalog.Authenticated, handler.initialContext, nil, identity.InitialContextResponse{}),
 		avatarContentRoute("/api/avatars/default", "Get Default Avatar", handler.getDefaultAvatar),
 		avatarContentRoute("/api/avatars/:user_id", "Get User Avatar", handler.getAvatar),
 		identityRoute(http.MethodGet, "/api/user/info", "Get User Info", routecatalog.Authenticated, handler.getInfo, nil, userResponse{}),
+		avatarPolicy,
 		identityRoute(http.MethodPut, "/api/user/info", "Update User Info", routecatalog.Authenticated, handler.updateSelf, identity.UpdateSelfRequestSchema{}, userResponse{}),
-		identityRoute(http.MethodPut, "/api/user/password", "Change Password", routecatalog.Authenticated, handler.changePassword, identity.ChangePasswordRequest{}, nil),
+		changePassword,
 		identityRoute(http.MethodPost, "/api/user/email-verifications", "Resend Email Verification", routecatalog.Authenticated, handler.resendEmailVerification, nil, nil),
 		identityRoute(http.MethodPost, "/api/user/email-verifications/confirm", "Confirm Email Verification", routecatalog.Authenticated, handler.confirmEmailVerification, identity.EmailVerificationRequest{}, userResponse{}),
 		avatarUploadRoute(handler.uploadAvatar),
@@ -124,7 +139,7 @@ func avatarContentRoute(path, name string, handler gin.HandlerFunc) routecatalog
 
 func avatarUploadRoute(handler gin.HandlerFunc) routecatalog.Descriptor {
 	descriptor := identityRoute(http.MethodPost, "/api/user/avatar", "Upload Avatar", routecatalog.Authenticated, handler, nil, userResponse{})
-	descriptor.OpenAPI.Request = routecatalog.RequestBody{Kind: routecatalog.MultipartBody, Required: true, FileField: "file", FileDescription: "JPEG or PNG avatar"}
+	descriptor.OpenAPI.Request = routecatalog.RequestBody{Kind: routecatalog.MultipartBody, Required: true, FileField: "file", FileDescription: "Static JPEG, PNG or WebP avatar; original file and normalized output each respect the avatar upload policy max_bytes; multipart body allows an additional 256 KiB overhead"}
 	return descriptor
 }
 
@@ -220,6 +235,15 @@ func (handler *routeHandler) getInfo(c *gin.Context) {
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
+}
+
+func (handler *routeHandler) avatarUploadPolicy(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if handler.avatarMaxBytes <= 0 {
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil))
+		return
+	}
+	identitySuccess(c, identity.AvatarUploadPolicy{MaxBytes: handler.avatarMaxBytes})
 }
 
 func (handler *routeHandler) updateSelf(c *gin.Context) {

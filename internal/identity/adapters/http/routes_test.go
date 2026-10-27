@@ -1,6 +1,7 @@
 package httpadapter_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,7 @@ func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
 		"GET /api/avatars/:user_id":                  routecatalog.Public,
 		"GET /api/user/context":                      routecatalog.Authenticated,
 		"GET /api/user/info":                         routecatalog.Authenticated,
+		"GET /api/user/avatar-upload-policy":         routecatalog.Authenticated,
 		"PUT /api/user/info":                         routecatalog.Authenticated,
 		"PUT /api/user/password":                     routecatalog.Authenticated,
 		"POST /api/user/avatar":                      routecatalog.Authenticated,
@@ -105,4 +107,53 @@ func TestEmailVerificationConfirmErrorUsesSafeEnvelope(t *testing.T) {
 			t.Fatalf("confirm response missing %s: %s", field, body)
 		}
 	}
+}
+
+func TestAvatarUploadPolicyUsesActualHandlerLimit(t *testing.T) {
+	for _, limitMB := range []int{1, 7} {
+		routes := httpadapter.Routes(nil, nil, nil, nil, nil, limitMB, httpadapter.BrowserSessionConfig{})
+		found := false
+		for _, route := range routes {
+			if route.Path != "/api/user/avatar-upload-policy" {
+				continue
+			}
+			found = true
+			if route.Method != http.MethodGet || route.Access != routecatalog.Authenticated || route.DefaultPermissionCode != "" {
+				t.Fatalf("policy route access = %#v", route)
+			}
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, route.Path, nil)
+			route.Handler(context)
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			var data map[string]int64
+			if err := json.Unmarshal(envelope["data"], &data); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != 200 || recorder.Header().Get("Cache-Control") != "no-store" || len(envelope) != 4 || len(data) != 1 || data["max_bytes"] != int64(limitMB)*1024*1024 {
+				t.Fatalf("policy response = %d %s headers=%v", recorder.Code, recorder.Body, recorder.Header())
+			}
+		}
+		if !found {
+			t.Fatal("missing policy route")
+		}
+	}
+}
+
+func TestAvatarUploadPolicyRejectsInvalidLimit(t *testing.T) {
+	for _, route := range httpadapter.Routes(nil, nil, nil, nil, nil, 0, httpadapter.BrowserSessionConfig{}) {
+		if route.Path != "/api/user/avatar-upload-policy" {
+			continue
+		}
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodGet, route.Path, nil)
+		route.Handler(context)
+		assertProfileError(t, recorder, 500, "IDENTITY_INTERNAL_ERROR")
+		return
+	}
+	t.Fatal("missing policy route")
 }

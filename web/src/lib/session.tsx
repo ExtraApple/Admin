@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { sessionState, type SessionSnapshot } from './session-state';
 import { hasPermission } from './navigation';
-import type { LoginInput } from './models';
-interface Session extends SessionSnapshot { can(permission: string): boolean; login(input: LoginInput): Promise<void>; logout(): Promise<void>; retryLogout(): Promise<void>; refresh(): Promise<void>; reloadContext(): Promise<void>; beginLogin(): void }
+import type { LoginInput, UserContext } from './models';
+interface Session extends SessionSnapshot { can(permission: string): boolean; login(input: LoginInput): Promise<void>; logout(reason?: 'password-changed'): Promise<void>; retryLogout(): Promise<void>; refresh(): Promise<void>; reloadContext(): Promise<UserContext>; beginLogin(): void }
 const SessionContext = createContext<Session | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const snapshot = useSyncExternalStore(sessionState.subscribe, sessionState.getSnapshot, sessionState.getServerSnapshot);

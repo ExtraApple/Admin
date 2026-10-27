@@ -11,7 +11,7 @@ import (
 // RegisterRequest is the public registration request contract.
 type RegisterRequest struct {
 	Username    string `json:"username" binding:"required,min=3,max=100"`
-	Password    string `json:"password" binding:"required,min=6,max=255"`
+	Password    string `json:"password" binding:"required,min=6"`
 	Email       string `json:"email" binding:"required,email"`
 	Nickname    string `json:"nickname"`
 	CaptchaID   string `json:"captcha_id" binding:"required"`
@@ -50,6 +50,10 @@ type UserInfo struct {
 	EmailVerified bool   `json:"email_verified"`
 	Role          string `json:"role"`
 	Status        int    `json:"status"`
+}
+
+type AvatarUploadPolicy struct {
+	MaxBytes int64 `json:"max_bytes" binding:"required,gt=0"`
 }
 
 type LoginResponse struct {
@@ -99,9 +103,9 @@ func (request UpdateSelfRequest) HasAvatarField() bool { return request.avatarPr
 
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password" binding:"required"`
-	NewPassword string `json:"new_password" binding:"required,min=6,max=255"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
 
-	ConfirmPassword string `json:"confirm_password" binding:"required,min=6,max=255"`
+	ConfirmPassword string `json:"confirm_password" binding:"required,min=6"`
 }
 
 type EmailVerificationRequest struct {

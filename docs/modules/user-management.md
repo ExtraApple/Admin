@@ -18,7 +18,7 @@ Swagger UI 的 `identity` 标签包含：
 ## 用户与会话规则
 
 - 注册需要唯一用户名、唯一邮箱、有效验证码和符合复杂度要求的密码。
-- 个人资料只允许修改昵称和邮箱；头像只能通过专用上传和恢复默认接口修改。
+- 个人资料页只允许修改昵称；邮箱仍由既有邮箱流程和接口管理，本文不新增邮箱换绑 UI。头像只能通过专用上传和恢复默认接口修改。
 - 修改密码、真实用户身份／角色状态变化、删除用户、强制下线以及适用授权关系变化会提升授权版本；管理端纯昵称和合法全同值资料更新不创建或提升版本。
 - 授权版本唯一存储在`user_access_versions`；非登录认证缺行时不补行、不回退旧字段：Access返回401 `AUTHN_TOKEN_INVALID`，Refresh保持401 `AUTHN_REFRESH_TOKEN_INVALID`且不签发Token。Access版本查询的真实数据库故障仍返回安全5xx，不伪装成认证无效，也不公开SQL或凭据；真实缺行、单表查询故障及既有错误边界见[C6验收记录](../reviews/evidence/c6-access-version-auth-fix-2026-10-17.json)。
 - 用户软删除和授权版本提升在同一事务中完成，恢复用户不会让删除前 Token 重新生效。
@@ -39,6 +39,13 @@ Swagger UI 的 `identity` 标签包含：
 - 头像摘要针对标准化后的存储字节计算，不对外暴露，也不用于自动去重或恶意图片判定。
 - 对象写入、数据库更新和旧对象清理遵循补偿边界；底层对象路径和存储错误不得返回客户端。
 
+## 个人资料自助接口
+
+- `GET /api/user/info` 和 `GET /api/user/context` 提供当前用户资料与授权上下文；`PUT /api/user/info` 的本次前端自助写入只提交 `nickname`。昵称要求非空、非全空白、最多 100 个 Unicode 字符，保留原始首尾空白和大小写；用户 ID、用户名、邮箱、角色、权限、菜单和启用状态只读。
+- `GET /api/user/avatar-upload-policy` 需要有效 Access，返回 `data.max_bytes` 正整数和 `Cache-Control: no-store`。该值来自当前实际生效的 `file_upload.avatar_max_size_mb`，不返回配置细节；规则读取失败时客户端不能猜测默认上限。头像仍通过 `POST /api/user/avatar` 显式上传，`DELETE /api/user/avatar` 恢复默认。
+- `PUT /api/user/password` 的新密码在 bcrypt 前执行至少 6 个 Unicode 字符、UTF-8 不超过 72 字节和至少 3 类字符校验；注册复用同一新设密码规则。密码写入与授权版本提升同一事务，成功不签发新 Token，前端随后复用现有 Cookie Logout。
+- 前端密码输入只在页面内存中存在；取消、确认切换、真正离开、会话挂起／失效和身份变化都会清除敏感草稿。Access 仍有效的临时续期失败保留草稿，同 SID 手动恢复不回填密码；昵称与待保存头像预览按未保存修改规则保留。
+
 ## 前端注意事项
 
 - 使用 `/api/user/context` 获取用户、角色、权限和菜单初始化数据。
@@ -46,9 +53,9 @@ Swagger UI 的 `identity` 标签包含：
 - 头像可直接使用公开只读地址；管理文件下载仍需携带认证信息。
 - 接口字段和状态码不要从本文复制，始终以运行中的 OpenAPI 文档为准。
 
-## 工作台集成（实施中的 change）
+## 工作台集成（已完成的个人资料自助）
 
-以下为现有代码的接入说明；长期规格尚未同步的部分见 [`build-admin-workbench` 用户 delta](../../openspec/changes/build-admin-workbench/specs/user-management/spec.md)，不表示联合验收已经通过。
+本 change 已完成代码、自动化回归和隔离真实 HTTP／浏览器联合验收；脱敏证据见 [`complete-profile-self-service/evidence.md`](../../openspec/changes/complete-profile-self-service/evidence.md)，长期行为以主规格为准。
 
 - 前端公开路由为 `/login`、`/register`；登录后有 `/profile`、`/no-management`。用户管理支持 `/users`、`/users/:id`、`/users/:id/roles`、`/users/:id/organizations`，入口同时受上下文可见菜单及权限码约束。
 - `GET /api/admin/users?page=&size=&keyword=&status=` 对应 `admin.users.get`，关键词按用户名／昵称筛选，状态为 0／1，响应 `data={list,total,page,size}`，总数为范围内筛选后的结果。

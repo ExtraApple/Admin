@@ -351,7 +351,7 @@ func retryAfterSeconds(duration time.Duration) int {
 }
 
 func validatePassword(password string) error {
-	if len(password) < 6 {
+	if len(password) < 6 || len(password) > 72 {
 		return NewValidationError([]FieldError{{Field: "password", ErrorCode: "IDENTITY_PASSWORD_INVALID", Message: "password does not meet the security requirements"}}, nil)
 	}
 	var upper, lower, digit, special bool

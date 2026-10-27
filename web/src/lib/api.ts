@@ -4,7 +4,7 @@ export interface FieldError { field: string; error_code: string; message: string
 export interface SafeErrorData { remaining_attempts?: number; retry_after_seconds?: number }
 interface Envelope { code: number; error_code: string; msg: string; data: unknown }
 interface AuthBridge { token(path: string): string | null; rejected(token: string | null, status: number, code: string): void }
-interface RequestOptions { refreshAttemptId?: string }
+interface RequestOptions { refreshAttemptId?: string; cache?: RequestCache; signal?: AbortSignal }
 let auth: AuthBridge | null = null;
 export function configureApiAuth(bridge: AuthBridge) { auth = bridge; }
 
@@ -85,7 +85,8 @@ async function request<T>(path: string, method: string, body: unknown, mode: 'js
   const control = method === 'POST' && (pathname === '/api/login' || pathname === '/api/refresh' || pathname === '/api/user/logout');
   const headers = new Headers({ Accept: mode === 'blob' ? '*/*' : 'application/json' });
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  if (body !== undefined) headers.set('Content-Type', 'application/json');
+  const multipart = body instanceof FormData;
+  if (body !== undefined && !multipart) headers.set('Content-Type', 'application/json');
   if (control) headers.set('X-Admin-Request', '1');
   if (options?.refreshAttemptId) headers.set('X-Refresh-Attempt-ID', options.refreshAttemptId);
   const controller = control || pathname === '/api/user/context' ? new AbortController() : null;
@@ -93,7 +94,7 @@ async function request<T>(path: string, method: string, body: unknown, mode: 'js
   const timeout = controller ? globalThis.setTimeout(() => controller.abort(), 15_000) : undefined;
   try {
     let response: Response;
-    try { response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', signal: controller?.signal }); }
+    try { response = await fetch(path, { method, headers, body: body === undefined ? undefined : multipart ? body : JSON.stringify(body), credentials: 'same-origin', signal: controller?.signal ?? options?.signal, cache: options?.cache }); }
     catch { throw new ApiError(0, 'CLIENT_NETWORK_ERROR', 'Network request failed.'); }
     if (response.ok && mode === 'blob') return await response.blob() as T;
     let value: unknown;
@@ -124,7 +125,7 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>(path, 'PUT', body, 'json'),
   delete: <T = void>(path: string) => request<T>(path, 'DELETE', undefined, 'json'),
   blob: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),
-  image: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),
+  image: (path: string, options?: Pick<RequestOptions, 'cache' | 'signal'>) => request<Blob>(path, 'GET', undefined, 'blob', options),
   raw: <T>(path: string) => request<T>(path, 'GET', undefined, 'raw'),
   authorizationOverview: () => request<AuthorizationOverview>('/api/admin/authorization-overview', 'GET', undefined, 'json'),
   authorizationRisks: (query: AuthorizationRiskQuery = {}) => request<AuthorizationRiskPage>(authorizationRiskPath(query), 'GET', undefined, 'json'),
