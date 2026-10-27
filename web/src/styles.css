@@ -226,8 +226,12 @@
 .auth-content h2 { font: 600 28px/1.35 var(--display); margin-bottom: 9px; }
 .auth-content > p { color: var(--muted); }
 .field { display: grid; gap: 7px; margin: 16px 0; }
-.captcha-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px 44px; gap: 8px; }
-.captcha-image { width: 112px; height: 46px; object-fit: contain; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
+.captcha-row { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
+.captcha-image, .captcha-image-button { width: 112px; height: 46px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); }
+.captcha-image { object-fit: contain; }
+.captcha-image-button { padding: 0; overflow: hidden; color: var(--ink); }
+.captcha-image-button:hover:not(:disabled) { border-color: var(--accent); background: var(--tint); }
+.captcha-image-button img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .password-field { position: relative; }
 .password-field .ui-input { padding-right: 48px; }
 .password-field > .ui-button { position: absolute; top: 0; right: 0; }
@@ -269,8 +273,8 @@
   .theme-selector-current { display: none; }
   .auth-main { padding: 72px 20px 30px; }
   .auth-toolbar { right: 20px; }
-  .captcha-row { grid-template-columns: minmax(0, 1fr) 100px 44px; }
-  .captcha-image { width: 100px; }
+  .captcha-row { grid-template-columns: minmax(0, 1fr) 100px; }
+  .captcha-image, .captcha-image-button { width: 100px; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .ui-sidebar-menu-button, .ui-sidebar-group-label, .ui-button { transition: background-color .16s ease; }
