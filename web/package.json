@@ -5,11 +5,11 @@
   "type": "module",
   "packageManager": "npm@11.6.0",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host localhost",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host localhost"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.24",
