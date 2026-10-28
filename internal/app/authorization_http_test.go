@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -24,6 +25,51 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func impactFingerprint(t *testing.T, handler http.Handler, path, operation string, candidate any) string {
+	t.Helper()
+	return impactFingerprintWithHeaders(t, handler, path, operation, candidate, nil)
+}
+
+func impactFingerprintWithHeaders(t *testing.T, handler http.Handler, path, operation string, candidate any, headers map[string]string) string {
+	t.Helper()
+	encoded, err := json.Marshal(map[string]any{"operation": operation, "candidate": candidate})
+	if err != nil {
+		t.Fatalf("encode %s impact preview: %v", operation, err)
+	}
+	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
+	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("%s impact preview status=%d body=%s", operation, response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Fingerprint string `json:"preview_fingerprint"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode %s impact preview: %v", operation, err)
+	}
+	if len(envelope.Data.Fingerprint) != 64 {
+		t.Fatalf("%s impact preview fingerprint=%q", operation, envelope.Data.Fingerprint)
+	}
+	return envelope.Data.Fingerprint
+}
+
+func menuImpactFingerprint(t *testing.T, handler http.Handler, operation string, candidate any) string {
+	t.Helper()
+	return impactFingerprint(t, handler, "/api/admin/menus/impact-preview", operation, candidate)
+}
+
+func apiImpactFingerprint(t *testing.T, handler http.Handler, operation string, candidate any) string {
+	t.Helper()
+	return impactFingerprint(t, handler, "/api/admin/apis/impact-preview", operation, candidate)
+}
 
 func newAuthorizationApp(t *testing.T) (*app.Application, *gorm.DB) {
 	t.Helper()
@@ -186,6 +232,9 @@ func TestAuthorizationHTTPMenuUpdateKeepsBoundAPIsAndRoleGrantsConsistent(t *tes
 			fixture := newOrganizationJWTFixture(t)
 			create := func(path string, body map[string]any) map[string]any {
 				t.Helper()
+				if path == "/api/admin/menus" {
+					body["expected_fingerprint"] = impactFingerprintWithHeaders(t, fixture.application.Handler(), "/api/admin/menus/impact-preview", "create", body, map[string]string{"Authorization": "Bearer " + fixture.adminToken})
+				}
 				data := fixture.post(path, body)
 				fixture.adminToken = fixture.token(fixture.admin)
 				return data
@@ -228,9 +277,9 @@ func TestAuthorizationHTTPMenuUpdateKeepsBoundAPIsAndRoleGrantsConsistent(t *tes
 				})
 				apiIDs = append(apiIDs, uint(api["id"].(float64)))
 			}
-			assigned := fixture.request(http.MethodPost, menuPath+"/apis", fixture.adminToken, map[string]any{
-				"api_ids": apiIDs, "permission_code": oldCode,
-			})
+			bindBody := map[string]any{"api_ids": apiIDs, "permission_code": oldCode}
+			bindBody["expected_fingerprint"] = impactFingerprintWithHeaders(t, fixture.application.Handler(), "/api/admin/menus/impact-preview", "bind-apis", map[string]any{"menu_id": menuID, "api_ids": apiIDs, "permission_code": oldCode}, map[string]string{"Authorization": "Bearer " + fixture.adminToken})
+			assigned := fixture.request(http.MethodPost, menuPath+"/apis", fixture.adminToken, bindBody)
 			if assigned.Code != http.StatusOK {
 				t.Fatalf("bind menu APIs status=%d body=%s", assigned.Code, assigned.Body.String())
 			}
@@ -262,9 +311,9 @@ func TestAuthorizationHTTPMenuUpdateKeepsBoundAPIsAndRoleGrantsConsistent(t *tes
 				}
 			}
 
-			response := fixture.request(http.MethodPut, menuPath, fixture.adminToken, map[string]any{
-				"name": "After", "sort": 19, "permission_code": newCode,
-			})
+			updateBody := map[string]any{"name": "After", "sort": 19, "permission_code": newCode}
+			updateBody["expected_fingerprint"] = impactFingerprintWithHeaders(t, fixture.application.Handler(), "/api/admin/menus/impact-preview", "update", map[string]any{"menu_id": menuID, "name": "After", "sort": 19, "permission_code": newCode}, map[string]string{"Authorization": "Bearer " + fixture.adminToken})
+			response := fixture.request(http.MethodPut, menuPath, fixture.adminToken, updateBody)
 			type menuState struct {
 				ID             uint   `json:"id"`
 				Name           string `json:"name"`

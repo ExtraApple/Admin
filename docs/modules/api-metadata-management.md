@@ -10,19 +10,15 @@ API 元数据不会创建或替换 Gin 路由。真实路由由业务模块声�
 
 ## 关键规则
 
-- `method + path` 唯一，创建和修改时会规范化方法与路径。
-- API 元数据可配置展示名称、分组、权限码、启用状态、认证标记和审计标记。
-- 路由同步消费 Route Catalog Snapshot，不扫描 Gin Engine。
-- API 权限同步继续处理现行 `NeedAuth=1` 候选，空码沿既有 Method + Path 规则派生；公开项跳过、已有权限不重复创建，不统一路由同步、权限目录同步和 Seed 的用途。
-- 一次 `sync-permissions` 的全部 API／菜单码、权限、角色授权及适用用户版本共同提交或回滚；失败不返回部分成功统计。
-- `created`／`created_count` 包含协调内部实际新增且最终保留的权限，恢复既有权限不算新建；`updated_api` 仍统计补齐空码项，不扩大为间接传播行数。返回值只取最终成功 attempt。
-- 整轮先准备严格有序目标并 current read 复核，业务遍历不按锁顺序重排；依赖变化返回既有 `API_META_CONFLICT`，保留并发胜方。版本只预锁，不为 skip 初始化；实际联动仍逐 API 触发，同用户两项可提升两次，不做请求级去重。
-- F2 的原程序混合成功、后项／后续版本失败回滚、既有 MySQL 重试类和严格锁序见[定向验收](../reviews/evidence/api-permission-sync-atomic-2026-10-18.json)；未扩展 S3 或宣称所有 C6 场景完成。
-- 未配置或已禁用的受保护 API 请求会被拒绝。
-- 超级管理员可以绕过普通权限码检查，但不能访问已禁用 API。
-- 修改已绑定菜单的权限码时，同步菜单、关联 API、角色授权和授权版本，并保持事务原子性。
-- 公开 API 不得生成按钮菜单；生成按钮菜单时会建立 `menu_apis` 关联并确保权限记录存在。
-
+- `method + path` 唯一，创建和修改时规范化方法与路径；API Metadata 不创建或替换 Gin 路由。
+- 列表和详情只读投影当前 Route Catalog 状态：`matched`、`metadata_only`、`access_mismatch`；同步影响预览还会标注 `catalog_only`。状态不持久化，Route Catalog 是运行时路由唯一事实来源。
+- API 权限同步继续处理现行 `NeedAuth=1` 候选，空码按 Method + Path 派生；公开项跳过，已有权限不重复创建。一次同步的 API、菜单码、权限、角色授权及适用用户版本共同提交或回滚。
+- 路由同步只消费当前 Route Catalog Snapshot，不扫描 Gin Engine；已有管理员名称、分组、权限码、备注、排序和策略字段不被同步覆盖，返回实际创建统计。
+- `created`/`created_count` 只包含最终提交且实际新增的权限，恢复既有权限不算新建；`updated_api` 统计补齐空码项。失败不返回部分成功统计。
+- 修改已绑定菜单的权限码、API 状态或删除 API 时，菜单、关联 API、权限、角色授权和用户 access version 保持事务原子性；失败完整回滚。
+- 公开、停用或不需要认证的 API 不得生成按钮菜单；按钮父级只能是目录或页面。生成按钮会确保权限记录并建立 `menu_apis` 关联。
+- 高影响 API 写入先调用 `POST /api/admin/apis/impact-preview`，再提交 64 位小写 SHA-256 `expected_fingerprint`；删除使用 `X-Expected-Fingerprint`。陈旧指纹返回 `API_META_CONFLICT`，不自动重放或覆盖并发修改。
+- `POST /api/admin/apis/impact-preview` 复用 `admin.apis.get`，覆盖更新、删除、路由同步、权限同步和按钮生成，返回规范化目标、安全影响摘要和 fingerprint；预览不修改元数据、权限、授权版本、缓存或 Route Catalog。
 ## API 文档
 
 自动化 API 文档由 `internal/apidoc` 根据 Route Catalog 和 API Metadata Snapshot 生成：

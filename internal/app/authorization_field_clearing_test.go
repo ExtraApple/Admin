@@ -27,7 +27,7 @@ type clearingFixture struct {
 func newClearingFixture(t *testing.T) clearingFixture {
 	t.Helper()
 	application, db := newAuthorizationApp(t)
-	path, taken := "/clearing", "/taken"
+	taken, clearingPath := "/taken", "/clearing"
 	for _, records := range []any{
 		&[]identity.User{
 			{Model: gorm.Model{ID: 51}, Username: "clearing-first", Email: "first@test.local", Password: "unused", Status: 1},
@@ -36,8 +36,9 @@ func newClearingFixture(t *testing.T) clearingFixture {
 		&authgorm.Role{Model: gorm.Model{ID: 41}, Name: "Clearing role", Code: "clearing-role", Description: "keep description", Status: 1, DataScope: "self"},
 		&authgorm.Permission{Model: gorm.Model{ID: 71}, Name: "Clearing permission", Code: "clearing.permission", Group: "keep group"},
 		&[]navigation.MenuModel{
-			{Model: gorm.Model{ID: 31}, Name: "Clearing menu", Path: &path, Icon: "keep-icon", Component: "KeepComponent", PermissionCode: "clearing.permission", Type: 3, Status: 1},
-			{Model: gorm.Model{ID: 32}, Name: "Taken path", Path: &taken, Type: 3, Status: 1},
+			{Model: gorm.Model{ID: 31}, Name: "Clearing menu", Icon: "keep-icon", PermissionCode: "clearing.permission", Type: 3, Status: 1},
+			{Model: gorm.Model{ID: 32}, Name: "Taken path", Path: &taken, Type: 2, Status: 1},
+			{Model: gorm.Model{ID: 33}, Name: "Clearing page", Path: &clearingPath, Type: 2, Status: 1},
 		},
 		&apigorm.API{Model: gorm.Model{ID: 11}, Name: "Linked API", Method: "GET", Path: "/api/clearing", PermissionCode: "clearing.permission", NeedAuth: 1, Status: 1},
 		&[]authgorm.UserRole{{UserID: 51, RoleID: 41}, {UserID: 52, RoleID: 41}},
@@ -53,8 +54,44 @@ func newClearingFixture(t *testing.T) clearingFixture {
 	return clearingFixture{handler: application.Handler(), db: db}
 }
 
+func newClearingPageFixture(t *testing.T) clearingFixture {
+	t.Helper()
+	fixture := newClearingFixture(t)
+	if err := fixture.db.Unscoped().Delete(&navigation.MenuModel{}, 33).Error; err != nil {
+		t.Fatalf("remove duplicate clearing page fixture: %v", err)
+	}
+	path, component := "/clearing", "KeepComponent"
+	if err := fixture.db.Model(&navigation.MenuModel{}).Where("id = ?", 31).Updates(map[string]any{"path": path, "component": component, "type": 2}).Error; err != nil {
+		t.Fatalf("configure clearing page fixture: %v", err)
+	}
+	if err := fixture.db.Where("menu_id = ?", 31).Delete(&navigation.MenuAPIModel{}).Error; err != nil {
+		t.Fatalf("detach clearing page APIs: %v", err)
+	}
+	return fixture
+}
+
 func clearingRequest(t *testing.T, fixture clearingFixture, path string, body map[string]any, status int) map[string]any {
 	t.Helper()
+	if strings.HasPrefix(path, "/api/admin/menus/") {
+		candidate := map[string]any{"menu_id": uint(31)}
+		operation := "update"
+		if status == http.StatusOK || status >= http.StatusInternalServerError {
+			if strings.HasSuffix(path, "/apis") {
+				operation = "bind-apis"
+				candidate["api_ids"] = body["api_ids"]
+				candidate["permission_code"] = body["permission_code"]
+			} else {
+				for key, value := range body {
+					candidate[key] = value
+				}
+			}
+		} else if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity {
+			candidate = nil
+		}
+		if candidate != nil {
+			body["expected_fingerprint"] = menuImpactFingerprint(t, fixture.handler, operation, candidate)
+		}
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +116,28 @@ func clearingRequest(t *testing.T, fixture clearingFixture, path string, body ma
 		t.Fatalf("response exposed storage failure: %s", response.Body.String())
 	}
 	return reply.Data
+}
+
+func clearingErrorCodeRequest(t *testing.T, fixture clearingFixture, path string, body map[string]any, status int) string {
+	t.Helper()
+	body["expected_fingerprint"] = menuImpactFingerprint(t, fixture.handler, "update", map[string]any{"menu_id": uint(31)})
+	encoded, err := json.Marshal(body)
+	if err != nil {
+	}
+	request := httptest.NewRequest(http.MethodPut, path, bytes.NewReader(encoded))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	fixture.handler.ServeHTTP(response, request)
+	if response.Code != status {
+		t.Fatalf("PUT %s status=%d want=%d body=%s", path, response.Code, status, response.Body.String())
+	}
+	var reply struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	return reply.ErrorCode
 }
 
 type clearingState struct {
@@ -127,10 +186,12 @@ func TestAuthorizationOptionalFieldsSeparateOmissionEmptyAndReplacement(t *testi
 		{"permission group", "permissions", "permissions", "group", "keep group", "new group", 71, false},
 		{"menu icon", "menus", "menus", "icon", "keep-icon", "new-icon", 31, true},
 		{"menu component", "menus", "menus", "component", "KeepComponent", "NewComponent", 31, true},
-		{"button menu path", "menus", "menus", "path", "/clearing", "/replacement", 31, true},
 	} {
 		t.Run(field.name, func(t *testing.T) {
 			fixture := newClearingFixture(t)
+			if field.route == "menus" {
+				fixture = newClearingPageFixture(t)
+			}
 			before := clearingFacts(t, fixture.db)
 			path := fmt.Sprintf("/api/admin/%s/%d", field.route, field.id)
 			for index, step := range []struct {
@@ -191,7 +252,7 @@ func TestAuthorizationInvalidClearingRejectsEverySubmittedField(t *testing.T) {
 		{"blank permission name", "/api/admin/permissions/71", map[string]any{"name": " \t", "group": ""}, 422},
 		{"empty menu name", "/api/admin/menus/31", map[string]any{"name": "", "icon": ""}, 400},
 		{"blank menu name", "/api/admin/menus/31", map[string]any{"name": " \t", "icon": ""}, 422},
-		{"conflicting path", "/api/admin/menus/31", map[string]any{"path": "/taken", "icon": ""}, 409},
+		{"path on button menu", "/api/admin/menus/31", map[string]any{"path": "/button-path", "icon": ""}, 422},
 		{"no role fields", "/api/admin/roles/41", map[string]any{}, 422},
 		{"no permission fields", "/api/admin/permissions/71", map[string]any{}, 422},
 		{"no menu fields", "/api/admin/menus/31", map[string]any{}, 422},
@@ -199,7 +260,13 @@ func TestAuthorizationInvalidClearingRejectsEverySubmittedField(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newClearingFixture(t)
 			before := clearingFacts(t, fixture.db)
-			clearingRequest(t, fixture, test.path, test.body, test.status)
+			if test.name == "path on button menu" {
+				if code := clearingErrorCodeRequest(t, fixture, test.path, test.body, test.status); code != "NAV_VALIDATION_INVALID" {
+					t.Fatalf("error code=%q, want NAV_VALIDATION_INVALID", code)
+				}
+			} else {
+				clearingRequest(t, fixture, test.path, test.body, test.status)
+			}
 			if after := clearingFacts(t, fixture.db); !reflect.DeepEqual(before, after) {
 				t.Fatalf("rejected update changed facts: before=%#v after=%#v", before, after)
 			}

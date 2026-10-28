@@ -14,7 +14,8 @@ func TestRoutesDescribeAPIMetadataHTTPSurface(t *testing.T) {
 		t.Fatalf("build API Metadata Route Catalog: %v", err)
 	}
 	for _, path := range []string{
-		"/api/admin/api-groups", "/api/admin/api-methods", "/api/admin/apis", "/api/admin/apis/:id", "/api/admin/apis/:id/menu-button",
+		"/api/admin/api-groups", "/api/admin/api-methods", "/api/admin/apis", "/api/admin/apis/impact-preview",
+		"/api/admin/apis/:id", "/api/admin/apis/:id/menu-button",
 		"/api/admin/apis/sync", "/api/admin/apis/sync-permissions",
 	} {
 		found := false

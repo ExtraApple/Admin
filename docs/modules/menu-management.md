@@ -13,20 +13,15 @@
 
 ## 关键规则
 
-- `type=1` 为目录，`type=2` 为页面菜单，`type=3` 为按钮菜单。
-- 创建状态区分遗漏与显式值：`0` 保存为停用，`1` 保存为启用，遗漏或无效数值沿用默认启用；响应和存储一致，停用项仍可从配置树读取，但不进入已分配用户的可见菜单。
-- 创建持久化保留数据库默认值，以单次显式INSERT保存规范化状态并返回真实ID、维护时间列；没有事后修复UPDATE。当前依赖GORM v1.31.1的map回填行为，升级须保留SQLite与原生MySQL的ID／状态回读验证。C2的真实HTTP、Seed／同步／按钮默认和中途版本失败回滚见[验收记录](../reviews/evidence/c2-menu-create-status-fix-2026-10-16.json)。
-- 菜单路径必须唯一；按钮菜单可以没有路径和组件。
-- 菜单PUT的`icon`／`component`／合法`path`区分遗漏、空字符串和非空替换；空path沿现有规范化存为SQL NULL，不新增类型／路径政策。`name`显式空或纯空白整次拒绝，路径冲突也拒绝其他同时提交的清空；`permission_code`仍走独立绑定码契约。JSON null沿原解析表示未提交。真实清空仍按现有菜单配置规则处理版本，后续用户版本失败全回滚，API码及绑定／授权关系不变；见[S1验收](../reviews/evidence/authorization-field-clearing-2026-10-18.json)，主规格已按依赖同步，未归档。
-- 有子菜单的节点不能删除；删除与父引用创建共享菜单目标锁，删除入口将目标与当前子级合并按ID锁定后判断，不能先锁高ID父级再追加低ID子级。子级先提交则拒删，父级先删则拒绝新子级；合法删除清理`role_menus`和`menu_apis`。
-- 普通角色菜单分配是全量替换，原始0／不存在菜单整次拒绝、合法重复ID去重；普通停用角色及菜单允许预配置，但直接编辑`admin`角色菜单关联拒绝（包括清空）。用户可见菜单仍从有效角色合并、去重并按权限码和菜单状态过滤。
-- 超级管理员返回全部启用菜单；普通用户只返回角色已分配且有权限的菜单，并保留必要的父级目录。
-- 菜单/API 绑定必须在同一事务中完成，失败时回滚关联、权限和授权版本变化。
-- 管理员 `GET /api/admin/roles/:id/menus` 返回按 `sort asc,id asc` 排序的平铺已分配菜单数组，含 `parent_id,status`，保留停用项和没有分配父级的子菜单；未分配父级不是已分配项。
-- 编辑器以 `/api/admin/menus` 完整树定位层级，只按平铺响应 ID 预选，不自动选父级。单角色缺权限码仅为配置风险，不能代表用户最终可见菜单数。
-- `GET /api/user/context` 仍返回按用户全部角色、启用状态及有效权限过滤的运行时菜单树；配置读取变化不赋予可见性。此 breaking 读取变化见 [`菜单 delta`](../../openspec/changes/build-admin-workbench/specs/menu-management/spec.md)，尚未据此同步长期规格或宣称验收。
-- 菜单创建、修改、角色菜单分配、同步、按钮生成及适用Seed都参与目标协议；锁后缺失返回既有不存在错误，非法角色菜单选择仍是校验错误。原程序发现的缺失父级误返500已修正并保留前后证据，见[R4-R6验收](../reviews/evidence/authorization-reference-lifecycle-2026-10-18.json)。
-- 合法菜单字段同值、显式角色菜单集合等价及合法全skip同步均不提升版本；比较仍先满足全部现有校验，不以运行时可见性裁剪配置。真实名称／图标／排序等展示变化保留现行菜单更新的全用户触发，不在此实现I3最小集合。显式清空第一次是真实变化，重复已清空值可无变化；同步重试计数按attempt重置。[配置no-op验收](../reviews/evidence/configuration-noop-2026-10-18.json)已完成，delta未同步、未归档；未知parent_path政策未由此裁定。
+- `type=1` 为目录，`type=2` 为页面菜单，`type=3` 为按钮菜单。目录的 `path`、`component` 必须为空；页面必须有唯一非空 `path`，`component` 可为空；按钮的 `path`、`component` 必须为空。
+- `status` 只接受 `0` 或 `1`；显式非法 `type/status` 拒绝，既有非法历史记录只读展示，不在启动或普通读取时静默修复。
+- 按钮只能挂在目录或页面下；目录、页面不能新建菜单 API 绑定。菜单 API 绑定目标必须存在、启用且 `need_auth=1`。
+- 菜单路径必须唯一；创建、修改和同步会拒绝路径冲突、自引用、循环父级和未知 `parent_path`。同步先规范化完整批次，支持批次内新父级的稳定拓扑排序，任何失败整批回滚。
+- 菜单PUT的 `icon`、`component` 和合法 `path` 区分遗漏、空字符串和非空替换；`name` 显式空或纯空白拒绝。JSON null 沿原解析表示未提交。
+- 有子菜单的节点不能删除；合法删除清理 `role_menus` 和 `menu_apis`。菜单/API 绑定、权限联动、角色授权和适用用户 access version 保持同一事务边界。
+- `POST /api/admin/menus/:id/apis` 的非清空模式要求非空 `api_ids`；空数组不是解绑。显式 `clear=true` 要求 `api_ids` 和 `permission_code` 为空，清理全部 menu/API 关系；菜单自身 `permission_code` 不因解绑被清空。已清空按钮再次清空是 no-op，不提升版本。
+- 高影响菜单写入必须先调用影响预览并提交 `expected_fingerprint`；删除通过 `X-Expected-Fingerprint` 请求头提交。陈旧或非法指纹拒绝写入并返回 `NAV_CONFLICT` 或验证错误。
+- `POST /api/admin/menus/impact-preview` 复用 `admin.menus.get`，只读返回规范化目标、影响菜单/API/角色/用户摘要和 64 位小写 SHA-256 fingerprint；预览不写菜单、权限、版本或缓存。
 
 ## 接口入口
 

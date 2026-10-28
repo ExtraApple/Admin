@@ -7,7 +7,7 @@ import (
 	"admin/internal/apimetadata/domain"
 )
 
-func (service *Service) SyncRoutes(ctx context.Context) ([]domain.API, error) {
+func (service *Service) SyncRoutes(ctx context.Context, expectedFingerprints ...string) ([]domain.API, error) {
 	if service.routes == nil {
 		return nil, NewError(CodeInternalError, nil)
 	}
@@ -18,16 +18,18 @@ func (service *Service) SyncRoutes(ctx context.Context) ([]domain.API, error) {
 	if service.core.transactions == nil {
 		return nil, NewError(CodeInternalError, nil)
 	}
+	expectedFingerprint := optionalAPIFingerprint(expectedFingerprints)
 	var created []domain.API
 	err = service.core.transactions.Run(ctx, func(transactionContext context.Context) error {
 		var syncErr error
-		created, syncErr = service.syncRoutesInTransaction(transactionContext, facts)
+		created, syncErr = service.syncRoutesInTransaction(transactionContext, facts, expectedFingerprint)
 		return syncErr
 	})
 	return created, err
 }
 
-func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []RouteFact) ([]domain.API, error) {
+func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []RouteFact, expectedFingerprint string) ([]domain.API, error) {
+
 	codes := make([]string, 0, len(facts))
 	for _, fact := range facts {
 		_, code := routeAccessValues(fact)
@@ -38,6 +40,9 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 	}
 	if err := service.core.repository.LockRoutes(ctx, facts); err != nil {
 		return nil, NewError(CodeInternalError, err)
+	}
+	if err := service.verifyAPIFingerprint(ctx, expectedFingerprint, ImpactPreviewInput{Operation: ImpactSyncAPIs, SyncFacts: facts}); err != nil {
+		return nil, err
 	}
 	created := make([]domain.API, 0)
 	for _, fact := range facts {

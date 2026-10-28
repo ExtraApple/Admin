@@ -11,14 +11,14 @@ import (
 func TestMissingMenuLifecycleTargetsRetainNotFoundClassification(t *testing.T) {
 	service, authorization := newNavigationServiceFixture(t)
 	ctx := context.Background()
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Removed parent"})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Removed parent", Type: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := service.DeleteMenu(ctx, parent.ID); err != nil {
 		t.Fatal(err)
 	}
-	child, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Existing root"})
+	child, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Existing root", Type: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestMissingMenuLifecycleTargetsRetainNotFoundClassification(t *testing.T) {
 		run  func() error
 	}{
 		{"create under removed parent", func() error {
-			_, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Rejected child", ParentID: parent.ID})
+			_, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Rejected child", ParentID: parent.ID, Type: 1})
 			return err
 		}},
 		{"move under removed parent", func() error {

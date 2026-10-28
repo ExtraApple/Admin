@@ -14,6 +14,7 @@ type API struct {
 	Status         int
 	NeedAuth       int
 	NeedAudit      int
+	RouteState     string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	Deleted        bool

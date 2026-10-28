@@ -29,11 +29,24 @@ func NewService(core *Core, coordinator PermissionCoordinator, options ...Servic
 	return service
 }
 func (service *Service) List(ctx context.Context, page, size int, filter Filter) ([]domain.API, int64, error) {
-	return service.core.List(ctx, page, size, filter)
+	apis, total, err := service.core.List(ctx, page, size, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	apis, err = service.projectRouteStates(ctx, apis)
+	return apis, total, err
 }
 
 func (service *Service) Get(ctx context.Context, id uint) (domain.API, error) {
-	return service.core.Get(ctx, id)
+	api, err := service.core.Get(ctx, id)
+	if err != nil {
+		return domain.API{}, err
+	}
+	projected, err := service.projectRouteStates(ctx, []domain.API{api})
+	if err != nil {
+		return domain.API{}, err
+	}
+	return projected[0], nil
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (domain.API, error) {
@@ -41,11 +54,14 @@ func (service *Service) Create(ctx context.Context, input CreateInput) (domain.A
 }
 
 func (service *Service) Update(ctx context.Context, id uint, input UpdateInput) (domain.API, error) {
+	guard := func(transactionContext context.Context) error {
+		return service.verifyAPIFingerprint(transactionContext, input.ExpectedFingerprint, ImpactPreviewInput{Operation: ImpactUpdateAPI, APIID: id, Update: input})
+	}
 	if input.PermissionCode == nil || service.coordinator == nil {
-		return service.core.Update(ctx, id, input)
+		return service.core.UpdateWithGuard(ctx, id, input, guard)
 	}
 	var updated domain.API
-	err := service.coordinator.ChangeAPIPermissionCode(ctx, id, strings.TrimSpace(*input.PermissionCode), func(transactionContext context.Context) error {
+	err := service.coordinator.ChangeAPIPermissionCodeWithGuard(ctx, id, strings.TrimSpace(*input.PermissionCode), guard, func(transactionContext context.Context) error {
 		var err error
 		updated, err = service.core.Update(transactionContext, id, input)
 		return err
@@ -53,11 +69,17 @@ func (service *Service) Update(ctx context.Context, id uint, input UpdateInput) 
 	return updated, err
 }
 
-func (service *Service) Delete(ctx context.Context, id uint) error {
-	if service.coordinator == nil {
-		return service.core.Delete(ctx, id)
+func (service *Service) Delete(ctx context.Context, id uint, expectedFingerprints ...string) error {
+	expectedFingerprint := optionalAPIFingerprint(expectedFingerprints)
+	guard := func(transactionContext context.Context) error {
+		return service.verifyAPIFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactDeleteAPI, APIID: id})
 	}
-	return service.coordinator.DeleteAPI(ctx, id, func(transactionContext context.Context) error { return service.core.Delete(transactionContext, id) })
+	if service.coordinator == nil {
+		return service.core.DeleteWithGuard(ctx, id, guard)
+	}
+	return service.coordinator.DeleteAPI(ctx, id, func(transactionContext context.Context) error {
+		return service.core.DeleteWithGuard(transactionContext, id, guard)
+	})
 }
 
 func (service *Service) Groups(ctx context.Context) ([]domain.GroupOption, error) {
@@ -68,14 +90,19 @@ func (service *Service) Methods() []MethodOption {
 	return service.core.Methods()
 }
 
-func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int) (Button, error) {
+func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int, expectedFingerprints ...string) (Button, error) {
 	if service.coordinator == nil {
 		return Button{}, NewError(CodeInternalError, nil)
 	}
-	return service.coordinator.GenerateMenuButton(ctx, apiID, parentID, name, sort)
+	expectedFingerprint := optionalAPIFingerprint(expectedFingerprints)
+	guard := func(transactionContext context.Context) error {
+		return service.verifyAPIFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactGenerateMenuButton, APIID: apiID, ButtonParentID: parentID, ButtonName: name, ButtonSort: sort})
+	}
+	return service.coordinator.GenerateMenuButtonWithGuard(ctx, apiID, parentID, name, sort, guard)
 }
 
-func (service *Service) SyncPermissions(ctx context.Context) ([]string, int, error) {
+func (service *Service) SyncPermissions(ctx context.Context, expectedFingerprints ...string) ([]string, int, error) {
+	expectedFingerprint := optionalAPIFingerprint(expectedFingerprints)
 	if service.coordinator == nil || service.core.transactions == nil {
 		return nil, 0, NewError(CodeInternalError, nil)
 	}
@@ -108,6 +135,9 @@ func (service *Service) SyncPermissions(ctx context.Context) ([]string, int, err
 		attemptCreated := make([]string, 0, len(codes))
 		attemptUpdated := 0
 		err = service.coordinator.WithAPIPermissionSync(transactionContext, apis, func(preparedContext context.Context) error {
+			if err := service.verifyAPIFingerprint(preparedContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactSyncPermissions}); err != nil {
+				return err
+			}
 			before, err := service.coordinator.ExistingPermissionCodes(preparedContext, codes, true)
 			if err != nil {
 				return NewError(CodeInternalError, err)

@@ -16,13 +16,13 @@ func TestMenuNormalizedValuesAndRealDisplayChanges(t *testing.T) {
 	service := fixture.service
 	ctx := context.Background()
 	menu, err := service.CreateMenu(ctx, navigation.CreateInput{
-		Name: "Actions", Path: "/actions", Component: "Actions", Icon: "bolt", PermissionCode: "actions.read", Sort: 2, Type: 3,
+		Name: "Actions", Path: "/actions", Component: "Actions", Icon: "bolt", PermissionCode: "actions.read", Sort: 2, Type: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	beforeVersions := configurationVersions(t, fixture.db)
-	parent, sort, menuType, status := uint(0), 2, 3, 1
+	parent, sort, menuType, status := uint(0), 2, 2, 1
 	updated, err := service.UpdateMenu(ctx, menu.ID, navigation.UpdateInput{
 		ParentID: &parent, Name: stringPointer("  Actions  "), Path: stringPointer("  /actions  "),
 		Component: stringPointer("Actions"), Icon: stringPointer("bolt"), PermissionCode: stringPointer(" actions.read "),
@@ -54,11 +54,11 @@ func TestEqualMenuFieldsDoNotBypassUpdateValidation(t *testing.T) {
 	fixture := newConfigurationNavigationFixture(t)
 	service := fixture.service
 	ctx := context.Background()
-	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Keep", Path: "/keep"})
+	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Keep", Path: "/keep", Type: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Other", Path: "/other"}); err != nil {
+	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Other", Path: "/other", Type: 2}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := service.MenuTree(ctx)
@@ -89,7 +89,7 @@ func TestRoleMenusCompareDisabledConfigurationNotRuntimeVisibility(t *testing.T)
 	service, authorization := fixture.service, fixture.authorization
 	ctx := context.Background()
 	disabled := 0
-	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Hidden", PermissionCode: "hidden.read", Status: &disabled})
+	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Hidden", PermissionCode: "hidden.read", Status: &disabled, Type: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestMenuSyncResetsCreatedCountWhenRetryBecomesAllSkip(t *testing.T) {
 	runner := configurationRetryRunner{
 		base: platformdatabase.NewTransactionRunner(db),
 		between: func() {
-			menu := navigation.Menu{Name: "Concurrent menu", Path: stringPointer("/retry"), Type: 1, Status: 1}
+			menu := navigation.Menu{Name: "Concurrent menu", Path: stringPointer("/retry"), Type: 2, Status: 1}
 			if err := repository.CreateMenu(ctx, &menu); err != nil {
 				t.Fatal(err)
 			}
@@ -262,7 +262,7 @@ func TestMenuSyncResetsCreatedCountWhenRetryBecomesAllSkip(t *testing.T) {
 	capability := configurationAuthorization{Authorization: fixture.authorization, versions: fixture.versions}
 	service := navigation.NewService(repository, runner, capability, fixture.apis)
 	beforeVersions := configurationVersions(t, db)
-	created, err := service.SyncMenus(ctx, []navigation.SyncItem{{Name: "Attempt menu", Path: "/retry"}})
+	created, err := service.SyncMenus(ctx, []navigation.SyncItem{{Name: "Attempt menu", Path: "/retry", Type: 2}})
 	versions := configurationVersions(t, db)
 	if err != nil || created != 0 || !reflect.DeepEqual(versions, beforeVersions) {
 		t.Fatalf("successful all-skip retry created=%d error=%v versions=%v", created, err, versions)

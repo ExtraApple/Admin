@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 func TestApplicationDoesNotCreateRouteFromDatabaseMetadata(t *testing.T) {
@@ -120,6 +122,33 @@ func documentedPath(path string) string {
 	return strings.Join(parts, "/")
 }
 
+func apiSyncRequest(t *testing.T, handler http.Handler, path, fingerprint string) *httptest.ResponseRecorder {
+	return apiSyncRequestWithHeaders(t, handler, path, fingerprint, nil)
+}
+
+func apiSyncRequestWithHeaders(t *testing.T, handler http.Handler, path, fingerprint string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	encoded, err := json.Marshal(map[string]string{"expected_fingerprint": fingerprint})
+	if err != nil {
+		t.Fatalf("encode API sync request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
+	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func seedAPIImpactPreviewMetadata(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Create(&apigorm.API{Name: "API impact preview", Method: http.MethodPost, Path: "/api/admin/apis/impact-preview", Status: 1, NeedAuth: 1, PermissionCode: "admin.apis.get"}).Error; err != nil {
+		t.Fatalf("create API impact preview metadata: %v", err)
+	}
+}
+
 func TestApplicationResynchronizesRouteAfterMetadataPathDiverges(t *testing.T) {
 	db := testutil.OpenIsolatedSQLite(t)
 	if err := app.Migrate(db); err != nil {
@@ -128,6 +157,7 @@ func TestApplicationResynchronizesRouteAfterMetadataPathDiverges(t *testing.T) {
 	if err := db.Create(&apigorm.API{Name: "wrong path", Method: http.MethodGet, Path: "/api/admin/wrong-path", Status: 1, NeedAuth: 1, PermissionCode: "admin.apis.get"}).Error; err != nil {
 		t.Fatalf("create divergent API metadata: %v", err)
 	}
+	seedAPIImpactPreviewMetadata(t, db)
 	redisClient := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	minioClient, err := minio.New("127.0.0.1:9000", &minio.Options{Creds: credentials.NewStaticV4("test", "test", ""), Secure: false})
 	if err != nil {
@@ -144,8 +174,8 @@ func TestApplicationResynchronizesRouteAfterMetadataPathDiverges(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("diverged route access = %d, want 403", response.Code)
 	}
-	response = httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/admin/apis/sync", nil))
+	fingerprint := apiImpactFingerprint(t, application.Handler(), "sync", map[string]any{"routes": []any{}})
+	response = apiSyncRequest(t, application.Handler(), "/api/admin/apis/sync", fingerprint)
 	if response.Code != http.StatusOK {
 		t.Fatalf("API resync status = %d body=%s", response.Code, response.Body.String())
 	}
@@ -163,6 +193,7 @@ func TestApplicationSynchronizersShareRouteCatalogSet(t *testing.T) {
 	if err := app.Migrate(db); err != nil {
 		t.Fatalf("migrate App models: %v", err)
 	}
+	seedAPIImpactPreviewMetadata(t, db)
 	redisClient := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	minioClient, err := minio.New("127.0.0.1:9000", &minio.Options{Creds: credentials.NewStaticV4("test", "test", ""), Secure: false})
 	if err != nil {
@@ -174,8 +205,8 @@ func TestApplicationSynchronizersShareRouteCatalogSet(t *testing.T) {
 		t.Fatalf("assemble App: %v", err)
 	}
 	t.Cleanup(func() { _ = application.Close() })
-	response := httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/admin/apis/sync", nil))
+	fingerprint := apiImpactFingerprint(t, application.Handler(), "sync", map[string]any{"routes": []any{}})
+	response := apiSyncRequest(t, application.Handler(), "/api/admin/apis/sync", fingerprint)
 	if response.Code != http.StatusOK {
 		t.Fatalf("API sync status = %d body=%s", response.Code, response.Body.String())
 	}
@@ -221,6 +252,7 @@ func TestApplicationStaticAccessPrecedesMetadataBootstrap(t *testing.T) {
 	if err := app.Migrate(db); err != nil {
 		t.Fatalf("migrate App models: %v", err)
 	}
+	seedAPIImpactPreviewMetadata(t, db)
 	redisClient := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	minioClient, err := minio.New("127.0.0.1:9000", &minio.Options{Creds: credentials.NewStaticV4("test", "test", ""), Secure: false})
 	if err != nil {
@@ -246,11 +278,8 @@ func TestApplicationStaticAccessPrecedesMetadataBootstrap(t *testing.T) {
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous bootstrap status = %d, want 401", response.Code)
 	}
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/apis/sync", nil)
-	request.Header.Set("X-Identity", "admin")
-	request.Header.Set("X-Role", "admin")
-	response = httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, request)
+	fingerprint := impactFingerprintWithHeaders(t, application.Handler(), "/api/admin/apis/impact-preview", "sync", map[string]any{"routes": []any{}}, map[string]string{"X-Identity": "admin", "X-Role": "admin"})
+	response = apiSyncRequestWithHeaders(t, application.Handler(), "/api/admin/apis/sync", fingerprint, map[string]string{"X-Identity": "admin", "X-Role": "admin"})
 	if response.Code != http.StatusOK {
 		t.Fatalf("admin bootstrap status = %d body=%s", response.Code, response.Body.String())
 	}

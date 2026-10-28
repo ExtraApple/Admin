@@ -54,8 +54,7 @@ func TestRepositoryOwnsMenuAndRelationshipPersistence(t *testing.T) {
 	transactions := platformdatabase.NewTransactionRunner(db)
 	ctx := context.Background()
 
-	parentPath := "/settings"
-	parent := navigation.Menu{Name: "Settings", Path: &parentPath, Sort: 2, Type: 1, Status: 1}
+	parent := navigation.Menu{Name: "Settings", Sort: 2, Type: 1, Status: 1}
 	childPath := "/settings/users"
 	child := navigation.Menu{ParentID: 0, Name: "Users", Path: &childPath, Sort: 1, Type: 2, Status: 1}
 	if err := transactions.Run(ctx, func(txCtx context.Context) error {

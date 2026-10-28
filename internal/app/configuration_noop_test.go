@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	authgorm "admin/internal/authorization/adapters/gorm"
@@ -16,6 +17,24 @@ import (
 
 func configurationNoopRequest(t *testing.T, fixture clearingFixture, method, path string, body map[string]any, status int) map[string]any {
 	t.Helper()
+	if strings.HasPrefix(path, "/api/admin/menus/") {
+		operation := "update"
+		candidate := map[string]any{"menu_id": uint(31)}
+		switch {
+		case strings.HasSuffix(path, "/apis"):
+			operation = "bind-apis"
+			candidate["api_ids"] = body["api_ids"]
+			candidate["permission_code"] = body["permission_code"]
+		case strings.HasSuffix(path, "/sync"):
+			operation = "sync"
+			candidate["routes"] = body["routes"]
+		default:
+			for key, value := range body {
+				candidate[key] = value
+			}
+		}
+		body["expected_fingerprint"] = menuImpactFingerprint(t, fixture.handler, operation, candidate)
+	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -73,9 +92,9 @@ func TestConfigurationNoopsPreservePersistedFactsAndMissingVersions(t *testing.T
 		{"permission set", http.MethodPost, "/api/admin/roles/41/permissions", map[string]any{"permission_ids": []uint{71, 71}}},
 		{"data scope", http.MethodPost, "/api/admin/roles/41/data-scope", map[string]any{"data_scope": "self", "organization_ids": []uint{}}},
 		{"menu set", http.MethodPost, "/api/admin/roles/41/menus", map[string]any{"menu_ids": []uint{31, 31}}},
-		{"menu fields", http.MethodPut, "/api/admin/menus/31", map[string]any{"name": " Clearing menu ", "path": " /clearing ", "component": "KeepComponent", "icon": "keep-icon", "permission_code": "clearing.permission", "parent_id": 0, "sort": 0, "type": 3, "status": 1}},
+		{"menu fields", http.MethodPut, "/api/admin/menus/31", map[string]any{"name": " Clearing menu ", "path": "", "component": "", "icon": "keep-icon", "permission_code": "clearing.permission", "parent_id": 0, "sort": 0, "type": 3, "status": 1}},
 		{"API binding", http.MethodPost, "/api/admin/menus/31/apis", map[string]any{"api_ids": []uint{11, 11}, "permission_code": "clearing.permission"}},
-		{"all-skip sync", http.MethodPost, "/api/admin/menus/sync", map[string]any{"routes": []map[string]any{{"name": "Already configured", "path": "/clearing", "permission_code": "clearing.permission", "type": 3}}}},
+		{"all-skip sync", http.MethodPost, "/api/admin/menus/sync", map[string]any{"routes": []map[string]any{{"name": "Already configured", "path": "/clearing", "permission_code": "clearing.permission", "type": 2}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			before := configurationNoopFacts(t, fixture.db)

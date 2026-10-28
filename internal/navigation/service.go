@@ -47,24 +47,33 @@ func (service *Service) CreateMenu(ctx context.Context, input CreateInput) (Menu
 		}
 	}
 	menuType := input.Type
-	if menuType < 1 || menuType > 3 {
+	if menuType == 0 {
 		menuType = 1
 	}
 	status := 1
-	if input.Status != nil && (*input.Status == 0 || *input.Status == 1) {
+	if input.Status != nil {
 		status = *input.Status
 	}
 	menu := Menu{
 		ParentID: input.ParentID, Name: name, Path: path,
-		Component: input.Component, Icon: input.Icon,
+		Component: strings.TrimSpace(input.Component), Icon: input.Icon,
 		PermissionCode: strings.TrimSpace(input.PermissionCode),
 		Sort:           input.Sort, Type: menuType, Status: status,
+	}
+	if err := validateMenuFields(menu); err != nil {
+		return MenuDetail{}, err
 	}
 	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if err := service.authorization.LockPermissions(transactionContext, []string{menu.PermissionCode}); err != nil {
 			return err
 		}
 		if _, err := service.lockMenuTargets(transactionContext, 0, input.ParentID); err != nil {
+			return err
+		}
+		if err := service.validateMenuParent(transactionContext, 0, menu.ParentID, menu.Type); err != nil {
+			return err
+		}
+		if err := service.verifyMenuFingerprint(transactionContext, input.ExpectedFingerprint, ImpactPreviewInput{Operation: ImpactCreateMenu, Create: input}); err != nil {
 			return err
 		}
 		if err := service.repository.CreateMenu(transactionContext, &menu); err != nil {
@@ -107,7 +116,7 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 		updates["path"] = path
 	}
 	if input.Component != nil {
-		updates["component"] = *input.Component
+		updates["component"] = strings.TrimSpace(*input.Component)
 	}
 	if input.Icon != nil {
 		updates["icon"] = *input.Icon
@@ -139,7 +148,22 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 		var permissionCode string
 		var err error
 		if input.PermissionCode != nil {
-			lockedMenu, apiIDs, apis, permissionCode, err = service.lockMenuBindingTargets(transactionContext, menuID, parentID, nil, *input.PermissionCode)
+			snapshot, findErr := service.repository.FindMenu(transactionContext, menuID)
+			if findErr != nil {
+				if errors.Is(findErr, ErrMenuNotFound) {
+					return NewError(CodeNotFound, findErr)
+				}
+				return findErr
+			}
+			currentAPIIDs, idsErr := service.repository.APIIDsByMenuIDs(transactionContext, []uint{menuID}, false)
+			if idsErr != nil {
+				return idsErr
+			}
+			if snapshot.Type == 3 || len(currentAPIIDs) > 0 {
+				lockedMenu, apiIDs, apis, permissionCode, err = service.lockMenuBindingTargets(transactionContext, menuID, parentID, nil, *input.PermissionCode)
+			} else {
+				lockedMenu, err = service.lockMenuTargets(transactionContext, menuID, parentID)
+			}
 			if err != nil {
 				return err
 			}
@@ -148,6 +172,23 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 			if err != nil {
 				return err
 			}
+		}
+		if err := service.verifyMenuFingerprint(transactionContext, input.ExpectedFingerprint, ImpactPreviewInput{Operation: ImpactUpdateMenu, MenuID: menuID, Update: input}); err != nil {
+			return err
+		}
+		targetMenu := menuAfterUpdate(lockedMenu, input)
+		if err := validateMenuFields(targetMenu); err != nil {
+			return err
+		}
+		if err := service.validateMenuParent(transactionContext, menuID, targetMenu.ParentID, targetMenu.Type); err != nil {
+			return err
+		}
+		existingAPIIDs, err := service.repository.APIIDsByMenuIDs(transactionContext, []uint{menuID}, false)
+		if err != nil {
+			return err
+		}
+		if len(existingAPIIDs) > 0 && targetMenu.Type != 3 {
+			return NewError(CodeValidationInvalid, nil)
 		}
 		fieldUpdates := changedMenuFields(lockedMenu, updates, len(apiIDs) > 0)
 		if len(fieldUpdates) > 0 {
@@ -185,7 +226,8 @@ func (service *Service) UpdateMenu(ctx context.Context, menuID uint, input Updat
 	return menuToDetail(menu), err
 }
 
-func (service *Service) DeleteMenu(ctx context.Context, menuID uint) error {
+func (service *Service) DeleteMenu(ctx context.Context, menuID uint, expectedFingerprints ...string) error {
+	expectedFingerprint := optionalFingerprint(expectedFingerprints)
 	if menuID == 0 {
 		return NewError(CodeNotFound, ErrMenuNotFound)
 	}
@@ -204,6 +246,9 @@ func (service *Service) DeleteMenu(ctx context.Context, menuID uint) error {
 		}
 		if hasChildren {
 			return NewError(CodeConflict, nil)
+		}
+		if err := service.verifyMenuFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactDeleteMenu, MenuID: menuID}); err != nil {
+			return err
 		}
 		if err := service.repository.DeleteMenu(transactionContext, menuID); err != nil {
 			return err
@@ -299,19 +344,22 @@ func (service *Service) UserMenus(ctx context.Context, userID uint) ([]MenuDetai
 	}
 	return buildMenuTree(filterVisibleMenus(menus, assignedIDs, access.Permissions), 0), nil
 }
-func (service *Service) SyncMenus(ctx context.Context, items []SyncItem) (int, error) {
+func (service *Service) SyncMenus(ctx context.Context, items []SyncItem, expectedFingerprints ...string) (int, error) {
+	expectedFingerprint := optionalFingerprint(expectedFingerprints)
+	plan, err := normalizeSyncMenuPlan(items)
+	if err != nil {
+		return 0, err
+	}
 	created := 0
-	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
+	err = service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		created = 0
-		paths := make([]string, 0, len(items)*2)
-		codes := make([]string, 0, len(items))
-		for _, item := range items {
-			codes = append(codes, strings.TrimSpace(item.PermissionCode))
-			if path := normalizeMenuPath(item.Path); path != nil {
-				paths = append(paths, *path)
-			}
-			if parentPath := strings.TrimSpace(item.ParentPath); parentPath != "" {
-				paths = append(paths, parentPath)
+		paths := make([]string, 0, len(plan)*2)
+		codes := make([]string, 0, len(plan))
+		for _, item := range plan {
+			paths = append(paths, item.path)
+			codes = append(codes, item.permissionCode)
+			if item.parentPath != "" {
+				paths = append(paths, item.parentPath)
 			}
 		}
 		if err := service.authorization.LockPermissions(transactionContext, codes); err != nil {
@@ -321,41 +369,52 @@ func (service *Service) SyncMenus(ctx context.Context, items []SyncItem) (int, e
 		if err != nil {
 			return err
 		}
-		byPath := make(map[string]Menu, len(locked)+len(items))
+		byPath := make(map[string]Menu, len(locked)+len(plan))
 		for _, menu := range locked {
 			if menu.Path != nil {
 				byPath[*menu.Path] = menu
 			}
 		}
-		for _, item := range items {
-			path := normalizeMenuPath(item.Path)
-			if path == nil {
-				continue
-			}
-			if _, exists := byPath[*path]; exists {
-				continue
-			}
+		if err := service.verifyMenuFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactSyncMenus, SyncItems: items}); err != nil {
+			return err
+		}
+		for _, item := range plan {
 			parentID := uint(0)
-			if parentPath := strings.TrimSpace(item.ParentPath); parentPath != "" {
-				if parent, found := byPath[parentPath]; found {
-					parentID = parent.ID
+			if item.parentPath != "" {
+				parent, found := byPath[item.parentPath]
+				if !found {
+					return NewError(CodeConflict, nil)
 				}
+				if item.typeValue == 3 && parent.Type != 1 && parent.Type != 2 {
+					return NewError(CodeValidationInvalid, nil)
+				}
+				parentID = parent.ID
 			}
-			menuType := item.Type
-			if menuType < 1 || menuType > 3 {
-				menuType = 1
+			if _, exists := byPath[item.path]; exists {
+				continue
 			}
-			menu := Menu{
-				ParentID: parentID, Name: strings.TrimSpace(item.Name), Path: path,
-				Component: item.Component, Icon: item.Icon,
-				PermissionCode: strings.TrimSpace(item.PermissionCode),
-				Sort:           item.Sort, Type: menuType, Status: 1,
-			}
-			if err := service.repository.CreateMenu(transactionContext, &menu); err != nil {
+			exists, err := service.repository.PathExists(transactionContext, item.path, 0)
+			if err != nil {
 				return err
 			}
+			if exists {
+				continue
+			}
+			path := item.path
+			menu := Menu{
+				ParentID: parentID, Name: item.name, Path: &path,
+				Component: item.component, Icon: item.icon,
+				PermissionCode: item.permissionCode,
+				Sort:           item.sort, Type: item.typeValue, Status: 1,
+			}
+			if err := validateMenuFields(menu); err != nil {
+				return err
+			}
+			if err := service.repository.CreateMenu(transactionContext, &menu); err != nil {
+				return NewError(CodeInternalError, err)
+			}
 			created++
-			byPath[*path] = menu
+			byPath[item.path] = menu
 		}
 		if created == 0 {
 			return nil
@@ -367,6 +426,10 @@ func (service *Service) SyncMenus(ctx context.Context, items []SyncItem) (int, e
 		return service.authorization.IncrementAccessVersions(transactionContext, uniqueUintIDs(userIDs))
 	})
 	if err != nil {
+		var classified *Error
+		if errors.As(err, &classified) {
+			return 0, err
+		}
 		return 0, NewError(CodeInternalError, err)
 	}
 	return created, nil
@@ -389,7 +452,8 @@ func (service *Service) MenuAPIs(ctx context.Context, menuID uint) ([]APIRecord,
 	}
 	return apis, nil
 }
-func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []uint, manualCode string) error {
+func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []uint, manualCode string, expectedFingerprints ...string) error {
+	expectedFingerprint := optionalFingerprint(expectedFingerprints)
 	for _, apiID := range apiIDs {
 		if apiID == 0 {
 			return NewError(CodeValidationInvalid, nil)
@@ -406,6 +470,9 @@ func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []ui
 		changed = false
 		menu, _, apis, permissionCode, err := service.lockMenuBindingTargets(transactionContext, menuID, 0, apiIDs, manualCode)
 		if err != nil {
+			return err
+		}
+		if err := service.verifyMenuFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactBindAPIs, MenuID: menuID, APIIDs: apiIDs, PermissionCode: manualCode}); err != nil {
 			return err
 		}
 		beforeRoles, err := service.affectedRoleIDs(transactionContext, []uint{menuID}, []string{menu.PermissionCode})
@@ -439,6 +506,51 @@ func (service *Service) AssignAPIs(ctx context.Context, menuID uint, apiIDs []ui
 			return err
 		}
 		affectedUserIDs = uniqueUintIDs(affectedUserIDs)
+		return service.authorization.IncrementAccessVersions(transactionContext, affectedUserIDs)
+	})
+	if err != nil {
+		return err
+	}
+	if changed {
+		service.postCommitInvalidate(ctx, affectedUserIDs)
+	}
+	return nil
+}
+func (service *Service) ClearAPIs(ctx context.Context, menuID uint, expectedFingerprints ...string) error {
+	expectedFingerprint := optionalFingerprint(expectedFingerprints)
+	var affectedUserIDs []uint
+	changed := false
+	err := service.transactions.Run(ctx, func(transactionContext context.Context) error {
+		menu, err := service.lockMenuTargets(transactionContext, menuID)
+		if err != nil {
+			return err
+		}
+		if err := service.verifyMenuFingerprint(transactionContext, expectedFingerprint, ImpactPreviewInput{Operation: ImpactClearAPIs, MenuID: menuID}); err != nil {
+			return err
+		}
+		currentIDs, err := service.repository.APIIDsByMenuIDs(transactionContext, []uint{menuID}, true)
+		if err != nil {
+			return err
+		}
+		if len(currentIDs) == 0 {
+			return nil
+		}
+		if _, _, err := service.lockReferenceTargets(transactionContext, []uint{menuID}, currentIDs, menu.PermissionCode, ""); err != nil {
+			return err
+		}
+		roleIDs, err := service.affectedRoleIDs(transactionContext, []uint{menuID}, []string{menu.PermissionCode})
+		if err != nil {
+			return err
+		}
+		if err := service.repository.ReplaceMenuAPIs(transactionContext, menuID, nil); err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		affectedUserIDs, err = service.authorization.UserIDsByRoleIDs(transactionContext, roleIDs)
+		if err != nil {
+			return err
+		}
+		affectedUserIDs = uniqueUintIDs(affectedUserIDs)
+		changed = true
 		return service.authorization.IncrementAccessVersions(transactionContext, affectedUserIDs)
 	})
 	if err != nil {
@@ -491,6 +603,9 @@ func (service *Service) lockMenuBindingTargets(ctx context.Context, menuID, pare
 	menu, exists := menuByID(menus, menuID)
 	if !exists || menu.Deleted {
 		return Menu{}, nil, nil, "", NewError(CodeNotFound, ErrMenuNotFound)
+	}
+	if menu.Type != 3 {
+		return Menu{}, nil, nil, "", NewError(CodeValidationInvalid, nil)
 	}
 	if parentID != 0 {
 		if parent, exists := menuByID(menus, parentID); !exists || parent.Deleted {
@@ -585,6 +700,10 @@ func (service *Service) postCommitInvalidate(ctx context.Context, userIDs []uint
 	})
 }
 func (service *Service) ChangeAPIPermissionCode(ctx context.Context, apiID uint, requestedCode string, update func(context.Context) error) error {
+	return service.ChangeAPIPermissionCodeWithGuard(ctx, apiID, requestedCode, nil, update)
+}
+
+func (service *Service) ChangeAPIPermissionCodeWithGuard(ctx context.Context, apiID uint, requestedCode string, guard func(context.Context) error, update func(context.Context) error) error {
 	return service.transactions.Run(ctx, func(transactionContext context.Context) error {
 		api, menuIDs, linkedAPIIDs, err := service.lockAPICoordinatorTargets(transactionContext, apiID, &requestedCode)
 		if err != nil {
@@ -593,6 +712,11 @@ func (service *Service) ChangeAPIPermissionCode(ctx context.Context, apiID uint,
 		permissionCode := strings.TrimSpace(requestedCode)
 		if permissionCode == "" && api.NeedAuth == 1 {
 			permissionCode = derivePermissionCode(api.Method, api.Path)
+		}
+		if guard != nil {
+			if err := guard(transactionContext); err != nil {
+				return err
+			}
 		}
 		beforeRoles, err := service.affectedRoleIDs(transactionContext, menuIDs, []string{api.PermissionCode})
 		if err != nil {
@@ -673,7 +797,14 @@ func (service *Service) DeleteAPI(ctx context.Context, apiID uint, deleteAPI fun
 	service.postCommitInvalidate(ctx, affectedUserIDs)
 	return nil
 }
+func (service *Service) ValidateMenuButtonParent(ctx context.Context, parentID uint) error {
+	return service.validateMenuParent(ctx, 0, parentID, 3)
+}
 func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int) (MenuDetail, error) {
+	return service.GenerateMenuButtonWithGuard(ctx, apiID, parentID, name, sort, nil)
+}
+
+func (service *Service) GenerateMenuButtonWithGuard(ctx context.Context, apiID, parentID uint, name string, sort int, guard func(context.Context) error) (MenuDetail, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return MenuDetail{}, NewError(CodeValidationInvalid, nil)
@@ -705,8 +836,17 @@ func (service *Service) GenerateMenuButton(ctx context.Context, apiID, parentID 
 		if err := validateLinkableAPI(api); err != nil {
 			return err
 		}
-		if _, err := service.repository.LockMenu(transactionContext, parentID); err != nil {
+		parent, err := service.repository.LockMenu(transactionContext, parentID)
+		if err != nil {
 			return NewError(CodeNotFound, err)
+		}
+		if parent.Type != 1 && parent.Type != 2 {
+			return NewError(CodeValidationInvalid, nil)
+		}
+		if guard != nil {
+			if err := guard(transactionContext); err != nil {
+				return err
+			}
 		}
 		if _, _, err := service.authorization.EnsurePermission(transactionContext, PermissionSeed{Code: permissionCode, Name: name, Group: api.Group, Sort: sort}); err != nil {
 			return err
@@ -1002,6 +1142,71 @@ func normalizeMenuPath(path string) *string {
 		return nil
 	}
 	return &path
+}
+func validateMenuFields(menu Menu) error {
+	if menu.Type < 1 || menu.Type > 3 || menu.Status < 0 || menu.Status > 1 {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	hasPath := menu.Path != nil && strings.TrimSpace(*menu.Path) != ""
+	hasComponent := strings.TrimSpace(menu.Component) != ""
+	switch menu.Type {
+	case 1:
+		if hasPath || hasComponent {
+			return NewError(CodeValidationInvalid, nil)
+		}
+	case 2:
+		if !hasPath {
+			return NewError(CodeValidationInvalid, nil)
+		}
+	case 3:
+		if hasPath || hasComponent {
+			return NewError(CodeValidationInvalid, nil)
+		}
+	}
+	return nil
+}
+
+func (service *Service) validateMenuParent(ctx context.Context, menuID, parentID uint, menuType int) error {
+	if parentID == 0 {
+		return nil
+	}
+	if menuID != 0 && menuID == parentID {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	parent, err := service.repository.LockMenu(ctx, parentID)
+	if err != nil {
+		if errors.Is(err, ErrMenuNotFound) {
+			return NewError(CodeNotFound, err)
+		}
+		return err
+	}
+	if parent.Deleted {
+		return NewError(CodeNotFound, ErrMenuNotFound)
+	}
+	if menuType == 3 && parent.Type != 1 && parent.Type != 2 {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	return nil
+}
+
+func menuAfterUpdate(current Menu, input UpdateInput) Menu {
+	target := current
+	if input.ParentID != nil {
+		target.ParentID = *input.ParentID
+	}
+	if input.Path != nil {
+		target.Path = normalizeMenuPath(*input.Path)
+	}
+	if input.Component != nil {
+		target.Component = strings.TrimSpace(*input.Component)
+	}
+	if input.Type != nil {
+		target.Type = *input.Type
+	}
+	if input.Status != nil {
+		target.Status = *input.Status
+	}
+	return target
 }
 
 func (service *Service) affectedRoleIDs(ctx context.Context, menuIDs []uint, permissionCodes []string) ([]uint, error) {

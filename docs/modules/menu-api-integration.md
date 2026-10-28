@@ -22,6 +22,7 @@ apis.permission_code
 
 - 只能绑定已启用且需要认证的 API。
 - 菜单绑定先校验原始 API ID 列表：`0` 整次拒绝，不能先过滤；合法重复 ID 仍去重处理，空列表不表示解绑。HTTP 和直接调用同一用例均遵守该规则，无效请求不留下菜单、API、关联、权限、角色授权或版本写入。C1定向验收见[去敏记录](../reviews/evidence/c1-menu-api-ids-fix-2026-10-16.json)。
+- `POST /api/admin/menus/:id/apis` 使用 `clear=true` 显式解绑，要求 `api_ids` 和 `permission_code` 为空；菜单自身独立权限码不清空。已无绑定时成功 no-op，不重建关系、不清理无关权限、不提升版本。目录和页面只能通过该模式修复历史非法绑定，不能创建新绑定。
 - 一个按钮菜单可以绑定多个 API；同一动作建议使用同一个权限码。
 - 指定权限码时，菜单和绑定 API 统一使用该权限码；未指定且 API 权限码一致时可自动推导。
 - API 缺少权限码时，系统按 Method + Path 生成默认权限码并补齐权限记录。
@@ -35,6 +36,8 @@ apis.permission_code
 - F2另有[整请求同步验收](../reviews/evidence/api-permission-sync-atomic-2026-10-18.json)：整轮锁集准备与原业务遍历分离，后项失败回滚前项事实及全部版本；响应只统计本次提交且最终保留的新权限。同用户多项实际联动保留逐API版本触发，不借此改为请求去重或选择S3传播政策。
 - 菜单绑定先完成原始ID、启用／认证、引用与当前事实校验；目标API集合、最终实际码和既有规则维护的派生事实都不变时，成功但不重建关联、不增版本，也不触发可选失效钩子。缺失／软删权限、直接API码漂移、真实目标或码变化仍需修复／合并授权并处理版本；同码不会凭空引入额外授权或元数据更新政策。三类第二用户版本失败回滚、当前角色行交错及合法全skip／真实Runner重试见[配置no-op证据](../reviews/evidence/configuration-noop-2026-10-18.json)，不扩成API其他元数据字段或S3传播设计。
 - 公开 API 不得生成按钮菜单或绑定菜单权限。
+- 绑定、清空、权限码联动、API 删除、权限同步和按钮生成等高影响写入先请求对应影响预览，再提交 `expected_fingerprint`；菜单/API 删除使用 `X-Expected-Fingerprint`。陈旧事实分别返回 `NAV_CONFLICT` 或 `API_META_CONFLICT`，不自动重放。
+- `POST /api/admin/menus/impact-preview` 和 `POST /api/admin/apis/impact-preview` 只读返回规范化候选、影响菜单/API/角色/用户摘要和无状态 SHA-256 fingerprint，不写入数据库、权限、版本或缓存。
 
 ## 典型验证流程
 

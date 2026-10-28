@@ -15,7 +15,7 @@ func TestRoutesDescribeNavigationHTTPSurface(t *testing.T) {
 	}
 	for _, path := range []string{
 		"/api/admin/menus", "/api/admin/menus/:id", "/api/admin/menus/:id/apis",
-		"/api/admin/roles/:id/menus",
+		"/api/admin/menus/impact-preview", "/api/admin/roles/:id/menus",
 	} {
 		found := false
 		for _, descriptor := range catalog.Snapshot() {

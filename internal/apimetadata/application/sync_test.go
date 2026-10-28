@@ -47,7 +47,11 @@ func TestServiceSyncRoutesPreservesExistingMetadataAndReturnsOnlyCreated(t *test
 		{Method: "GET", Path: "/api/public", Name: "Public", Group: "public"},
 	}}
 	service := application.NewService(core, nil, application.WithRouteSource(source))
-	created, err := service.SyncRoutes(ctx)
+	preview, err := service.PreviewImpact(ctx, application.ImpactPreviewInput{Operation: application.ImpactSyncAPIs})
+	if err != nil {
+		t.Fatalf("preview sync routes: %v", err)
+	}
+	created, err := service.SyncRoutes(ctx, preview.Fingerprint)
 	if err != nil {
 		t.Fatalf("sync routes: %v", err)
 	}
@@ -86,11 +90,15 @@ func TestServiceSyncRoutesFiltersNonAPIPathsAndPreservesPublicRefreshConfigurati
 		{Method: "POST", Path: "/api/refresh", Name: "Catalog Refresh"},
 	}}
 	service := application.NewService(core, nil, application.WithRouteSource(source))
-	created, err := service.SyncRoutes(ctx)
+	preview, err := service.PreviewImpact(ctx, application.ImpactPreviewInput{Operation: application.ImpactSyncAPIs})
+	if err != nil {
+		t.Fatalf("preview sync routes: %v", err)
+	}
+	created, err := service.SyncRoutes(ctx, preview.Fingerprint)
 	if err != nil {
 		t.Fatalf("sync routes: %v", err)
 	}
-	if len(created) != 0 || source.calls != 1 {
+	if len(created) != 0 || source.calls != 2 {
 		t.Fatalf("sync result=%#v source calls=%d", created, source.calls)
 	}
 	apis, _, err := core.List(ctx, 1, 20, application.Filter{})
@@ -137,7 +145,11 @@ func TestServiceSyncRoutesCreatesCookieLogoutWithoutPermissionAndKeepsHistorical
 				{Method: "GET", Path: "/api/admin/widgets", Name: "Widgets", PermissionControlled: true, DefaultPermissionCode: "widgets.get", NeedAudit: true},
 			}}
 			service := application.NewService(core, nil, application.WithRouteSource(source))
-			if _, err := service.SyncRoutes(ctx); err != nil {
+			preview, err := service.PreviewImpact(ctx, application.ImpactPreviewInput{Operation: application.ImpactSyncAPIs})
+			if err != nil {
+				t.Fatalf("preview Cookie logout routes: %v", err)
+			}
+			if _, err := service.SyncRoutes(ctx, preview.Fingerprint); err != nil {
 				t.Fatalf("sync Cookie logout routes: %v", err)
 			}
 			apis, _, err := core.List(ctx, 1, 20, application.Filter{})
@@ -167,11 +179,55 @@ func TestServiceSyncRoutesCreatesCookieLogoutWithoutPermissionAndKeepsHistorical
 					}
 				}
 			}
-			createdAgain, err := service.SyncRoutes(ctx)
+			preview, err = service.PreviewImpact(ctx, application.ImpactPreviewInput{Operation: application.ImpactSyncAPIs})
+			if err != nil {
+				t.Fatalf("preview repeated Cookie logout routes: %v", err)
+			}
+			createdAgain, err := service.SyncRoutes(ctx, preview.Fingerprint)
 			if err != nil || len(createdAgain) != 0 {
 				t.Fatalf("repeated sync created duplicate routes: %#v, %v", createdAgain, err)
 			}
 		})
+	}
+}
+func TestServiceProjectsRouteCatalogStateOnListAndGet(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(gormadapter.Models()...); err != nil {
+		t.Fatalf("migrate API Metadata: %v", err)
+	}
+	core := application.NewCore(gormadapter.NewRepository(db), platformdatabase.NewTransactionRunner(db), &permissionReferenceLockerFake{})
+	ctx := context.Background()
+	matched, err := core.Create(ctx, application.CreateInput{Name: "Matched", Method: "GET", Path: "/api/matched", PermissionCode: "matched.get"})
+	if err != nil {
+		t.Fatalf("create matched API: %v", err)
+	}
+	metadataOnly, err := core.Create(ctx, application.CreateInput{Name: "Metadata Only", Method: "GET", Path: "/api/metadata-only"})
+	if err != nil {
+		t.Fatalf("create metadata-only API: %v", err)
+	}
+	mismatch, err := core.Create(ctx, application.CreateInput{Name: "Mismatch", Method: "GET", Path: "/api/mismatch", PermissionCode: "historical.mismatch"})
+	if err != nil {
+		t.Fatalf("create mismatch API: %v", err)
+	}
+	source := &routeSourceFake{facts: []application.RouteFact{
+		{Method: "GET", Path: "/api/matched", PermissionControlled: true, DefaultPermissionCode: "matched.get"},
+		{Method: "GET", Path: "/api/mismatch", PermissionControlled: true, DefaultPermissionCode: "mismatch.get"},
+	}}
+	service := application.NewService(core, nil, application.WithRouteSource(source))
+	apis, _, err := service.List(ctx, 1, 20, application.Filter{})
+	if err != nil {
+		t.Fatalf("list projected APIs: %v", err)
+	}
+	states := map[uint]string{}
+	for _, api := range apis {
+		states[api.ID] = api.RouteState
+	}
+	if states[matched.ID] != application.RouteStateMatched || states[metadataOnly.ID] != application.RouteStateMetadataOnly || states[mismatch.ID] != application.RouteStateAccessMismatch {
+		t.Fatalf("route states = %#v", states)
+	}
+	projected, err := service.Get(ctx, matched.ID)
+	if err != nil || projected.RouteState != application.RouteStateMatched {
+		t.Fatalf("projected API = %#v, error = %v", projected, err)
 	}
 }
 

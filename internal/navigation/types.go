@@ -29,27 +29,29 @@ type MenuDetail struct {
 }
 
 type CreateInput struct {
-	ParentID       uint
-	Name           string
-	Path           string
-	Component      string
-	Icon           string
-	PermissionCode string
-	Sort           int
-	Type           int
-	Status         *int
+	ParentID            uint
+	Name                string
+	Path                string
+	Component           string
+	Icon                string
+	PermissionCode      string
+	Sort                int
+	Type                int
+	Status              *int
+	ExpectedFingerprint string
 }
 
 type UpdateInput struct {
-	ParentID       *uint
-	Name           *string
-	Path           *string
-	Component      *string
-	Icon           *string
-	PermissionCode *string
-	Sort           *int
-	Type           *int
-	Status         *int
+	ParentID            *uint
+	Name                *string
+	Path                *string
+	Component           *string
+	Icon                *string
+	PermissionCode      *string
+	Sort                *int
+	Type                *int
+	Status              *int
+	ExpectedFingerprint string
 }
 
 type SyncItem struct {

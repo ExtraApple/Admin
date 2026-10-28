@@ -20,7 +20,7 @@ func TestServiceCreatesAndReturnsOrderedMenuTree(t *testing.T) {
 	service, authorization := newNavigationServiceFixture(t)
 	ctx := context.Background()
 
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Settings", Path: "/settings", Sort: 2})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Settings", Sort: 2, Type: 1})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestServiceCreatesAndReturnsOrderedMenuTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create child: %v", err)
 	}
-	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Duplicate", Path: "/settings/users"}); err == nil {
+	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Duplicate", Path: "/settings/users", Type: 2}); err == nil {
 		t.Fatal("duplicate menu path was accepted")
 	}
 
@@ -50,14 +50,15 @@ func TestServiceCreatesAndReturnsOrderedMenuTree(t *testing.T) {
 func TestServiceCreateMenuPreservesStatusPresenceInStorageAndVisibility(t *testing.T) {
 	disabled, enabled, aboveRange := 0, 1, 2
 	for _, test := range []struct {
-		name   string
-		status *int
-		want   int
+		name      string
+		status    *int
+		want      int
+		wantError bool
 	}{
 		{name: "omitted", want: 1},
 		{name: "disabled", status: &disabled, want: 0},
 		{name: "enabled", status: &enabled, want: 1},
-		{name: "above range", status: &aboveRange, want: 1},
+		{name: "above range", status: &aboveRange, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, authorization := newNavigationServiceFixture(t)
@@ -66,6 +67,12 @@ func TestServiceCreateMenuPreservesStatusPresenceInStorageAndVisibility(t *testi
 				Name: "Status menu", Path: "/status-menu", Type: 2,
 				PermissionCode: "status.read", Status: test.status,
 			})
+			if test.wantError {
+				if code, ok := navigation.CodeOf(err); !ok || code != navigation.CodeValidationInvalid {
+					t.Fatalf("invalid status error = %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("create menu: %v", err)
 			}
@@ -101,11 +108,11 @@ func TestServiceCreateMenuPreservesStatusPresenceInStorageAndVisibility(t *testi
 func TestServiceUpdatesAndDeletesOnlyLeafMenus(t *testing.T) {
 	service, authorization := newNavigationServiceFixture(t)
 	ctx := context.Background()
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent", Path: "/parent"})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent", Path: "/parent", Type: 2})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
-	child, err := service.CreateMenu(ctx, navigation.CreateInput{ParentID: parent.ID, Name: "Child", Path: "/child"})
+	child, err := service.CreateMenu(ctx, navigation.CreateInput{ParentID: parent.ID, Name: "Child", Path: "/child", Type: 2})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
 	}
@@ -272,7 +279,7 @@ func TestServicePreservesUnboundCodeUpdateAndOmittedCodeSemantics(t *testing.T) 
 func TestServiceAssignsRoleMenusAndPreservesVisibleParentChain(t *testing.T) {
 	service, authorization := newNavigationServiceFixture(t)
 	ctx := context.Background()
-	root, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Root", Path: "/root", PermissionCode: "root.hidden"})
+	root, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Root", Path: "/root", PermissionCode: "root.hidden", Type: 2})
 	if err != nil {
 		t.Fatalf("create root: %v", err)
 	}
@@ -313,9 +320,8 @@ func TestServiceSyncsFrontendRoutesAndListsBoundAPIs(t *testing.T) {
 	ctx := context.Background()
 
 	created, err := service.SyncMenus(ctx, []navigation.SyncItem{
-		{Name: "Admin", Path: "/admin", Sort: 1},
+		{Name: "Admin", Path: "/admin", Sort: 1, Type: 2},
 		{Name: "Users", Path: "/admin/users", ParentPath: "/admin", Component: "views/users", Sort: 2, Type: 2},
-		{Name: "Duplicate", Path: "/admin/users"},
 	})
 	if err != nil || created != 2 {
 		t.Fatalf("SyncMenus created = %d, %v; want 2", created, err)
@@ -436,7 +442,7 @@ func TestServiceRollsBackLinkedWritesWhenAuthorizationVersionFails(t *testing.T)
 	}
 
 	authorization.incrementErr = nil
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent"})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent", Type: 1})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
 	}
@@ -691,7 +697,7 @@ func navigationAPIRecord(api apidomain.API) navigation.APIRecord {
 func TestServiceGeneratesButtonMenuFromAuthenticatedAPI(t *testing.T) {
 	service, authorization, apis := newNavigationServiceFixtureWithAPIs(t)
 	ctx := context.Background()
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Users", Path: "/users"})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Users", Path: "/users", Type: 2})
 	if err != nil {
 		t.Fatalf("create parent menu: %v", err)
 	}
@@ -716,6 +722,30 @@ func TestServiceGeneratesButtonMenuFromAuthenticatedAPI(t *testing.T) {
 	apis.records[10] = navigation.APIRecord{ID: 10, Name: "Public", Method: "GET", Path: "/api/public", Status: 1, NeedAuth: 0}
 	if _, err := service.GenerateMenuButton(ctx, 10, parent.ID, "Public", 4); err == nil {
 		t.Fatal("public API generated a permission button")
+	}
+}
+func TestGenerateMenuButtonEnforcesParentAndAPIPolicy(t *testing.T) {
+	service, _, apis := newNavigationServiceFixtureWithAPIs(t)
+	ctx := context.Background()
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Pages", Path: "/pages", Type: 2})
+	if err != nil {
+		t.Fatalf("create page parent: %v", err)
+	}
+	buttonParent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Button parent", Type: 3})
+	if err != nil {
+		t.Fatalf("create button parent: %v", err)
+	}
+	apis.records[10] = navigation.APIRecord{ID: 10, Name: "Public", Method: "GET", Path: "/api/public", Status: 1, NeedAuth: 0}
+	if _, err := service.GenerateMenuButton(ctx, 10, parent.ID, "Public", 1); err == nil {
+		t.Fatal("public API generated a button")
+	}
+	apis.records[11] = navigation.APIRecord{ID: 11, Name: "Stopped", Method: "GET", Path: "/api/stopped", Status: 0, NeedAuth: 1}
+	if _, err := service.GenerateMenuButton(ctx, 11, parent.ID, "Stopped", 1); err == nil {
+		t.Fatal("stopped API generated a button")
+	}
+	apis.records[9] = navigation.APIRecord{ID: 9, Name: "Authenticated", Method: "GET", Path: "/api/authenticated", Status: 1, NeedAuth: 1}
+	if _, err := service.GenerateMenuButton(ctx, 9, buttonParent.ID, "Nested", 1); err == nil {
+		t.Fatal("button generated under a button parent")
 	}
 }
 func TestServiceInvalidatesCacheAfterCommitAndExposesRetry(t *testing.T) {
@@ -751,6 +781,40 @@ func TestServiceInvalidatesCacheAfterCommitAndExposesRetry(t *testing.T) {
 	cache.err = nil
 	if err := service.RetryCacheInvalidation(ctx, []uint{42}); err != nil || cache.calls != 2 {
 		t.Fatalf("retry cache invalidation calls=%d err=%v", cache.calls, err)
+	}
+}
+func TestServiceClearAPIsOnlyInvalidatesOnChange(t *testing.T) {
+	fixture := newAPIDeleteFixture(t)
+	fixture.authorization.incremented = nil
+
+	if err := fixture.service.ClearAPIs(fixture.ctx, fixture.menuID); err != nil {
+		t.Fatalf("clear APIs: %v", err)
+	}
+	if len(fixture.authorization.incremented) != 1 || len(fixture.authorization.incremented[0]) != 1 || fixture.authorization.incremented[0][0] != 42 {
+		t.Fatalf("clear access-version invalidations = %#v, want [[42]]", fixture.authorization.incremented)
+	}
+	bound, err := fixture.service.MenuAPIs(fixture.ctx, fixture.menuID)
+	if err != nil || len(bound) != 0 {
+		t.Fatalf("bindings after clear = %#v, error = %v", bound, err)
+	}
+
+	fixture.authorization.incremented = nil
+	if err := fixture.service.ClearAPIs(fixture.ctx, fixture.menuID); err != nil {
+		t.Fatalf("clear already-empty APIs: %v", err)
+	}
+	if len(fixture.authorization.incremented) != 0 {
+		t.Fatalf("no-op clear invalidated access versions: %#v", fixture.authorization.incremented)
+	}
+}
+func TestServiceClearAPIsRollsBackOnVersionFailure(t *testing.T) {
+	fixture := newAPIDeleteFixture(t)
+	fixture.authorization.incrementErr = errors.New("version failure")
+	if err := fixture.service.ClearAPIs(fixture.ctx, fixture.menuID); err == nil {
+		t.Fatal("clear APIs succeeded despite version failure")
+	}
+	bound, err := fixture.service.MenuAPIs(fixture.ctx, fixture.menuID)
+	if err != nil || len(bound) != 1 || bound[0].ID != fixture.apiID {
+		t.Fatalf("clear rollback bindings=%#v error=%v", bound, err)
 	}
 }
 
@@ -990,7 +1054,7 @@ func newNavigationServiceFixtureWithAPIs(t *testing.T) (*navigation.Service, *na
 func TestRoleMenusReturnsDisabledAndOrphanAssignmentsWithoutChangingUserMenus(t *testing.T) {
 	service, authorization := newNavigationServiceFixture(t)
 	ctx := context.Background()
-	root, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Unassigned parent", Path: "/unassigned", Sort: 5})
+	root, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Unassigned parent", Path: "/unassigned", Sort: 5, Type: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1035,11 +1099,11 @@ func TestRoleMenuReplacementRejectsIllegalReferencesAndProtectedRoleAtomically(t
 		t.Run(test.name, func(t *testing.T) {
 			service, authorization := newNavigationServiceFixture(t)
 			ctx := context.Background()
-			old, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Existing", Path: "/existing"})
+			old, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Existing", Path: "/existing", Type: 2})
 			if err != nil {
 				t.Fatal(err)
 			}
-			next, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Replacement", Path: "/replacement"})
+			next, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Replacement", Path: "/replacement", Type: 2})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1063,11 +1127,11 @@ func TestRoleMenuReplacementRejectsIllegalReferencesAndProtectedRoleAtomically(t
 func TestMenuLifecycleRejectsDeletedParentsAndMenuReferences(t *testing.T) {
 	fixture := newAPIDeleteFixture(t)
 	ctx, service := fixture.ctx, fixture.service
-	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent", Path: "/lifecycle-parent"})
+	parent, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Parent", Path: "/lifecycle-parent", Type: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Child", ParentID: parent.ID})
+	child, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Child", ParentID: parent.ID, Type: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1081,7 +1145,7 @@ func TestMenuLifecycleRejectsDeletedParentsAndMenuReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.authorization.incremented = nil
-	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Stale child", ParentID: parent.ID}); err == nil {
+	if _, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Stale child", ParentID: parent.ID, Type: 1}); err == nil {
 		t.Fatal("created a child of a deleted parent")
 	}
 	if _, err := service.UpdateMenu(ctx, fixture.menuID, navigation.UpdateInput{Name: stringPointer("Must roll back"), ParentID: &parent.ID}); err == nil {

@@ -21,6 +21,9 @@ type PermissionCoordinator interface {
 	ExistingPermissionCodes(context.Context, []string, bool) ([]string, error)
 	ChangeAPIPermissionCode(context.Context, uint, string, func(context.Context) error) error
 	DeleteAPI(context.Context, uint, func(context.Context) error) error
+	ChangeAPIPermissionCodeWithGuard(context.Context, uint, string, func(context.Context) error, func(context.Context) error) error
 	EnsureAPIPermission(context.Context, domain.API) (bool, error)
 	GenerateMenuButton(context.Context, uint, uint, string, int) (Button, error)
+	ValidateMenuButtonParent(context.Context, uint) error
+	GenerateMenuButtonWithGuard(context.Context, uint, uint, string, int, func(context.Context) error) (Button, error)
 }

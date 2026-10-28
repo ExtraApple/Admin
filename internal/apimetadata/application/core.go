@@ -140,11 +140,20 @@ func (core *Core) Get(ctx context.Context, id uint) (domain.API, error) {
 }
 
 func (core *Core) Update(ctx context.Context, id uint, input UpdateInput) (domain.API, error) {
+	return core.UpdateWithGuard(ctx, id, input, nil)
+}
+
+func (core *Core) UpdateWithGuard(ctx context.Context, id uint, input UpdateInput, guard func(context.Context) error) (domain.API, error) {
 	var updated domain.API
 	err := core.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if input.PermissionCode != nil {
 			if err := core.references.LockPermissions(transactionContext, []string{strings.TrimSpace(*input.PermissionCode)}); err != nil {
 				return wrapError(err)
+			}
+		}
+		if guard != nil {
+			if err := guard(transactionContext); err != nil {
+				return err
 			}
 		}
 		var err error
@@ -230,9 +239,18 @@ func (core *Core) update(ctx context.Context, id uint, input UpdateInput) (domai
 }
 
 func (core *Core) Delete(ctx context.Context, id uint) error {
+	return core.DeleteWithGuard(ctx, id, nil)
+}
+
+func (core *Core) DeleteWithGuard(ctx context.Context, id uint, guard func(context.Context) error) error {
 	return core.transactions.Run(ctx, func(transactionContext context.Context) error {
 		if _, err := core.Lock(transactionContext, id); err != nil {
 			return wrapError(err)
+		}
+		if guard != nil {
+			if err := guard(transactionContext); err != nil {
+				return err
+			}
 		}
 		if err := core.repository.Delete(transactionContext, id); err != nil {
 			return wrapError(err)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	apigorm "admin/internal/apimetadata/adapters/gorm"
+	apiapplication "admin/internal/apimetadata/application"
 	authgorm "admin/internal/authorization/adapters/gorm"
 	authapplication "admin/internal/authorization/application"
 	"admin/internal/identity"
@@ -53,6 +54,14 @@ func atomicSyncCreate(t *testing.T, db *gorm.DB, records any) {
 		t.Fatalf("create atomic sync fixture %T: %v", records, err)
 	}
 }
+func syncPermissionsWithPreview(t *testing.T, fixture atomicSyncFixture) ([]string, int, error) {
+	t.Helper()
+	preview, err := fixture.composition.APIService.PreviewImpact(context.Background(), apiapplication.ImpactPreviewInput{Operation: apiapplication.ImpactSyncPermissions})
+	if err != nil {
+		t.Fatalf("preview API permission sync: %v", err)
+	}
+	return fixture.composition.APIService.SyncPermissions(context.Background(), preview.Fingerprint)
+}
 
 func TestAPIPermissionSyncCommitsAccurateMixedResults(t *testing.T) {
 	fixture := newAtomicSyncFixture(t)
@@ -79,7 +88,7 @@ func TestAPIPermissionSyncCommitsAccurateMixedResults(t *testing.T) {
 		t.Fatalf("mark public API: %v", err)
 	}
 
-	created, updated, err := fixture.composition.APIService.SyncPermissions(context.Background())
+	created, updated, err := syncPermissionsWithPreview(t, fixture)
 	if err != nil {
 		t.Fatalf("SyncPermissions: %v", err)
 	}
@@ -114,7 +123,7 @@ func TestAPIPermissionSyncCommitsAccurateMixedResults(t *testing.T) {
 		t.Fatalf("permission-only sync invented affected users: %#v", facts.Versions)
 	}
 
-	created, updated, err = fixture.composition.APIService.SyncPermissions(context.Background())
+	created, updated, err = syncPermissionsWithPreview(t, fixture)
 	if err != nil || len(created) != 0 || updated != 0 {
 		t.Fatalf("repeat sync = (%v, %d, %v), want no changes", created, updated, err)
 	}
@@ -191,7 +200,7 @@ func TestAPIPermissionSyncKeepsPerAPIInvalidationAndCountsFinalPermissions(t *te
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newAtomicSyncGraphFixture(t, test.sharedMenu, test.grantFirst)
 			before := atomicSyncFacts(t, fixture.db)
-			created, updated, err := fixture.composition.APIService.SyncPermissions(context.Background())
+			created, updated, err := syncPermissionsWithPreview(t, fixture)
 			if err != nil || !reflect.DeepEqual(created, test.created) || updated != 2 {
 				t.Fatalf("sync = (%v, %d, %v), want (%v, 2, nil)", created, updated, err, test.created)
 			}
@@ -272,7 +281,7 @@ func TestAPIPermissionSyncRollsBackWholeRequestOnTerminalSecondChange(t *testing
 			if err := fixture.db.Exec(statement).Error; err != nil {
 				t.Fatalf("install failure trigger: %v", err)
 			}
-			created, updated, err := fixture.composition.APIService.SyncPermissions(context.Background())
+			created, updated, err := syncPermissionsWithPreview(t, fixture)
 			if err == nil {
 				t.Fatal("SyncPermissions succeeded despite terminal database failure")
 			}

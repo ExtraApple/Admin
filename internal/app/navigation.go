@@ -208,21 +208,40 @@ func (coordinator apiNavigationCoordinator) ExistingPermissionCodes(ctx context.
 func (coordinator apiNavigationCoordinator) ChangeAPIPermissionCode(ctx context.Context, apiID uint, code string, update func(context.Context) error) error {
 	return apiCoordinatorError(coordinator.navigation.ChangeAPIPermissionCode(ctx, apiID, code, update))
 }
+func (coordinator apiNavigationCoordinator) ChangeAPIPermissionCodeWithGuard(ctx context.Context, apiID uint, code string, guard func(context.Context) error, update func(context.Context) error) error {
+	return apiCoordinatorError(coordinator.navigation.ChangeAPIPermissionCodeWithGuard(ctx, apiID, code, guard, update))
+}
 func (coordinator apiNavigationCoordinator) DeleteAPI(ctx context.Context, apiID uint, deleteAPI func(context.Context) error) error {
 	return apiCoordinatorError(coordinator.navigation.DeleteAPI(ctx, apiID, deleteAPI))
 }
 
 func apiCoordinatorError(err error) error {
-	if code, ok := navigation.CodeOf(err); ok && code == navigation.CodeConflict {
-		return apiapplication.NewError(apiapplication.CodeConflict, err)
+	if code, ok := navigation.CodeOf(err); ok {
+		switch code {
+		case navigation.CodeNotFound:
+			return apiapplication.NewError(apiapplication.CodeNotFound, err)
+		case navigation.CodeConflict:
+			return apiapplication.NewError(apiapplication.CodeConflict, err)
+		case navigation.CodeValidationInvalid:
+			return apiapplication.NewError(apiapplication.CodeValidationInvalid, err)
+		case navigation.CodeInternalError:
+			return apiapplication.NewError(apiapplication.CodeInternalError, err)
+		}
 	}
 	return err
 }
 func (coordinator apiNavigationCoordinator) EnsureAPIPermission(ctx context.Context, api apidomain.API) (bool, error) {
 	return coordinator.navigation.EnsureAPIPermission(ctx, mapAPIToNavigation(api))
 }
+func (coordinator apiNavigationCoordinator) ValidateMenuButtonParent(ctx context.Context, parentID uint) error {
+	return apiCoordinatorError(coordinator.navigation.ValidateMenuButtonParent(ctx, parentID))
+}
 func (coordinator apiNavigationCoordinator) GenerateMenuButton(ctx context.Context, apiID, parentID uint, name string, sort int) (apiapplication.Button, error) {
 	menu, err := coordinator.navigation.GenerateMenuButton(ctx, apiID, parentID, name, sort)
+	return apiapplication.Button{ID: menu.ID, ParentID: menu.ParentID, Name: menu.Name, Path: menu.Path, Component: menu.Component, Icon: menu.Icon, PermissionCode: menu.PermissionCode, Sort: menu.Sort, Type: menu.Type, Status: menu.Status}, err
+}
+func (coordinator apiNavigationCoordinator) GenerateMenuButtonWithGuard(ctx context.Context, apiID, parentID uint, name string, sort int, guard func(context.Context) error) (apiapplication.Button, error) {
+	menu, err := coordinator.navigation.GenerateMenuButtonWithGuard(ctx, apiID, parentID, name, sort, guard)
 	return apiapplication.Button{ID: menu.ID, ParentID: menu.ParentID, Name: menu.Name, Path: menu.Path, Component: menu.Component, Icon: menu.Icon, PermissionCode: menu.PermissionCode, Sort: menu.Sort, Type: menu.Type, Status: menu.Status}, err
 }
 

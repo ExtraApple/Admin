@@ -16,16 +16,17 @@ type CreateInput struct {
 }
 
 type UpdateInput struct {
-	Name           *string
-	Method         *string
-	Path           *string
-	Group          *string
-	PermissionCode *string
-	Remark         *string
-	Sort           *int
-	Status         *int
-	NeedAuth       *int
-	NeedAudit      *int
+	Name                *string
+	Method              *string
+	Path                *string
+	Group               *string
+	PermissionCode      *string
+	Remark              *string
+	Sort                *int
+	Status              *int
+	NeedAuth            *int
+	NeedAudit           *int
+	ExpectedFingerprint string
 }
 
 type MethodOption struct {

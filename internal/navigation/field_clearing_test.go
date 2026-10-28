@@ -11,7 +11,7 @@ import (
 func TestMenuApplicationRejectsExplicitEmptyNameBeforeClearing(t *testing.T) {
 	service, _ := newNavigationServiceFixture(t)
 	ctx := context.Background()
-	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Keep name", Icon: "keep-icon", Component: "KeepComponent", Type: 3})
+	menu, err := service.CreateMenu(ctx, navigation.CreateInput{Name: "Keep name", Icon: "keep-icon", Type: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
