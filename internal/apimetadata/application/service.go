@@ -29,12 +29,47 @@ func NewService(core *Core, coordinator PermissionCoordinator, options ...Servic
 	return service
 }
 func (service *Service) List(ctx context.Context, page, size int, filter Filter) ([]domain.API, int64, error) {
+	filter.RouteState = strings.TrimSpace(filter.RouteState)
+	if filter.RouteState != "" {
+		return service.listByRouteState(ctx, page, size, filter)
+	}
 	apis, total, err := service.core.List(ctx, page, size, filter)
 	if err != nil {
 		return nil, 0, err
 	}
 	apis, err = service.projectRouteStates(ctx, apis)
 	return apis, total, err
+}
+
+func (service *Service) listByRouteState(ctx context.Context, page, size int, filter Filter) ([]domain.API, int64, error) {
+	if !isSupportedRouteState(filter.RouteState) {
+		return nil, 0, NewError(CodeValidationInvalid, nil)
+	}
+	page, size = normalizePage(page, size)
+	apis, err := service.core.ListAll(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	apis, err = service.projectRouteStates(ctx, apis)
+	if err != nil {
+		return nil, 0, err
+	}
+	filtered := make([]domain.API, 0, len(apis))
+	for _, api := range apis {
+		if api.RouteState == filter.RouteState {
+			filtered = append(filtered, api)
+		}
+	}
+	total := int64(len(filtered))
+	start := (page - 1) * size
+	if start >= len(filtered) {
+		return []domain.API{}, total, nil
+	}
+	end := start + size
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[start:end], total, nil
 }
 
 func (service *Service) Get(ctx context.Context, id uint) (domain.API, error) {

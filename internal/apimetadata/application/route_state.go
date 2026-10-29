@@ -14,6 +14,15 @@ const (
 	RouteStateAccessMismatch = "access_mismatch"
 )
 
+func isSupportedRouteState(value string) bool {
+	switch value {
+	case RouteStateMatched, RouteStateMetadataOnly, RouteStateCatalogOnly, RouteStateAccessMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
 type routeCatalogFactSet map[string]RouteFact
 
 func (service *Service) projectRouteStates(ctx context.Context, apis []domain.API) ([]domain.API, error) {

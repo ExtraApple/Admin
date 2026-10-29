@@ -192,6 +192,7 @@ func (handler *routeHandler) list(c *gin.Context) {
 	apis, total, err := handler.service.List(c.Request.Context(), page, size, application.Filter{
 		Keyword: c.Query("keyword"), Group: c.Query("group"), Method: c.Query("method"),
 		Status: optionalQueryInt(c.Query("status")), NeedAuth: optionalQueryInt(c.Query("need_auth")), NeedAudit: optionalQueryInt(c.Query("need_audit")),
+		RouteState: strings.TrimSpace(c.Query("route_state")),
 	})
 	if err != nil {
 		apiBadRequest(c, err)

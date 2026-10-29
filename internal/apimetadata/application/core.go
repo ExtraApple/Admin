@@ -83,14 +83,32 @@ func (core *Core) create(ctx context.Context, input CreateInput) (domain.API, er
 }
 func (core *Core) List(ctx context.Context, page, size int, filter Filter) ([]domain.API, int64, error) {
 	page, size = normalizePage(page, size)
-	if filter.Method != "" {
-		method, err := NormalizeMethod(filter.Method)
-		if err != nil {
-			return nil, 0, err
-		}
-		filter.Method = method
+	filter, err := normalizeFilter(filter)
+	if err != nil {
+		return nil, 0, err
 	}
 	return core.repository.List(ctx, (page-1)*size, size, filter)
+}
+
+func (core *Core) ListAll(ctx context.Context, filter Filter) ([]domain.API, error) {
+	filter, err := normalizeFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	apis, _, err := core.repository.List(ctx, 0, -1, filter)
+	return apis, err
+}
+
+func normalizeFilter(filter Filter) (Filter, error) {
+	if filter.Method == "" {
+		return filter, nil
+	}
+	method, err := NormalizeMethod(filter.Method)
+	if err != nil {
+		return Filter{}, err
+	}
+	filter.Method = method
+	return filter, nil
 }
 func (core *Core) Snapshot(ctx context.Context) ([]domain.API, error) {
 	apis, _, err := core.repository.List(ctx, 0, -1, Filter{})

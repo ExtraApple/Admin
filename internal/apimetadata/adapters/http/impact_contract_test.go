@@ -71,6 +71,64 @@ func TestAPIImpactPreviewHTTPIsReadOnlyAndReturnsFingerprint(t *testing.T) {
 	}
 }
 
+func TestAPISyncPreviewUsesServerCatalogAndMatchesCommitFingerprint(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(gormadapter.Models()...); err != nil {
+		t.Fatalf("migrate API Metadata: %v", err)
+	}
+	core := application.NewCore(gormadapter.NewRepository(db), platformdatabase.NewTransactionRunner(db), impactPermissionLocker{})
+	ctx := context.Background()
+	if _, err := core.Create(ctx, application.CreateInput{Name: "Existing", Method: "GET", Path: "/api/preview", PermissionCode: "preview.get"}); err != nil {
+		t.Fatalf("create API: %v", err)
+	}
+	service := application.NewService(core, nil, application.WithRouteSource(impactRouteSource{facts: []application.RouteFact{
+		{Method: "GET", Path: "/api/preview", PermissionControlled: true, DefaultPermissionCode: "preview.get"},
+		{Method: "POST", Path: "/api/catalog-only", PermissionControlled: true, DefaultPermissionCode: "catalog.post"},
+	}}))
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	for _, descriptor := range apihttp.Routes(service) {
+		router.Handle(descriptor.Method, descriptor.Path, descriptor.Handler)
+	}
+	post := func(path, body string) (*httptest.ResponseRecorder, map[string]any) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		var decoded map[string]any
+		if response.Code == http.StatusOK {
+			if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+				t.Fatalf("decode %s response: %v", path, err)
+			}
+			return response, decoded["data"].(map[string]any)
+		}
+		return response, nil
+	}
+
+	// The page submits no route facts: preview and commit must both read the server catalog.
+	response, preview := post("/api/admin/apis/impact-preview", `{"operation":"sync","candidate":{}}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sync preview status=%d body=%s", response.Code, response.Body.String())
+	}
+	summary := preview["summary"].(map[string]any)
+	if summary["created_count"] != float64(1) || summary["skipped_count"] != float64(1) {
+		t.Fatalf("sync preview summary = %#v", summary)
+	}
+	fingerprint, _ := preview["preview_fingerprint"].(string)
+
+	response, synced := post("/api/admin/apis/sync", `{"expected_fingerprint":"`+fingerprint+`"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sync commit status=%d body=%s", response.Code, response.Body.String())
+	}
+	if synced["count"] != float64(1) {
+		t.Fatalf("sync commit result = %#v", synced)
+	}
+	if _, err := core.Policy(ctx, "POST", "/api/catalog-only"); err != nil {
+		t.Fatalf("server catalog route was not created: %v", err)
+	}
+}
+
 func itoa(value uint) string {
 	return fmt.Sprintf("%d", value)
 }

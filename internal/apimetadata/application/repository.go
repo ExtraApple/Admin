@@ -10,12 +10,13 @@ import (
 var ErrNotFound = errors.New("API不存在")
 
 type Filter struct {
-	Keyword   string
-	Group     string
-	Method    string
-	Status    *int
-	NeedAuth  *int
-	NeedAudit *int
+	Keyword    string
+	Group      string
+	Method     string
+	Status     *int
+	NeedAuth   *int
+	NeedAudit  *int
+	RouteState string
 }
 
 type Repository interface {
