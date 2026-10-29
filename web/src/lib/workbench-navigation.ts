@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Network, Shield, ShieldCheck, TriangleAlert, Users, type LucideIcon } from 'lucide-react';
+import { Menu as MenuIcon, Network, Route, Shield, ShieldCheck, TriangleAlert, Users, type LucideIcon } from 'lucide-react';
 import type { UserContext } from './models';
 import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule } from './navigation';
 
-export type WorkbenchGroupId = 'authorization-review' | 'identity-organization';
+export type WorkbenchGroupId = 'authorization-review' | 'identity-organization' | 'configuration-management';
 export interface WorkbenchItem { to: string; label: string; icon: LucideIcon }
 export interface WorkbenchGroup { id: WorkbenchGroupId; label: string; items: WorkbenchItem[] }
 
@@ -27,6 +27,12 @@ const navigationGroups: NavigationGroup[] = [
       { to: '/organizations', label: '组织管理', icon: Network, canAccess: context => canAccessModule(context, 'organizations'), matchDescendants: true },
     ],
   },
+  {
+    id: 'configuration-management', label: '配置管理', items: [
+      { to: '/menus', label: '菜单管理', icon: MenuIcon, canAccess: context => canAccessModule(context, 'menus'), matchDescendants: true },
+      { to: '/apis', label: '接口管理', icon: Route, canAccess: context => canAccessModule(context, 'apis'), matchDescendants: true },
+    ],
+  },
 ];
 
 const descendantPaths: Record<string, boolean> = Object.fromEntries(navigationGroups.flatMap(group => group.items.map(item => [item.to, !!item.matchDescendants])));
@@ -47,6 +53,7 @@ export function getInitialOpenGroups(groups: WorkbenchGroup[], pathname: string)
   const openGroups: Record<WorkbenchGroupId, boolean> = {
     'authorization-review': false,
     'identity-organization': false,
+    'configuration-management': false,
   };
   for (const group of groups) {
     openGroups[group.id] = group.items.some(item => matchesPath(item.to, pathname));

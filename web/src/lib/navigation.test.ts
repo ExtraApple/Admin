@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, hasPermission, safeDestination } from './navigation';
+import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, hasPermission, managementMenuRoutes, safeDestination } from './navigation';
 import type { Menu, UserContext } from './models';
 const menu: Menu = { id: 2, parent_id: 1, name: '用户管理', path: '/system/users', component: 'system/users/index', icon: 'Users', permission_code: 'admin.users.get', sort: 10, type: 2, status: 1 };
 const context: UserContext = { user: { id: 7, username: 'operator', nickname: '', avatar: '', email: '', role: 'admin', status: 1 }, roles: ['reader'], permissions: ['admin.users.get'], menus: [menu] };
@@ -22,6 +22,28 @@ describe('real menus and permissions jointly authorize entry', () => {
   it('finds an enabled visible entry nested beneath a real directory and rejects absent context', () => {
     expect(canAccessModule({ ...context, menus: [{ ...menu, id: 1, path: '/system', type: 1, permission_code: '', children: [menu] }] }, 'users')).toBe(true);
     expect(canAccessModule(null, 'users')).toBe(false);
+  });
+});
+describe('frontend menu route catalog', () => {
+  it('declares one sync-valid page menu per gated module', () => {
+    const paths = managementMenuRoutes.map(item => item.path);
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(managementMenuRoutes).toEqual([
+      { name: '角色管理', path: '/system/roles', component: '', icon: 'Shield', permission_code: 'admin.roles.get', parent_path: '', sort: 10, type: 2 },
+      { name: '用户管理', path: '/system/users', component: '', icon: 'Users', permission_code: 'admin.users.get', parent_path: '', sort: 20, type: 2 },
+      { name: '组织管理', path: '/system/organizations', component: '', icon: 'Network', permission_code: 'admin.organizations.get', parent_path: '', sort: 30, type: 2 },
+      { name: '菜单管理', path: '/system/menus', component: '', icon: 'Menu', permission_code: 'admin.menus.get', parent_path: '', sort: 40, type: 2 },
+      { name: '接口管理', path: '/system/apis', component: '', icon: 'Route', permission_code: 'admin.apis.get', parent_path: '', sort: 50, type: 2 },
+    ]);
+  });
+
+  it('keeps every catalog path exactly what canAccessModule requires', () => {
+    for (const module of ['roles', 'users', 'organizations', 'menus', 'apis'] as const) {
+      const entry = managementMenuRoutes.find(item => item.permission_code === `admin.${module}.get`);
+      expect(entry).toBeDefined();
+      const menu = { id: 1, parent_id: 0, name: entry!.name, path: entry!.path, component: '', icon: '', permission_code: entry!.permission_code, sort: 0, type: 2, status: 1 };
+      expect(canAccessModule({ ...context, permissions: [`admin.${module}.get`], menus: [menu] }, module)).toBe(true);
+    }
   });
 });
 describe('authorization overview entry points', () => {

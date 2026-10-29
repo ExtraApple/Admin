@@ -1,10 +1,37 @@
 import { localizedError, safeFallback } from './errors';
-import type { AuthorizationOverview, AuthorizationRiskPage, AuthorizationRiskQuery } from './models';
+import type {
+  ApiMetadata,
+  ApiMetadataPage,
+  ApiGroupOption,
+  ApiMethodOption,
+  ApiPermissionSyncResult,
+  ApiSyncResult,
+  ApiSyncRequest,
+  ApiUpdateInput,
+  AuthorizationOverview,
+  AuthorizationRiskPage,
+  AuthorizationRiskQuery,
+  GenerateMenuButtonInput,
+  ImpactPreview,
+  ImpactPreviewRequest,
+  Menu,
+  MenuApi,
+  MenuBindingRequest,
+  MenuClearBindingRequest,
+  MenuCreateInput,
+  MenuSyncRequest,
+  MenuUpdateInput,
+} from './models';
 export interface FieldError { field: string; error_code: string; message: string }
 export interface SafeErrorData { remaining_attempts?: number; retry_after_seconds?: number }
 interface Envelope { code: number; error_code: string; msg: string; data: unknown }
 interface AuthBridge { token(path: string): string | null; rejected(token: string | null, status: number, code: string): void }
-interface RequestOptions { refreshAttemptId?: string; cache?: RequestCache; signal?: AbortSignal }
+export interface RequestOptions {
+  refreshAttemptId?: string;
+  cache?: RequestCache;
+  signal?: AbortSignal;
+  headers?: HeadersInit;
+}
 let auth: AuthBridge | null = null;
 export function configureApiAuth(bridge: AuthBridge) { auth = bridge; }
 
@@ -84,6 +111,11 @@ async function request<T>(path: string, method: string, body: unknown, mode: 'js
   const token = publicRequest ? null : auth?.token(pathname) ?? null;
   const control = method === 'POST' && (pathname === '/api/login' || pathname === '/api/refresh' || pathname === '/api/user/logout');
   const headers = new Headers({ Accept: mode === 'blob' ? '*/*' : 'application/json' });
+  if (options?.headers) {
+    new Headers(options.headers).forEach((value, name) => {
+      if (name.toLowerCase() !== 'authorization') headers.set(name, value);
+    });
+  }
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const multipart = body instanceof FormData;
   if (body !== undefined && !multipart) headers.set('Content-Type', 'application/json');
@@ -119,14 +151,49 @@ function authorizationRiskPath(query: AuthorizationRiskQuery = {}): string {
   return `/api/admin/authorization-risks?${params.toString()}`;
 }
 
+function menuPath(id: number): string {
+  return `/api/admin/menus/${encodeURIComponent(String(id))}`;
+}
+function apiPath(id: number): string {
+  return `/api/admin/apis/${encodeURIComponent(String(id))}`;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path, 'GET', undefined, 'json'),
   post: <T>(path: string, body: unknown, options?: RequestOptions) => request<T>(path, 'POST', body, 'json', options),
-  put: <T>(path: string, body?: unknown) => request<T>(path, 'PUT', body, 'json'),
-  delete: <T = void>(path: string) => request<T>(path, 'DELETE', undefined, 'json'),
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>(path, 'PUT', body, 'json', options),
+  delete: <T = void>(path: string, options?: RequestOptions) => request<T>(path, 'DELETE', undefined, 'json', options),
   blob: (path: string) => request<Blob>(path, 'GET', undefined, 'blob'),
   image: (path: string, options?: Pick<RequestOptions, 'cache' | 'signal'>) => request<Blob>(path, 'GET', undefined, 'blob', options),
   raw: <T>(path: string) => request<T>(path, 'GET', undefined, 'raw'),
   authorizationOverview: () => request<AuthorizationOverview>('/api/admin/authorization-overview', 'GET', undefined, 'json'),
   authorizationRisks: (query: AuthorizationRiskQuery = {}) => request<AuthorizationRiskPage>(authorizationRiskPath(query), 'GET', undefined, 'json'),
+  menus: {
+    list: () => request<Menu[]>('/api/admin/menus', 'GET', undefined, 'json'),
+    get: (id: number) => request<Menu>(menuPath(id), 'GET', undefined, 'json'),
+    preview: <TCandidate>(body: ImpactPreviewRequest<TCandidate>) => request<ImpactPreview>('/api/admin/menus/impact-preview', 'POST', body, 'json'),
+    create: (body: MenuCreateInput) => request<Menu>('/api/admin/menus', 'POST', body, 'json'),
+    update: (id: number, body: MenuUpdateInput) => request<Menu>(menuPath(id), 'PUT', body, 'json'),
+    delete: (id: number, expectedFingerprint: string) => request<void>(menuPath(id), 'DELETE', undefined, 'json', {
+      headers: { 'X-Expected-Fingerprint': expectedFingerprint },
+    }),
+    listApis: (id: number) => request<MenuApi[]>(`${menuPath(id)}/apis`, 'GET', undefined, 'json'),
+    bindApis: (id: number, body: MenuBindingRequest) => request<void>(`${menuPath(id)}/apis`, 'POST', body, 'json'),
+    clearApis: (id: number, body: MenuClearBindingRequest) => request<void>(`${menuPath(id)}/apis`, 'POST', body, 'json'),
+    sync: (body: MenuSyncRequest) => request<{ created: number }>('/api/admin/menus/sync', 'POST', body, 'json'),
+  },
+  apis: {
+    list: (path = '/api/admin/apis') => request<ApiMetadataPage>(path, 'GET', undefined, 'json'),
+    get: (id: number) => request<ApiMetadata>(apiPath(id), 'GET', undefined, 'json'),
+    preview: <TCandidate>(body: ImpactPreviewRequest<TCandidate>) => request<ImpactPreview>('/api/admin/apis/impact-preview', 'POST', body, 'json'),
+    update: (id: number, body: ApiUpdateInput) => request<ApiMetadata>(apiPath(id), 'PUT', body, 'json'),
+    delete: (id: number, expectedFingerprint: string) => request<void>(apiPath(id), 'DELETE', undefined, 'json', {
+      headers: { 'X-Expected-Fingerprint': expectedFingerprint },
+    }),
+    groups: () => request<ApiGroupOption[]>('/api/admin/api-groups', 'GET', undefined, 'json'),
+    methods: () => request<ApiMethodOption[]>('/api/admin/api-methods', 'GET', undefined, 'json'),
+    sync: (body: ApiSyncRequest) => request<ApiSyncResult>('/api/admin/apis/sync', 'POST', body, 'json'),
+    syncPermissions: (body: ApiSyncRequest) => request<ApiPermissionSyncResult>('/api/admin/apis/sync-permissions', 'POST', body, 'json'),
+    generateMenuButton: (id: number, body: GenerateMenuButtonInput) => request<Menu>(`${apiPath(id)}/menu-button`, 'POST', body, 'json'),
+  },
 };

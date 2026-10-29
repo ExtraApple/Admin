@@ -134,6 +134,52 @@ describe('single business response contract', () => {
     expect(new Uint8Array(await received.file!.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
   });
 });
+describe('menu and API management write contract', () => {
+  const fingerprint = 'a'.repeat(64);
+  it('sends the menu fingerprint in the update body and delete header, never in the URL', async () => {
+    const fetch = vi.fn().mockImplementation(async () => response(200, '', { id: 9 }));
+    vi.stubGlobal('fetch', fetch);
+    await api.menus.update(9, { name: 'Renamed', expected_fingerprint: fingerprint });
+    await api.menus.delete(9, fingerprint);
+    const [updatePath, updateInit] = fetch.mock.calls[0];
+    expect(updatePath).toBe('/api/admin/menus/9');
+    expect(updateInit.method).toBe('PUT');
+    expect(JSON.parse(updateInit.body)).toEqual({ name: 'Renamed', expected_fingerprint: fingerprint });
+    const [deletePath, deleteInit] = fetch.mock.calls[1];
+    expect(deletePath).toBe('/api/admin/menus/9');
+    expect(deleteInit.method).toBe('DELETE');
+    expect(deleteInit.body).toBeUndefined();
+    expect(new Headers(deleteInit.headers).get('X-Expected-Fingerprint')).toBe(fingerprint);
+  });
+  it('expresses clear as clear=true instead of an empty API id list', async () => {
+    const fetch = vi.fn().mockImplementation(async () => response(200, '', null));
+    vi.stubGlobal('fetch', fetch);
+    await api.menus.clearApis(4, { clear: true, expected_fingerprint: fingerprint });
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe('/api/admin/menus/4/apis');
+    expect(JSON.parse(init.body)).toEqual({ clear: true, expected_fingerprint: fingerprint });
+  });
+  it('keeps the API fingerprint in the delete header and update body', async () => {
+    const fetch = vi.fn().mockImplementation(async () => response(200, '', { id: 3 }));
+    vi.stubGlobal('fetch', fetch);
+    await api.apis.update(3, { name: 'Renamed', need_audit: 0, expected_fingerprint: fingerprint });
+    await api.apis.delete(3, fingerprint);
+    const [, updateInit] = fetch.mock.calls[0];
+    expect(JSON.parse(updateInit.body)).toEqual({ name: 'Renamed', need_audit: 0, expected_fingerprint: fingerprint });
+    const [, deleteInit] = fetch.mock.calls[1];
+    expect(new Headers(deleteInit.headers).get('X-Expected-Fingerprint')).toBe(fingerprint);
+    expect(updateInit.signal).toBeUndefined();
+  });
+  it('maps stale fingerprints to the conflict codes the page uses for blocking retry', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(409, 'NAV_CONFLICT', null, 'navigation resource conflicts'))
+      .mockResolvedValueOnce(response(409, 'API_META_CONFLICT', null, 'api metadata conflicts')));
+    const menuError = await api.menus.update(9, { name: 'x', expected_fingerprint: fingerprint }).catch(value => value);
+    const apiError = await api.apis.update(3, { name: 'x', expected_fingerprint: fingerprint }).catch(value => value);
+    expect(menuError).toMatchObject({ status: 409, errorCode: 'NAV_CONFLICT' });
+    expect(apiError).toMatchObject({ status: 409, errorCode: 'API_META_CONFLICT' });
+  });
+});
 describe('explicit native resource paths', () => {
   it('parses pre-stream errors on all native paths through the same typed error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => response(404, 'STORAGE_OBJECT_NOT_FOUND', null, 'storage object was not found')));

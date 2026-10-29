@@ -24,6 +24,7 @@
   font-family: "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
   line-height: 1.65;
 }
+.management-page { display: grid; gap: 18px; max-width: 1440px; }
 .management h1 { margin: 4px 0 10px; font: 600 clamp(28px, 3vw, 38px)/1.35 "Noto Serif SC", "Songti SC", serif; letter-spacing: -.035em; overflow-wrap: anywhere; }
 .management h2 { margin: 0 0 12px; font-size: 19px; font-weight: 650; }
 .management h3 { margin: 16px 0 10px; font-size: 16px; font-weight: 650; }
@@ -51,6 +52,7 @@
 .mg-table-desktop td { padding: 18px 20px; min-height: 88px; white-space: normal; vertical-align: middle; overflow-wrap: anywhere; border-bottom: 1px solid var(--mg-line); }
 .mg-table-desktop tr:last-child td { border-bottom: 0; }
 .mg-table-desktop tbody tr:hover { background: var(--mg-hover); }
+.mg-table-desktop td > small { display: block; margin-top: 4px; color: var(--mg-muted); font-size: 12px; }
 .mg-user-list .mg-table-desktop td { height: 100px; font-size: 15px; }
 .mg-user-list th:first-child { width: 19%; }
 .mg-user-list th:nth-child(2) { width: 17%; }
@@ -59,6 +61,11 @@
 .mg-user-list th:last-child { width: 240px; }
 .mg-status { display: inline-block; white-space: nowrap; border: 1px solid var(--mg-success-line); border-radius: 100px; padding: 3px 10px; background: var(--mg-success-bg); color: var(--mg-success-ink); font-size: 12px; font-weight: 600; }
 .mg-status.mg-off { border-color: var(--mg-warning-line); background: var(--mg-warning-bg); color: var(--mg-danger); }
+.mg-route-state { display: inline-block; white-space: nowrap; border: 1px solid var(--mg-line); border-radius: 100px; padding: 3px 10px; color: var(--mg-muted); background: var(--mg-canvas); font-size: 12px; font-weight: 600; }
+.mg-route-state-matched { border-color: var(--mg-success-line); color: var(--mg-success-ink); background: var(--mg-success-bg); }
+.mg-route-state-metadata_only { border-color: var(--mg-warning-line); color: var(--mg-warning-ink); background: var(--mg-warning-bg); }
+.mg-route-state-catalog_only { border-color: var(--mg-info); color: var(--mg-info); background: var(--mg-tint); }
+.mg-route-state-access_mismatch { border-color: var(--mg-warning-accent); color: var(--mg-danger); background: var(--mg-warning-bg); }
 .mg-protected { display: inline-block; max-width: 100%; color: var(--mg-muted); font-size: 13px; }
 .mg-action-reserve { min-height: 44px; padding-right: 148px; width: 212px; max-width: 100%; margin-top: 8px; }
 .mg-action-reserve > button { padding-inline: 12px; }
@@ -68,12 +75,18 @@
 .mg-danger, .mg-action-menu .mg-danger { color: var(--mg-danger); }
 .mg-filters { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .mg-filters input { width: 240px; max-width: 100%; }
+.mg-api-filters { width: 100%; }
 .mg-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 24px; border-top: 1px solid var(--mg-line); color: var(--mg-muted); font-size: 13px; }
 .mg-pagination > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mg-pagination label { display: flex; align-items: center; gap: 8px; }
 .mg-pagination select { min-width: 70px; }
 .mg-user-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 16px 20px; }
 .mg-mobile-cards { display: none; }
+.mg-list-card { gap: 0; overflow: hidden; }
+.mg-mobile-card { min-width: 0; padding: 20px; overflow-wrap: anywhere; }
+.mg-mobile-card h2 { min-width: 0; margin: 0; }
+.mg-tree-node-label { display: flex; align-items: center; gap: 8px; }
+.mg-tree-node-label > span { min-width: 0; overflow-wrap: anywhere; }
 .mg-person-card { min-width: 0; padding: 20px; border: 1px solid var(--mg-line); border-radius: 9px; background: var(--mg-surface); overflow-wrap: anywhere; }
 .mg-person-card p { margin-top: 12px; margin-bottom: 0; }
 .mg-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -85,6 +98,7 @@
 .mg-detail-list { margin: 0 0 16px; padding: 0; list-style: none; }
 .mg-detail-list li { padding: 12px 0; border-bottom: 1px solid var(--mg-line); overflow-wrap: anywhere; }
 .mg-detail-list code { display: block; }
+.mg-detail-list small { display: block; margin-top: 4px; }
 .mg-detail-list .mg-status { margin-left: 8px; }
 .mg-card-action { margin-top: auto; padding-top: 18px; }
 .mg-scope-name { margin: 4px 0 14px; color: var(--mg-accent); font: 600 24px/1.5 "Noto Serif SC", "Songti SC", serif; }
@@ -92,6 +106,9 @@
 .mg-panel { min-width: 0; padding: 26px; gap: 0; }
 .mg-detail-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
 .mg-edit-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); gap: 18px; align-items: start; }
+.mg-menu-form { display: grid; gap: 12px; }
+.mg-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.mg-form-grid label { display: grid; gap: 6px; color: var(--mg-muted); font-size: 13px; font-weight: 650; }
 .mg-edit-aside h2 { font-size: 17px; }
 .mg-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .mg-choice { display: flex; align-items: flex-start; gap: 12px; min-height: 56px; padding: 12px 14px; margin: 8px 0; border: 1px solid var(--mg-line); border-radius: 7px; background: var(--mg-surface); }
@@ -143,6 +160,7 @@
 .mg-member-list { padding: 0; margin: 12px 0 0; list-style: none; }
 .mg-member-list > li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0; border-top: 1px solid var(--mg-line); }
 .mg-member-list > li > div { min-width: 0; overflow-wrap: anywhere; }
+.mg-member-list code, .mg-member-list small { display: block; }
 .mg-member-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .mg-candidates { margin: 18px 0; padding: 16px; border: 1px solid var(--mg-line); border-radius: 7px; }
 .mg-candidates label, .mg-move-form > label { display: block; font-weight: 600; margin: 16px 0 8px; }
@@ -160,7 +178,7 @@
   .mg-org-layout .mg-mobile-cards { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 0 16px 20px; }
 }
 @media (max-width: 760px) {
-  .mg-profile-grid, .mg-info-grid, .mg-edit-layout, .mg-org-layout { grid-template-columns: 1fr; }
+  .mg-profile-grid, .mg-info-grid, .mg-edit-layout, .mg-org-layout, .mg-form-grid { grid-template-columns: 1fr; }
   .mg-profile-card:last-child { grid-column: auto; }
   .mg-profile-card { min-height: 0; }
   .mg-user-cards { grid-template-columns: 1fr; }
@@ -173,6 +191,7 @@
   .mg-filters { width: 100%; }
   .mg-filters input { width: 100%; font-size: 16px; }
   .mg-filters select { flex: 1; font-size: 16px; }
+  .mg-api-filters select#api-route-state { flex-basis: 100%; }
   .mg-pagination { padding: 18px; }
   .mg-pagination > div { width: 100%; }
   .mg-pagination > div label { width: 100%; }

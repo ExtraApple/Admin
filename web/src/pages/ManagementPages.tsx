@@ -5,6 +5,7 @@ import { AuthorizationOverviewPage, AuthorizationRisksPage } from './Authorizati
 import { GuardedRoleEditor, RoleDetail, RolesList } from './RolePages';
 import { GuardedUserEditor, UserDetail, UsersList } from './UserPages';
 import { GuardedOrganizationMove, OrganizationDetail, OrganizationsList } from './OrganizationPages';
+import { MenusPage, ApisPage } from './ConfigurationPages';
 import '@/management.css';
 
 export const managementRoutes: RouteObject[] = [
@@ -22,4 +23,6 @@ export const managementRoutes: RouteObject[] = [
   { path: 'organizations', element: <Guard module="organizations" permissions={['admin.organizations.get', 'admin.organizations.tree.get']}><OrganizationsList /></Guard> },
   { path: 'organizations/:id', element: <Guard module="organizations" permissions={['admin.organizations.tree.get']}><OrganizationDetail /></Guard> },
   { path: 'organizations/:id/move', element: <GuardedOrganizationMove /> },
+  { path: 'menus', element: <Guard module="menus" permissions={['admin.menus.get']}><MenusPage /></Guard> },
+  { path: 'apis', element: <Guard module="apis" permissions={['admin.apis.get']}><ApisPage /></Guard> },
 ];

@@ -16,7 +16,7 @@ import type { UserContext } from '@/lib/models';
 import { ThemeSelector } from '@/components/ThemeSelector';
 import { SessionStatus } from '@/components/SessionStatus';
 
-const modules: ManagementModule[] = ['roles', 'users', 'organizations'];
+const modules: ManagementModule[] = ['roles', 'users', 'organizations', 'menus', 'apis'];
 export function UserAvatar({ id, name, revision, onLoad, onError }: { id: number; name: string; revision?: number; onLoad?: () => void; onError?: () => void }) {
   const [image, setImage] = useState<{ id: number; revision: number | undefined; url: string; loaded(): void; failed(): void } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -81,7 +81,7 @@ function WorkbenchLayout({ context }: { context: UserContext }) {
                   <SidebarMenu>
                     {group.items.map(item => <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton asChild>
-                        <NavLink to={item.to} end={group.id !== 'identity-organization'}><item.icon size={19} aria-hidden="true" /><span>{item.label}</span></NavLink>
+                        <NavLink to={item.to} end={group.id !== 'identity-organization' && group.id !== 'configuration-management'}><item.icon size={19} aria-hidden="true" /><span>{item.label}</span></NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>)}
                   </SidebarMenu>

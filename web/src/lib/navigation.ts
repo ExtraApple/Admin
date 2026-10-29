@@ -1,5 +1,27 @@
-import type { Menu, UserContext } from './models';
-export type ManagementModule = 'roles' | 'users' | 'organizations';
+import type { Menu, MenuSyncItem, UserContext } from './models';
+export type ManagementModule = 'roles' | 'users' | 'organizations' | 'menus' | 'apis';
+
+// Mirrors App.tsx/ManagementPages.tsx: the menu catalog a sync must create for
+// canAccessModule to authorize these pages. Directories carry no path, so every
+// entry is a root-level page menu.
+const managementMenuCatalog: { module: ManagementModule; label: string; icon: string }[] = [
+  { module: 'roles', label: '角色管理', icon: 'Shield' },
+  { module: 'users', label: '用户管理', icon: 'Users' },
+  { module: 'organizations', label: '组织管理', icon: 'Network' },
+  { module: 'menus', label: '菜单管理', icon: 'Menu' },
+  { module: 'apis', label: '接口管理', icon: 'Route' },
+];
+
+export const managementMenuRoutes: MenuSyncItem[] = managementMenuCatalog.map((entry, index) => ({
+  name: entry.label,
+  path: `/system/${entry.module}`,
+  component: '',
+  icon: entry.icon,
+  permission_code: `admin.${entry.module}.get`,
+  parent_path: '',
+  sort: (index + 1) * 10,
+  type: 2,
+}));
 export const authorizationOverviewPermission = 'admin.authorization.overview.get';
 export const authorizationRisksPermission = 'admin.authorization.risks.get';
 export function canAccessAuthorizationOverview(context: UserContext | null): boolean {

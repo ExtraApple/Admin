@@ -7,6 +7,7 @@ const target = process.env.ADMIN_API_TARGET || 'http://127.0.0.1:8080';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  server: { proxy: { '/api': { target, changeOrigin: true }, '/avatars': { target, changeOrigin: true }, '/docs': { target, changeOrigin: true } } },
+  // Trailing slashes keep the SPA route /apis from matching the /api proxy.
+  server: { proxy: { '/api/': { target, changeOrigin: true }, '/avatars/': { target, changeOrigin: true }, '/docs/': { target, changeOrigin: true } } },
   test: { environment: 'node', clearMocks: true },
 });

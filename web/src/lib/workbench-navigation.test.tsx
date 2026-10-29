@@ -17,7 +17,12 @@ const administrator: UserContext = {
   ...restrictedContext, roles: ['admin'], permissions: ['admin.authorization.overview.get'],
   menus: [moduleMenu('roles'), moduleMenu('users'), moduleMenu('organizations')],
 };
-const allClosed = { 'authorization-review': false, 'identity-organization': false };
+const configurationAdministrator: UserContext = {
+  ...administrator,
+  permissions: [...administrator.permissions, 'admin.menus.get', 'admin.apis.get'],
+  menus: [...administrator.menus, moduleMenu('menus'), moduleMenu('apis')],
+};
+const allClosed = { 'authorization-review': false, 'identity-organization': false, 'configuration-management': false };
 
 function visibleEntries(context: UserContext | null) {
   return getWorkbenchGroups(context).map(group => ({ id: group.id, routes: group.items.map(item => item.to) }));
@@ -47,6 +52,16 @@ describe('permission-filtered workbench groups', () => {
     expect(getWorkbenchGroups(null)).toEqual([]);
   });
 
+  it('exposes configuration management only with the real menu and module permissions', () => {
+    expect(visibleEntries(configurationAdministrator)).toEqual([
+      { id: 'authorization-review', routes: ['/authorization-overview', '/authorization-risks'] },
+      { id: 'identity-organization', routes: ['/roles', '/users', '/organizations'] },
+      { id: 'configuration-management', routes: ['/menus', '/apis'] },
+    ]);
+    expect(visibleEntries({ ...configurationAdministrator, menus: [] }).some(entry => entry.id === 'configuration-management')).toBe(false);
+  });
+
+
   it.each([
     { description: 'missing read permission', permissions: [], menus: [moduleMenu('users')] },
     { description: 'missing real menu', permissions: ['admin.users.get'], menus: [] },
@@ -73,6 +88,10 @@ describe('workbench path matching and initialization', () => {
     ['/organizations', 'identity-organization'], ['/organizations/4', 'identity-organization'],
   ] as const)('opens only the visible group for %s', (pathname, groupId) => {
     expect(getInitialOpenGroups(getWorkbenchGroups(administrator), pathname)).toEqual({ ...allClosed, [groupId]: true });
+  });
+
+  it.each(['/menus', '/apis/42'])('opens configuration management for %s', pathname => {
+    expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), pathname)).toEqual({ ...allClosed, 'configuration-management': true });
   });
 
   it.each(['/', '/no-management', '/unknown', '/roles-extra', '/usersettings', '/organizations-other/1', '/authorization-overview/extra', '/authorization-risks/extra', '/profile', '/profile/edit', '/profile/'])('leaves all groups closed for unmatched pathname %s', pathname => {
@@ -149,6 +168,18 @@ describe('mounted workbench navigation state', () => {
     render(administrator, '/roles/12', 'desktop');
     expectExpanded('authorization-review', true);
     expectExpanded('identity-organization', false);
+  });
+
+  it('keeps configuration management active and preserves its collapse choice on narrow layouts', () => {
+    render(configurationAdministrator, '/apis/7');
+    expectExpanded('configuration-management', true);
+    expect(container.querySelector('a[href="/apis"]')).not.toBeNull();
+    act(() => button('configuration-management').click());
+    expectExpanded('configuration-management', false);
+    render(configurationAdministrator, '/menus', 'mobile');
+    expectExpanded('configuration-management', false);
+    render(configurationAdministrator, '/apis/9', 'desktop');
+    expectExpanded('configuration-management', false);
   });
 
   it('updates visible permissions without resetting state, retaining choices when groups disappear and return', () => {

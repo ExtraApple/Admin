@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { api, errorMessage, fieldMessages } from '@/lib/api';
-import type { AdminUser, Organization, Page } from '@/lib/models';
+import { api, ApiError, errorMessage, fieldMessages } from '@/lib/api';
+import type { AdminUser, ImpactPreview, ManagementConflictCode, Organization, Page } from '@/lib/models';
 import { useSession } from '@/lib/session';
 import { authorizationOverviewPermission, authorizationRisksPermission, canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule } from '@/lib/navigation';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
-export function Guard({ module, permissions, children }: { module: 'roles' | 'users' | 'organizations'; permissions: string[]; children: ReactNode }) {
+export function Guard({ module, permissions, children }: { module: 'roles' | 'users' | 'organizations' | 'menus' | 'apis'; permissions: string[]; children: ReactNode }) {
   const { context, can } = useSession();
   if (!context || !canAccessModule(context, module) || !permissions.every(can)) return <div className="management"><Notice title="没有访问权限">当前可见菜单或操作权限不允许打开此页面。请联系管理员核对授权。</Notice></div>;
   return <div className="management">{children}</div>;
@@ -58,14 +58,14 @@ export async function allPages<T>(path: string): Promise<T[]> {
 
 export function ResourceState({ loading, error, reload }: { loading: boolean; error: unknown; reload: () => void }) {
   if (loading) return <div className="mg-loading" role="status" aria-live="polite"><span className="mg-loading-line" />正在读取服务器数据…</div>;
-  if (error) return <Notice title="读取失败"><ErrorNotice error={error} /><Button variant="outline" onClick={reload}>重新读取</Button></Notice>;
+  if (error) return <Notice title="读取失败"><ErrorNotice error={error} onRetry={reload} retryLabel="重新读取" /></Notice>;
   return null;
 }
 
-export function ErrorNotice({ error }: { error: unknown }) {
+export function ErrorNotice({ error, onRetry, retryLabel = '重新尝试' }: { error: unknown; onRetry?: () => void; retryLabel?: string }) {
   if (!error) return null;
   const fields = fieldMessages(error);
-  return <div className="mg-error" role="alert"><p>{errorMessage(error)}</p>{Object.keys(fields).length > 0 && <ul>{Object.entries(fields).map(([field, messages]) => <li key={field}><strong>{field}</strong>：{messages.join('；')}</li>)}</ul>}</div>;
+  return <div className="mg-error" role="alert"><p>{errorMessage(error)}</p>{Object.keys(fields).length > 0 && <ul>{Object.entries(fields).map(([field, messages]) => <li key={field}><strong>{field}</strong>：{messages.join('；')}</li>)}</ul>}{onRetry && <Button variant="outline" onClick={onRetry}>{retryLabel}</Button>}</div>;
 }
 
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {
@@ -87,8 +87,118 @@ export function OrganizationsText({ user }: { user: AdminUser }) {
   return <><span>{user.organizations.map(org => org.name).join('、') || (user.has_unmanaged_organizations ? '当前范围内无可见归属' : '未分配组织')}</span>{user.has_unmanaged_organizations && <small className="mg-warning-inline">另有不可见的组织归属</small>}</>;
 }
 
-export function Confirm({ open, onOpenChange, title, children, onConfirm, busy = false, label = '确认提交' }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; children: ReactNode; onConfirm: () => void; busy?: boolean; label?: string }) {
-  return <AlertDialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}><AlertDialogContent className="mg-dialog"><AlertDialogHeader><AlertDialogTitle>{title}</AlertDialogTitle><AlertDialogDescription asChild><div className="mg-confirm-summary">{children}</div></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>取消</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); onConfirm(); }}>{busy ? '正在提交…' : label}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>;
+export function Confirm({ open, onOpenChange, title, children, onConfirm, busy = false, label = '确认提交', confirmDisabled = false }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; children: ReactNode; onConfirm: () => void; busy?: boolean; label?: string; confirmDisabled?: boolean }) {
+  return <AlertDialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}><AlertDialogContent className="mg-dialog"><AlertDialogHeader><AlertDialogTitle>{title}</AlertDialogTitle><AlertDialogDescription asChild><div className="mg-confirm-summary">{children}</div></AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>取消</AlertDialogCancel><AlertDialogAction disabled={busy || confirmDisabled} onClick={event => { event.preventDefault(); onConfirm(); }}>{busy ? '正在提交…' : label}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>;
+}
+
+export function ImpactPreviewDialog<T>({ open, onOpenChange, preview, title, onConfirm, busy = false, label = '确认提交', blockedReason = '' }: { open: boolean; onOpenChange: (open: boolean) => void; preview: ImpactPreview<T> | null; title: string; onConfirm: () => void; busy?: boolean; label?: string; blockedReason?: string }) {
+  // Keep the last preview mounted while the dialog closes so the close
+  // lifecycle (and its focus restoration) can finish after a reset.
+  const lastPreview = useRef(preview);
+  if (preview) lastPreview.current = preview;
+  const shown = preview ?? lastPreview.current;
+  if (!shown) return null;
+  const summary = shown.summary;
+  const ids = (values?: number[]) => values?.length ? values.join('、') : '无';
+  const conflicting = (summary.conflict_count ?? 0) > 0;
+  return <Confirm open={open} onOpenChange={onOpenChange} title={title} onConfirm={onConfirm} busy={busy} confirmDisabled={conflicting || !!blockedReason} label={label}>
+    <p>服务器已生成只读影响预览。确认后才会提交本次变更，提交时仍会校验 fingerprint。</p>
+    <dl className="mg-summary">
+      <div><dt>受影响菜单 ID</dt><dd>{ids(summary.affected_menu_ids)}</dd></div>
+      <div><dt>受影响接口 ID</dt><dd>{ids(summary.affected_api_ids)}</dd></div>
+      <div><dt>受影响角色 / 用户</dt><dd>{summary.affected_role_count} / {summary.affected_user_count}</dd></div>
+      {summary.created_count !== undefined && <div><dt>同步新增</dt><dd>{summary.created_count}</dd></div>}
+      {summary.skipped_count !== undefined && <div><dt>同步跳过</dt><dd>{summary.skipped_count}</dd></div>}
+      {summary.conflict_count !== undefined && <div><dt>同步冲突</dt><dd>{summary.conflict_count}</dd></div>}
+      <div><dt>授权版本</dt><dd>{summary.access_version_change ? '确认后会变化' : '不会变化'}</dd></div>
+    </dl>
+    {(conflicting || blockedReason) && <p className="mg-error" role="alert">{blockedReason || `预览存在 ${summary.conflict_count} 项冲突，禁止提交。请先修正路由目录或现有菜单后再重新预览。`}</p>}
+    <p className="mg-warning">安全提示：预览不是提交。若其他管理员已修改配置，提交会返回冲突并保留当前草稿，不会自动重放。</p>
+  </Confirm>;
+}
+
+export type ImpactMutationPhase = 'idle' | 'previewing' | 'awaiting_confirmation' | 'submitting' | 'success' | 'conflict' | 'error';
+export interface ImpactMutationState<TCandidate, TResult> {
+  phase: ImpactMutationPhase;
+  candidate: TCandidate | null;
+  preview: ImpactPreview | null;
+  result: TResult | null;
+  error: unknown;
+  conflictCode: ManagementConflictCode | null;
+}
+
+export function managementConflict(error: unknown): ManagementConflictCode | null {
+  if (!(error instanceof ApiError)) return null;
+  return error.errorCode === 'NAV_CONFLICT' || error.errorCode === 'API_META_CONFLICT' ? error.errorCode : null;
+}
+
+export function useImpactMutation<TCandidate, TResult>(previewRequest: (candidate: TCandidate) => Promise<ImpactPreview>, commitRequest: (candidate: TCandidate, fingerprint: string) => Promise<TResult>) {
+  const [state, setState] = useState<ImpactMutationState<TCandidate, TResult>>({ phase: 'idle', candidate: null, preview: null, result: null, error: null, conflictCode: null });
+  const stateRef = useRef(state);
+  const requestSerial = useRef(0);
+  const submitting = useRef(false);
+  const opener = useRef<HTMLElement | null>(null);
+  stateRef.current = state;
+
+  const prepare = useCallback(async (candidate: TCandidate) => {
+    opener.current = typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const serial = ++requestSerial.current;
+    const next: ImpactMutationState<TCandidate, TResult> = { phase: 'previewing', candidate, preview: null, result: null, error: null, conflictCode: null };
+    stateRef.current = next;
+    setState(next);
+    try {
+      const preview = await previewRequest(candidate);
+      if (serial !== requestSerial.current) return null;
+      const ready: ImpactMutationState<TCandidate, TResult> = { ...next, phase: 'awaiting_confirmation', preview };
+      stateRef.current = ready;
+      setState(ready);
+      return preview;
+    } catch (error) {
+      if (serial !== requestSerial.current) return null;
+      const failed: ImpactMutationState<TCandidate, TResult> = { ...next, phase: managementConflict(error) ? 'conflict' : 'error', error, conflictCode: managementConflict(error) };
+      stateRef.current = failed;
+      setState(failed);
+      return null;
+    }
+  }, [previewRequest]);
+
+  const confirm = useCallback(async () => {
+    const current = stateRef.current;
+    if (submitting.current || current.phase !== 'awaiting_confirmation' || !current.preview || current.candidate === null) return null;
+    submitting.current = true;
+    const submittingState: ImpactMutationState<TCandidate, TResult> = { ...current, phase: 'submitting', error: null, conflictCode: null };
+    stateRef.current = submittingState;
+    setState(submittingState);
+    try {
+      const result = await commitRequest(current.candidate, current.preview.preview_fingerprint);
+      const completed: ImpactMutationState<TCandidate, TResult> = { ...submittingState, phase: 'success', result };
+      stateRef.current = completed;
+      setState(completed);
+      return result;
+    } catch (error) {
+      const conflictCode = managementConflict(error);
+      const failed: ImpactMutationState<TCandidate, TResult> = { ...submittingState, phase: conflictCode ? 'conflict' : 'error', error, conflictCode };
+      stateRef.current = failed;
+      setState(failed);
+      return null;
+    } finally {
+      submitting.current = false;
+    }
+  }, [commitRequest]);
+
+  const reset = useCallback(() => {
+    requestSerial.current += 1;
+    const next: ImpactMutationState<TCandidate, TResult> = { phase: 'idle', candidate: null, preview: null, result: null, error: null, conflictCode: null };
+    stateRef.current = next;
+    setState(next);
+    // Radix focuses body when no Dialog.Trigger owns focus; the button that
+    // opened the preview is the correct target after cancel, escape or success.
+    const previous = opener.current;
+    opener.current = null;
+    if (previous?.isConnected) requestAnimationFrame(() => { if (previous.isConnected) previous.focus(); });
+  }, []);
+
+  return { state, prepare, confirm, reset };
 }
 
 export function UnsavedGuard({ dirty, busy = false }: { dirty: boolean; busy?: boolean }) {
