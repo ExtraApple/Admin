@@ -29,8 +29,8 @@
 
 ## Impact
 
-- **Frontend:** `web/src/lib/models.ts`、`web/src/lib/api.ts`、`web/src/lib/workbench-navigation.ts`、React Router 配置、菜单/接口页面、共享表单/预览/状态组件和 `web/src/management.css`。
-- **Backend APIs consumed:** existing menu CRUD, menu API list/bind/clear, menu sync/impact preview, API list/detail/update/delete, API sync/impact preview and menu-button endpoints. No new backend route is required by this change.
+- **Frontend:** `web/src/lib/models.ts`、`web/src/lib/api.ts`、`web/src/lib/navigation.ts`、`web/src/lib/workbench-navigation.ts`、React Router 配置、菜单/接口页面、共享表单/预览/状态组件和 `web/src/management.css`。
+- **Backend API:** extend the existing `GET /api/admin/apis` query contract with server-side `route_state` filtering; no new route is introduced. 菜单路由同步沿用现有 `POST /api/admin/menus/sync`，目录由前端既有路由表导出。
 - **Permissions:** reuse existing `admin.menus.*` and `admin.apis.*` permissions; no new permission code.
 - **Persistence/runtime:** no database migration, Redis key, MinIO bucket, route registration source, or token storage change.
 - **Verification:** frontend component/request tests plus real browser checks at desktop and narrow-screen sizes, including preview-to-commit, stale fingerprint, permission denial, empty/error/loading, theme and keyboard flows.

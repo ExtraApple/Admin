@@ -5,7 +5,7 @@
 ### Requirement: 接口管理页面
 正式工作台 SHALL 提供基于真实 API Metadata 的分页接口管理页面，并 SHALL 将 Route Catalog 作为路由事实来源。
 
-- 页面 SHALL 支持关键词、分组、HTTP Method、status、NeedAuth、NeedAudit、RouteState 和分页筛选。
+- 页面 SHALL 支持关键词、分组、HTTP Method、status、NeedAuth、NeedAudit、RouteState 和分页筛选；`route_state` SHALL 由当前 Route Catalog Snapshot 投影后在服务端过滤。
 - Method、Path、NeedAuth、API ID 和 RouteState SHALL 只读。
 - 页面 SHALL 不提供手工创建 API；新增 Metadata 通过 Route Catalog 同步产生。
 - 页面可编辑名称、分组、permission_code、备注、排序、status 和 need_audit。
@@ -14,6 +14,12 @@
 - **WHEN** 具有 API 查询权限的管理员打开 `/apis`、设置筛选条件或翻页
 - **THEN** 页面请求真实分页接口并显示服务端总数、页码和结果
 - **AND** 筛选条件可以从 URL query 恢复
+- **AND** 当请求包含 `route_state` 筛选时，返回结果和总数 SHALL 只包含该状态的 API Metadata
+
+#### Scenario: 服务端筛选 RouteState
+- **WHEN** 管理员按 `matched`、`metadata_only`、`catalog_only` 或 `access_mismatch` 筛选接口列表
+- **THEN** 现有 API 列表接口按当前 Route Catalog Snapshot 服务端过滤
+- **AND** 分页总数与结果只反映筛选后的记录
 
 #### Scenario: 查看 RouteState
 - **WHEN** API Metadata 返回 `matched`、`metadata_only`、`catalog_only` 或 `access_mismatch`

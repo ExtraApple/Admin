@@ -18,7 +18,7 @@
 **Non-Goals:**
 
 - 不新增后端 HTTP 路由、权限码、数据库表/列、Redis key、MinIO bucket 或 Route Catalog 来源。
-- 不在前端创建第二套路由、权限或菜单事实。
+- 不在前端新增路由、权限或菜单事实：菜单同步目录只是既有前端路由表（`ManagementPages.tsx` 已注册页面）的显式清单。
 - 不提供手工创建 API；API 新记录来自 Route Catalog 同步。
 - 不编辑 API Method、Path 或 `NeedAuth`；这些字段在首版只读展示。
 - 不实现新的角色授权模型、审批、草稿、发布、批量编辑或离线缓存。
@@ -47,7 +47,7 @@
 
 ### 4. 接口页采用服务端分页表格和详情抽屉
 
-接口列表使用服务端分页和 query 筛选，桌面显示表格，窄屏显示卡片；详情和编辑使用抽屉/面板。Method、Path、NeedAuth、RouteState 和 API ID 只读；名称、分组、权限码、备注、排序、status、need_audit 可编辑。页面不提供手工创建 API，Route Catalog 同步是新增元数据的入口。
+接口列表使用服务端分页和 query 筛选（包括由当前 Route Catalog 投影得到的 `route_state` 服务端筛选），桌面显示表格，窄屏显示卡片；详情和编辑使用抽屉/面板。Method、Path、NeedAuth、RouteState 和 API ID 只读；名称、分组、权限码、备注、排序、status、need_audit 可编辑。页面不提供手工创建 API，Route Catalog 同步是新增元数据的入口。RouteState 筛选由现有 API 列表接口执行，保证总数和分页结果正确。
 
 **Alternative rejected:** 前端一次加载全部 API 或允许直接编辑 Method/Path/NeedAuth。前者不适合规模增长，后者会把前端变成第二套路由/安全策略来源。
 
@@ -60,6 +60,12 @@
 ### 6. 绑定和同步使用专门工作流
 
 按钮菜单详情显示已绑定 API 和候选 API 双区选择器；候选支持关键词、Method、Path、状态和认证筛选。显式清空使用 `clear=true`，不把空数组当解绑。菜单同步和 API 同步均展示新增、跳过、漂移和冲突差异；存在冲突时禁止提交。API 生成按钮从 API 详情发起，选择目录/页面父级后预览并提交。
+
+菜单同步目录由前端既有路由表导出（`web/src/lib/navigation.ts` 的 `managementMenuRoutes`），只描述 `canAccessModule` 已依赖的 `/system/*` 页面入口；测试同时校验目录路径与 `canAccessModule` 的判定路径一致。
+
+**Alternative rejected:** 让后端返回启动种子目录作为同步来源。现有 `defaultMenus()` 把 `/system` 写为带 `path` 和 `component` 的目录菜单，违反 `validateMenuFields` 的目录约束，经 `POST /api/admin/menus/sync` 预览会返回 422；它不能作为合法同步目录。
+
+**Alternative rejected:** 让管理员手工粘贴路由 JSON。目录是构建产物而非运维输入，手工粘贴会引入未经校验的路由事实。
 
 **Alternative rejected:** 把 API 绑定、清空和同步塞入普通编辑表单的一次保存。这样难以表达授权影响，也容易把空集合误当作解绑。
 
@@ -81,4 +87,6 @@
 - 高影响操作多一次预览请求和确认步骤，降低了保存即时性，但避免覆盖竞争配置并符合后端安全契约。
 - RouteState 可能因代码部署和元数据不同步而频繁变化，页面必须把诊断展示和同步操作分开，不能把漂移自动修复。
 - 写权限隐藏依赖当前用户上下文，页面仍需正确处理后端 403，因为权限可能在页面打开后变化。
+- 菜单与 API 元数据写入按其既有契约提升受影响用户的访问版本；操作员自己也在受影响集合内时，写入成功后下一次请求会由会话守卫引导重新登录，页面先展示服务器已确认的写入结果与系统提示。
+- 开发服务器 API 代理前缀必须带尾斜杠（`/api/`），否则 SPA 路由 `/apis` 会被代理到后端并返回 404；直接访问和刷新 `/apis` 依赖该边界。
 - 窄屏双栏布局会退化为纵向布局，菜单树与详情之间的切换需要保持 URL、焦点和未保存保护一致。
