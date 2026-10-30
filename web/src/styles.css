@@ -171,7 +171,7 @@
 .account-menu .ui-dropdown-item svg { flex-shrink: 0; }
 .avatar { display: inline-grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--tint); color: var(--accent); font-weight: 700; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
-.content { max-width: 1390px; margin: 0 auto; padding: clamp(30px, 4vw, 56px) clamp(22px, 4vw, 58px) 72px; outline: none; }
+.content { width: 100%; max-width: 1390px; margin: 0 auto; padding: clamp(30px, 4vw, 56px) clamp(22px, 4vw, 58px) 72px; outline: none; }
 .eyebrow { display: block; margin-bottom: 9px; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
 .intro { color: var(--muted); margin-bottom: 31px; max-width: 72ch; }
 .hint { color: var(--muted); font-size: 12px; }
