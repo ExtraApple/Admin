@@ -29,6 +29,9 @@ func (repository *Repository) List(ctx context.Context, request audit.AuditLogLi
 	if request.UserID > 0 {
 		query = query.Where("user_id = ?", request.UserID)
 	}
+	if request.Username != "" {
+		query = query.Where("username LIKE ?", "%"+request.Username+"%")
+	}
 	if request.Method != "" {
 		query = query.Where("method = ?", request.Method)
 	}
@@ -47,11 +50,13 @@ func (repository *Repository) List(ctx context.Context, request audit.AuditLogLi
 	if len(categories) > 1 {
 		query = query.Where("category IN ?", categories)
 	}
-	if start, err := time.Parse("2006-01-02 15:04:05", request.StartTime); request.StartTime != "" && err == nil {
-		query = query.Where("created_at >= ?", start)
+	// Bounds are parsed and validated by NormalizeListRequest in the application
+	// layer so the adapter always compares in the same location as the recorder.
+	if !request.StartAt.IsZero() {
+		query = query.Where("created_at >= ?", request.StartAt)
 	}
-	if end, err := time.Parse("2006-01-02 15:04:05", request.EndTime); request.EndTime != "" && err == nil {
-		query = query.Where("created_at <= ?", end)
+	if !request.EndAt.IsZero() {
+		query = query.Where("created_at <= ?", request.EndAt)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

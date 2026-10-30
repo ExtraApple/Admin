@@ -3,10 +3,12 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -20,6 +22,9 @@ const (
 	UploadValidationAccepted = "accepted"
 	UploadValidationRejected = "rejected"
 	MaxAuditBodySize         = 2000
+	MaxAuditPageSize         = 50
+
+	auditTimeLayout = "2006-01-02 15:04:05"
 )
 
 // UploadAuditMetadata is the allowlist persisted for upload operations. It
@@ -130,7 +135,7 @@ func isMessageAuditPath(path string) bool {
 }
 
 var auditQueryAllowlist = map[string]struct{}{
-	"page": {}, "size": {}, "user_id": {}, "method": {}, "path": {},
+	"page": {}, "size": {}, "user_id": {}, "username": {}, "method": {}, "path": {},
 	"status": {}, "category": {}, "start_time": {}, "end_time": {},
 }
 
@@ -278,7 +283,10 @@ func (service *QueryService) ListByCategories(ctx context.Context, request Audit
 	return service.list(ctx, request, categories)
 }
 func (service *QueryService) list(ctx context.Context, request AuditLogListRequest, categories []string) ([]AuditLogInfo, int64, error) {
-	request = NormalizePage(request)
+	request, err := NormalizeListRequest(request)
+	if err != nil {
+		return nil, 0, err
+	}
 	logs, total, err := service.repository.List(ctx, request, categories)
 	if err != nil {
 		return nil, 0, err
@@ -297,7 +305,39 @@ func NormalizePage(request AuditLogListRequest) AuditLogListRequest {
 	if request.Size <= 0 {
 		request.Size = 10
 	}
+	if request.Size > MaxAuditPageSize {
+		request.Size = MaxAuditPageSize
+	}
 	return request
+}
+
+// NormalizeListRequest validates the query time range in the same local
+// location used by the recorder and MySQL DSN, then exposes parsed bounds to
+// the persistence adapter.
+func NormalizeListRequest(request AuditLogListRequest) (AuditLogListRequest, error) {
+	request = NormalizePage(request)
+	start, err := parseAuditTime(request.StartTime)
+	if err != nil {
+		return request, NewError(CodeValidationInvalid, err)
+	}
+	end, err := parseAuditTime(request.EndTime)
+	if err != nil {
+		return request, NewError(CodeValidationInvalid, err)
+	}
+	if !start.IsZero() && !end.IsZero() && start.After(end) {
+		return request, NewError(CodeValidationInvalid, errors.New("start_time is after end_time"))
+	}
+	request.StartAt = start
+	request.EndAt = end
+	return request, nil
+}
+
+func parseAuditTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation(auditTimeLayout, value, time.Local)
 }
 
 func ToInfo(log AuditLog) AuditLogInfo {

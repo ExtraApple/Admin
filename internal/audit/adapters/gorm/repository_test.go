@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"admin/testsupport/testutil"
 	"admin/internal/audit"
 	gormadapter "admin/internal/audit/adapters/gorm"
+	"admin/testsupport/testutil"
 )
 
 func TestRepositoryRecordsQueriesAndArchivesAuditLogs(t *testing.T) {
@@ -33,6 +33,14 @@ func TestRepositoryRecordsQueriesAndArchivesAuditLogs(t *testing.T) {
 	listed, total, err := repository.List(ctx, audit.AuditLogListRequest{Page: 1, Size: 10, UserID: 7}, []string{audit.AuditCategoryPermission})
 	if err != nil || total != 1 || len(listed) != 1 || listed[0].Path != "/api/admin/permissions" || string(listed[0].Metadata) != `{"purpose":"managed_file"}` {
 		t.Fatalf("listed logs = %#v total=%d err=%v", listed, total, err)
+	}
+	byName, nameTotal, err := repository.List(ctx, audit.AuditLogListRequest{Page: 1, Size: 10, Username: "lic"}, nil)
+	if err != nil || nameTotal != 2 || len(byName) != 2 {
+		t.Fatalf("username filter logs = %#v total=%d err=%v", byName, nameTotal, err)
+	}
+	byTime, timeTotal, err := repository.List(ctx, audit.AuditLogListRequest{Page: 1, Size: 10, StartAt: newTime.Add(-time.Hour)}, nil)
+	if err != nil || timeTotal != 1 || len(byTime) != 1 || byTime[0].Path != "/api/admin/files" {
+		t.Fatalf("time filter logs = %#v total=%d err=%v", byTime, timeTotal, err)
 	}
 	expired, err := repository.Expired(ctx, time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), 100)
 	if err != nil || len(expired) != 1 || expired[0].ID != logs[0].ID {

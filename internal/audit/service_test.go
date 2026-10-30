@@ -44,3 +44,48 @@ func TestToArchiveCopiesMetadataAndTimestamp(t *testing.T) {
 		t.Fatalf("archive copy = %#v", archive)
 	}
 }
+
+func TestNormalizeListRequestUsesLocalTimeAndCapsSize(t *testing.T) {
+	request, err := NormalizeListRequest(AuditLogListRequest{
+		Size:      1000,
+		StartTime: "2026-10-30 00:00:00",
+		EndTime:   "2026-10-30 23:59:59",
+	})
+	if err != nil {
+		t.Fatalf("normalize request: %v", err)
+	}
+	if request.Size != MaxAuditPageSize {
+		t.Fatalf("size = %d, want %d", request.Size, MaxAuditPageSize)
+	}
+	if request.StartAt.Location() != time.Local || request.EndAt.Location() != time.Local {
+		t.Fatalf("locations = %v / %v, want local", request.StartAt.Location(), request.EndAt.Location())
+	}
+	if request.StartAt.Format(auditTimeLayout) != "2026-10-30 00:00:00" || request.EndAt.Format(auditTimeLayout) != "2026-10-30 23:59:59" {
+		t.Fatalf("bounds = %v / %v", request.StartAt, request.EndAt)
+	}
+	if got := NormalizePage(AuditLogListRequest{}).Size; got != 10 {
+		t.Fatalf("default size = %d, want 10", got)
+	}
+}
+
+func TestNormalizeListRequestRejectsInvalidRanges(t *testing.T) {
+	cases := []AuditLogListRequest{
+		{StartTime: "not-a-time"},
+		{EndTime: "2026-10-30"},
+		{StartTime: "2026-10-30 12:00:00", EndTime: "2026-10-30 11:00:00"},
+	}
+	for _, request := range cases {
+		_, err := NormalizeListRequest(request)
+		code, ok := CodeOf(err)
+		if !ok || code != CodeValidationInvalid {
+			t.Fatalf("request %#v error = %v, want %s", request, err, CodeValidationInvalid)
+		}
+	}
+}
+
+func TestSanitizeQueryKeepsUsernameAndDropsSecrets(t *testing.T) {
+	got := SanitizeQuery("username=alice&page=2&token=plain-test-value")
+	if got != "page=2&username=alice" {
+		t.Fatalf("sanitized query = %q", got)
+	}
+}

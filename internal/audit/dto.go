@@ -1,19 +1,25 @@
 package audit
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // AuditLogListRequest contains the legacy query parameters and pagination
 // defaults used by the admin audit endpoints.
 type AuditLogListRequest struct {
-	Page      int    `form:"page" json:"page"`
-	Size      int    `form:"size" json:"size"`
-	UserID    uint   `form:"user_id" json:"user_id"`
-	Method    string `form:"method" json:"method"`
-	Path      string `form:"path" json:"path"`
-	Status    int    `form:"status" json:"status"`
-	Category  string `form:"category" json:"category"`
-	StartTime string `form:"start_time" json:"start_time"`
-	EndTime   string `form:"end_time" json:"end_time"`
+	Page      int       `form:"page" json:"page"`
+	Size      int       `form:"size" json:"size"`
+	UserID    uint      `form:"user_id" json:"user_id"`
+	Username  string    `form:"username" json:"username"`
+	Method    string    `form:"method" json:"method"`
+	Path      string    `form:"path" json:"path"`
+	Status    int       `form:"status" json:"status"`
+	Category  string    `form:"category" json:"category"`
+	StartTime string    `form:"start_time" json:"start_time"`
+	EndTime   string    `form:"end_time" json:"end_time"`
+	StartAt   time.Time `form:"-" json:"-"`
+	EndAt     time.Time `form:"-" json:"-"`
 }
 
 // AuditLogInfo is the stable response shape of the legacy list endpoint.
