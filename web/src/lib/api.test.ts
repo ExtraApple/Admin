@@ -203,3 +203,18 @@ describe('authorization overview client contract', () => {
     expect(fetch).toHaveBeenNthCalledWith(2, '/api/admin/authorization-risks?page=2&size=10&kind=missing_menu_permission&resource=role&keyword=%E5%AE%A1%E6%9F%A5', expect.any(Object));
   });
 });
+describe('audit log client contract', () => {
+  it('loads the requested endpoint and maps validation errors through the shared typed error path', async () => {
+    const payload = { list: [], total: 0, page: 1, size: 20 };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(200, '', payload))
+      .mockResolvedValueOnce(response(422, 'AUDIT_VALIDATION_INVALID', { fields: [{ field: 'start_time', error_code: 'AUDIT_VALIDATION_INVALID', message: 'invalid time' }] }, 'audit query validation failed'));
+    vi.stubGlobal('fetch', fetch);
+    await expect(api.auditLogs.list('/api/admin/login-logs?page=1&size=20')).resolves.toEqual(payload);
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/admin/login-logs?page=1&size=20', expect.any(Object));
+    const error = await api.auditLogs.list('/api/admin/audit-logs?start_time=bad').catch(value => value);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 422, errorCode: 'AUDIT_VALIDATION_INVALID' });
+    expect(Object.keys(fieldMessages(error))).toEqual(['start_time']);
+  });
+});

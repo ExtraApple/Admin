@@ -16,8 +16,8 @@ export const SheetOverlay = React.forwardRef<React.ElementRef<typeof Primitive.O
 );
 SheetOverlay.displayName = 'SheetOverlay';
 
-export const SheetContent = React.forwardRef<React.ElementRef<typeof Primitive.Content>, React.ComponentPropsWithoutRef<typeof Primitive.Content> & { side?: 'left' | 'right' }>(
-  ({ className, children, side = 'right', ...props }, ref) => (
+export const SheetContent = React.forwardRef<React.ElementRef<typeof Primitive.Content>, React.ComponentPropsWithoutRef<typeof Primitive.Content> & { side?: 'left' | 'right'; closeLabel?: string }>(
+  ({ className, children, side = 'right', closeLabel = '关闭导航', ...props }, ref) => (
     <SheetPortal>
       <SheetOverlay />
       <Primitive.Content
@@ -33,7 +33,7 @@ export const SheetContent = React.forwardRef<React.ElementRef<typeof Primitive.C
       >
         {children}
         <SheetClose asChild>
-          <Button variant="ghost" size="icon" aria-label="关闭导航" className="ui-sheet-close absolute right-3 top-3 min-h-11 min-w-11">
+          <Button variant="ghost" size="icon" aria-label={closeLabel} className="ui-sheet-close absolute right-3 top-3 min-h-11 min-w-11">
             <X size={18} aria-hidden="true" />
           </Button>
         </SheetClose>

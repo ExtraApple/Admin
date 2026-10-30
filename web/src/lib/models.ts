@@ -1,4 +1,35 @@
 export interface Page<T> { list: T[]; total: number; page: number; size: number }
+export type AuditLogType = 'all' | 'login' | 'operation' | 'permission' | 'data_access';
+export type AuditCategory = 'api' | 'login' | 'operation' | 'permission' | 'data_access' | 'message';
+export interface AuditLog {
+  id: number;
+  user_id: number;
+  username: string;
+  method: string;
+  path: string;
+  query: string;
+  body: string;
+  metadata: unknown;
+  status: number;
+  duration: number;
+  client_ip: string;
+  user_agent: string;
+  category: AuditCategory;
+  created_at: string;
+}
+export interface AuditLogPage extends Page<AuditLog> {}
+export interface AuditLogQueryState {
+  type: AuditLogType;
+  page: number;
+  size: number;
+  start: string;
+  end: string;
+  method: string;
+  status: string;
+  path: string;
+  username: string;
+  userId: string;
+}
 export type MenuType = 1 | 2 | 3;
 export type RouteState = 'matched' | 'metadata_only' | 'catalog_only' | 'access_mismatch';
 export type MenuImpactOperation = 'create' | 'update' | 'delete' | 'bind-apis' | 'clear-apis' | 'sync';

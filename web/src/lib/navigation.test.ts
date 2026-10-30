@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, hasPermission, managementMenuRoutes, safeDestination } from './navigation';
+import { allowedAuditLogTabs, canAccessAuditLogs, canAccessAuthorizationOverview, canAccessAuthorizationRisks, canAccessModule, hasPermission, managementMenuRoutes, safeDestination } from './navigation';
 import type { Menu, UserContext } from './models';
 const menu: Menu = { id: 2, parent_id: 1, name: '用户管理', path: '/system/users', component: 'system/users/index', icon: 'Users', permission_code: 'admin.users.get', sort: 10, type: 2, status: 1 };
 const context: UserContext = { user: { id: 7, username: 'operator', nickname: '', avatar: '', email: '', role: 'admin', status: 1 }, roles: ['reader'], permissions: ['admin.users.get'], menus: [menu] };
@@ -46,6 +46,20 @@ describe('frontend menu route catalog', () => {
     }
   });
 });
+describe('audit log entry points', () => {
+  it('requires any of the five read permissions without requiring a menu record', () => {
+    expect(canAccessAuditLogs(null)).toBe(false);
+    expect(canAccessAuditLogs({ ...context, permissions: [] })).toBe(false);
+    expect(canAccessAuditLogs({ ...context, permissions: ['admin.login-logs.get'] })).toBe(true);
+    expect(canAccessAuditLogs({ ...context, roles: ['admin'], permissions: [] })).toBe(true);
+  });
+  it('returns permitted tabs in display order', () => {
+    expect(allowedAuditLogTabs({ ...context, permissions: ['admin.data-access-logs.get', 'admin.audit-logs.get'] })).toEqual(['all', 'data_access']);
+    expect(allowedAuditLogTabs({ ...context, roles: ['admin'], permissions: [] })).toEqual(['all', 'login', 'operation', 'permission', 'data_access']);
+    expect(allowedAuditLogTabs(null)).toEqual([]);
+  });
+});
+
 describe('authorization overview entry points', () => {
   const administrator: UserContext = { ...context, roles: ['admin'], permissions: ['admin.authorization.overview.get', 'admin.authorization.risks.get'] };
   it('requires the protected admin role and the explicit overview permission', () => {

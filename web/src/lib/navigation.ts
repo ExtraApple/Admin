@@ -1,4 +1,5 @@
-import type { Menu, MenuSyncItem, UserContext } from './models';
+import type { AuditLogType, Menu, MenuSyncItem, UserContext } from './models';
+import { AUDIT_TAB_ORDER } from './audit-query';
 export type ManagementModule = 'roles' | 'users' | 'organizations' | 'menus' | 'apis';
 
 // Mirrors App.tsx/ManagementPages.tsx: the menu catalog a sync must create for
@@ -34,6 +35,23 @@ export function canAccessAuthorizationRisks(context: UserContext | null): boolea
 export function hasPermission(context: UserContext | null, permission: string): boolean {
   return !!context && (context.roles.includes('admin') || context.permissions.includes(permission));
 }
+
+export const auditLogPermissions: Record<AuditLogType, string> = {
+  all: 'admin.audit-logs.get',
+  login: 'admin.login-logs.get',
+  operation: 'admin.operation-logs.get',
+  permission: 'admin.permission-logs.get',
+  data_access: 'admin.data-access-logs.get',
+};
+
+export function canAccessAuditLogs(context: UserContext | null): boolean {
+  return !!context && Object.values(auditLogPermissions).some(permission => hasPermission(context, permission));
+}
+
+export function allowedAuditLogTabs(context: UserContext | null): AuditLogType[] {
+  return AUDIT_TAB_ORDER.filter(type => hasPermission(context, auditLogPermissions[type]));
+}
+
 export function canAccessModule(context: UserContext | null, module: ManagementModule): boolean {
   if (!context || !hasPermission(context, `admin.${module}.get`)) return false;
   const visible = (menus: Menu[]): boolean => menus.some(menu => menu.status === 1 &&

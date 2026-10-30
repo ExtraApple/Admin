@@ -6,6 +6,7 @@ import { GuardedRoleEditor, RoleDetail, RolesList } from './RolePages';
 import { GuardedUserEditor, UserDetail, UsersList } from './UserPages';
 import { GuardedOrganizationMove, OrganizationDetail, OrganizationsList } from './OrganizationPages';
 import { MenusPage, ApisPage } from './ConfigurationPages';
+import { AuditGuard, AuditLogsPage } from './AuditLogPages';
 import '@/management.css';
 
 export const managementRoutes: RouteObject[] = [
@@ -25,4 +26,5 @@ export const managementRoutes: RouteObject[] = [
   { path: 'organizations/:id/move', element: <GuardedOrganizationMove /> },
   { path: 'menus', element: <Guard module="menus" permissions={['admin.menus.get']}><MenusPage /></Guard> },
   { path: 'apis', element: <Guard module="apis" permissions={['admin.apis.get']}><ApisPage /></Guard> },
+  { path: 'audit-logs', element: <AuditGuard><AuditLogsPage /></AuditGuard> },
 ];

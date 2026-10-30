@@ -283,4 +283,54 @@
 @media (prefers-reduced-motion: reduce) {
   .mg-overview-skeleton span { animation: none; }
 }
+.mg-audit-tabs { display: flex; gap: 6px; flex-wrap: wrap; width: fit-content; max-width: 100%; padding: 6px; border: 1px solid var(--mg-line); border-radius: 10px; background: var(--mg-surface); }
+.mg-audit-tabs button { min-height: 40px; padding: 8px 16px; border-radius: 7px; color: var(--mg-muted); font-weight: 600; }
+.mg-audit-tabs button:hover { color: var(--mg-ink); background: var(--mg-canvas); }
+.mg-audit-tabs button[aria-current="page"] { color: var(--mg-accent); background: var(--mg-tint); }
+.mg-audit-toolbar { display: block; padding: 20px 24px; }
+.mg-audit-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 14px; align-items: end; }
+.mg-audit-filters label { display: grid; gap: 6px; min-width: 0; color: var(--mg-muted); font-size: 13px; font-weight: 650; }
+.mg-audit-filters input, .mg-audit-filters select { width: 100%; min-width: 0; }
+.mg-audit-filters input { min-height: 44px; padding: 8px 12px; border: 1px solid var(--mg-line); border-radius: 7px; color: var(--mg-ink); background: var(--mg-surface); }
+.mg-audit-filters input::placeholder { color: var(--input-placeholder); }
+.mg-audit-presets { display: flex; grid-column: 1 / -1; gap: 8px; flex-wrap: wrap; }
+.mg-audit-presets .ui-button { min-height: 36px; padding: 6px 12px; }
+.mg-audit-range { grid-column: 1 / -1; }
+.mg-audit-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.mg-audit-table th:nth-child(1) { width: 170px; }
+.mg-audit-table th:nth-child(2) { width: 100px; }
+.mg-audit-table th:nth-child(3) { width: 150px; }
+.mg-audit-table th:nth-child(4) { width: auto; }
+.mg-audit-table th:nth-child(5) { width: 88px; }
+.mg-audit-table th:nth-child(6) { width: 88px; }
+.mg-audit-table th:nth-child(7) { width: 140px; }
+.mg-audit-table td { vertical-align: top; }
+.mg-audit-user strong, .mg-audit-user small { display: block; overflow-wrap: anywhere; }
+.mg-audit-user small { color: var(--mg-muted); font-size: 12px; }
+.mg-audit-status { display: inline-block; border: 1px solid var(--mg-line); border-radius: 100px; padding: 3px 10px; color: var(--mg-muted); background: var(--mg-canvas); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.mg-audit-status-ok { border-color: var(--mg-success-line); color: var(--mg-success-ink); background: var(--mg-success-bg); }
+.mg-audit-status-info { border-color: var(--mg-info); color: var(--mg-info); background: var(--mg-tint); }
+.mg-audit-status-warn { border-color: var(--mg-warning-line); color: var(--mg-danger); background: var(--mg-warning-bg); }
+.mg-audit-status-error { border-color: var(--mg-warning-accent); color: var(--mg-danger); background: var(--mg-warning-bg); }
+.mg-audit-sheet.ui-sheet-content { width: min(620px, 100vw); max-width: none; padding: 24px; gap: 16px; overflow-y: auto; }
+.mg-audit-sheet .ui-sheet-header { padding: 0; }
+.mg-audit-block { margin-top: 18px; }
+.mg-audit-block h3 { margin: 0 0 8px; font-size: 15px; }
+.mg-audit-block .mg-detail-actions { margin-top: 0; }
+.mg-audit-pre { max-height: 360px; margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--mg-line); border-radius: 7px; color: var(--mg-ink); background: var(--mg-canvas); font: 12px/1.65 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mg-audit-pre-collapsed { max-height: 120px; }
+@media (max-width: 1100px) {
+  .mg-audit-list .mg-table-desktop { display: none; }
+  .mg-audit-list .mg-mobile-cards { display: grid; gap: 12px; padding: 0 16px 20px; }
+  .mg-audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .mg-audit-toolbar { padding: 20px; }
+  .mg-audit-tabs { width: 100%; flex-wrap: nowrap; overflow-x: auto; }
+  .mg-audit-tabs button { flex: none; }
+  .mg-audit-filters { grid-template-columns: 1fr; }
+  .mg-audit-actions { justify-content: stretch; }
+  .mg-audit-actions .ui-button { flex: 1; }
+  .mg-audit-sheet.ui-sheet-content { width: 100vw; padding: 20px; }
+}
 .mg-overview-risk-results { margin-top: 18px; }

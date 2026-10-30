@@ -8,6 +8,7 @@ import type {
   ApiSyncResult,
   ApiSyncRequest,
   ApiUpdateInput,
+  AuditLogPage,
   AuthorizationOverview,
   AuthorizationRiskPage,
   AuthorizationRiskQuery,
@@ -195,5 +196,8 @@ export const api = {
     sync: (body: ApiSyncRequest) => request<ApiSyncResult>('/api/admin/apis/sync', 'POST', body, 'json'),
     syncPermissions: (body: ApiSyncRequest) => request<ApiPermissionSyncResult>('/api/admin/apis/sync-permissions', 'POST', body, 'json'),
     generateMenuButton: (id: number, body: GenerateMenuButtonInput) => request<Menu>(`${apiPath(id)}/menu-button`, 'POST', body, 'json'),
+  },
+  auditLogs: {
+    list: (path = '/api/admin/audit-logs') => request<AuditLogPage>(path, 'GET', undefined, 'json'),
   },
 };

@@ -22,7 +22,7 @@ const configurationAdministrator: UserContext = {
   permissions: [...administrator.permissions, 'admin.menus.get', 'admin.apis.get'],
   menus: [...administrator.menus, moduleMenu('menus'), moduleMenu('apis')],
 };
-const allClosed = { 'authorization-review': false, 'identity-organization': false, 'configuration-management': false };
+const allClosed = { 'authorization-review': false, 'identity-organization': false, 'configuration-management': false, 'audit': false };
 
 function visibleEntries(context: UserContext | null) {
   return getWorkbenchGroups(context).map(group => ({ id: group.id, routes: group.items.map(item => item.to) }));
@@ -57,6 +57,7 @@ describe('permission-filtered workbench groups', () => {
       { id: 'authorization-review', routes: ['/authorization-overview', '/authorization-risks'] },
       { id: 'identity-organization', routes: ['/roles', '/users', '/organizations'] },
       { id: 'configuration-management', routes: ['/menus', '/apis'] },
+      { id: 'audit', routes: ['/audit-logs'] },
     ]);
     expect(visibleEntries({ ...configurationAdministrator, menus: [] }).some(entry => entry.id === 'configuration-management')).toBe(false);
   });
@@ -74,7 +75,7 @@ describe('permission-filtered workbench groups', () => {
   });
 
   it('keeps backend admin fallback without inventing menus, and honors existing nested-menu access', () => {
-    expect(getWorkbenchGroups({ ...administrator, menus: [] }).map(group => group.id)).toEqual(['authorization-review']);
+    expect(getWorkbenchGroups({ ...administrator, menus: [] }).map(group => group.id)).toEqual(['authorization-review', 'audit']);
     const nested = { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users', { path: '/system', type: 1, permission_code: '', children: [moduleMenu('users')] })] };
     expect(getWorkbenchGroups(nested).find(group => group.id === 'identity-organization')?.items.map(item => item.to)).toEqual(['/users']);
   });
@@ -92,6 +93,10 @@ describe('workbench path matching and initialization', () => {
 
   it.each(['/menus', '/apis/42'])('opens configuration management for %s', pathname => {
     expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), pathname)).toEqual({ ...allClosed, 'configuration-management': true });
+  });
+
+  it('opens the audit group for /audit-logs', () => {
+    expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), '/audit-logs')).toEqual({ ...allClosed, audit: true });
   });
 
   it.each(['/', '/no-management', '/unknown', '/roles-extra', '/usersettings', '/organizations-other/1', '/authorization-overview/extra', '/authorization-risks/extra', '/profile', '/profile/edit', '/profile/'])('leaves all groups closed for unmatched pathname %s', pathname => {
