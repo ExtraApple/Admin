@@ -73,9 +73,11 @@ RabbitMQ 事件只包含事件 ID、事件名称/版本、消息副本、组织�
 
 启用步骤：在 `config.yaml` 设置 `smtp.enabled: true`，配置真实 `host`／`port` 及 TLS 模式，在 `.env` 或 Secret 中注入非空的 `SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`，然后重启。启用时 host、凭据和连接参数必须有效，否则启动失败，不回退为关闭；只有 host 的旧配置需要显式补上开关。`tls_mode: disabled` 仅关闭传输 TLS，不是邮件服务开关。
 
-关闭邮件时仍可启动和登录，注册不会发送验证邮件，也不会自动将邮箱标记为已验证；重发验证邮件不能成功投递。已有邮箱、待验证状态和验证凭据不因切换开关而清除。
+关闭邮件时仍可启动和登录，注册不会发送验证邮件，也不会自动将邮箱标记为已验证；`GET /api/user/email-verification-policy` 返回 `enabled:false`，换绑和重发返回 503 `IDENTITY_EMAIL_VERIFICATION_DISABLED`，确认和取消仍可用。已有邮箱、待验证状态和验证凭据不因切换开关而清除。
 
-验证 token 只通过同步 SMTP 发送，不进入数据库、日志、审计或消息事件；投递失败返回稳定错误码，邮箱状态保留并允许节流窗口内重试。
+验证邮件使用受信任 `browser_session.origin` 生成 `/profile#email_token=...` 链接，同时携带手动 token；token 只通过同步 SMTP 发送，不进入数据库、日志、审计或消息事件。投递失败返回稳定错误码，邮箱状态保留并允许节流窗口内重试。禁止在开发环境通过日志打印 token 或增加假发送开关。
+
+本地验收可使用 Mailpit：`docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit --smtp-auth-accept-any --smtp-auth-allow-insecure`；在隔离配置中临时设置 `smtp.enabled: true`、`host: 127.0.0.1`、`port: 1025`、`tls_mode: disabled` 和明文 `from: no-reply@example.test`，通过 `http://127.0.0.1:8025` 查看邮件并取得链接／token；验收后恢复默认关闭。后端统一使用 SMTP PLAIN 认证，Mailpit 必须启用上述两个认证参数，否则会表现为投递失败。
 
 ## 文件上传配置校验
 

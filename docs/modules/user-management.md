@@ -18,7 +18,7 @@ Swagger UI 的 `identity` 标签包含：
 ## 用户与会话规则
 
 - 注册需要唯一用户名、唯一邮箱、有效验证码和符合复杂度要求的密码。
-- 个人资料页只允许修改昵称；邮箱仍由既有邮箱流程和接口管理，本文不新增邮箱换绑 UI。头像只能通过专用上传和恢复默认接口修改。
+- 个人资料页提供昵称、头像、邮箱和密码四个独立编辑区。邮箱换绑使用 `PUT /api/user/info` 的 `{email, current_password}`：已验证当前邮箱进入待验证，未验证当前邮箱直接替换；管理员仍不得代改邮箱。头像只能通过专用上传和恢复默认接口修改。
 - 修改密码、真实用户身份／角色状态变化、删除用户、强制下线以及适用授权关系变化会提升授权版本；管理端纯昵称和合法全同值资料更新不创建或提升版本。
 - 授权版本唯一存储在`user_access_versions`；非登录认证缺行时不补行、不回退旧字段：Access返回401 `AUTHN_TOKEN_INVALID`，Refresh保持401 `AUTHN_REFRESH_TOKEN_INVALID`且不签发Token。Access版本查询的真实数据库故障仍返回安全5xx，不伪装成认证无效，也不公开SQL或凭据；真实缺行、单表查询故障及既有错误边界见[C6验收记录](../reviews/evidence/c6-access-version-auth-fix-2026-10-17.json)。
 - 用户软删除和授权版本提升在同一事务中完成，恢复用户不会让删除前 Token 重新生效。
@@ -41,10 +41,18 @@ Swagger UI 的 `identity` 标签包含：
 
 ## 个人资料自助接口
 
-- `GET /api/user/info` 和 `GET /api/user/context` 提供当前用户资料与授权上下文；`PUT /api/user/info` 的本次前端自助写入只提交 `nickname`。昵称要求非空、非全空白、最多 100 个 Unicode 字符，保留原始首尾空白和大小写；用户 ID、用户名、邮箱、角色、权限、菜单和启用状态只读。
+- `GET /api/user/info` 和 `GET /api/user/context` 提供当前用户资料与授权上下文；`PUT /api/user/info` 的昵称写入只提交 `nickname`，邮箱换绑只提交 `{email, current_password}`。昵称要求非空、非全空白、最多 100 个 Unicode 字符，保留原始首尾空白和大小写；用户 ID、用户名、角色和启用状态只读，邮箱由独立邮箱编辑器按换绑协议提交。
 - `GET /api/user/avatar-upload-policy` 需要有效 Access，返回 `data.max_bytes` 正整数和 `Cache-Control: no-store`。该值来自当前实际生效的 `file_upload.avatar_max_size_mb`，不返回配置细节；规则读取失败时客户端不能猜测默认上限。头像仍通过 `POST /api/user/avatar` 显式上传，`DELETE /api/user/avatar` 恢复默认。
 - `PUT /api/user/password` 的新密码在 bcrypt 前执行至少 6 个 Unicode 字符、UTF-8 不超过 72 字节和至少 3 类字符校验；注册复用同一新设密码规则。密码写入与授权版本提升同一事务，成功不签发新 Token，前端随后复用现有 Cookie Logout。
-- 前端密码输入只在页面内存中存在；取消、确认切换、真正离开、会话挂起／失效和身份变化都会清除敏感草稿。Access 仍有效的临时续期失败保留草稿，同 SID 手动恢复不回填密码；昵称与待保存头像预览按未保存修改规则保留。
+- 前端密码输入只在页面内存中存在；取消、确认切换、真正离开、会话挂起／失效和身份变化都会清除敏感草稿。邮箱当前密码和验证 token 同样在会话挂起或失效时清空；Access 仍有效的临时续期失败保留草稿，同 SID 手动恢复不回填密码或 token；昵称、邮箱候选与待保存头像预览按未保存修改规则保留。
+
+## 邮箱换绑与验证
+
+- 换绑使用 `PUT /api/user/info` 的 `{email, current_password}`。已验证当前邮箱的候选写入 `pending_email`，当前已验证邮箱继续有效；未验证当前邮箱的候选直接替换当前邮箱并发送验证邮件。管理员不得代用户换绑。
+- `GET /api/user/email-verification-policy` 返回当前部署是否可发送验证邮件。SMTP 关闭时换绑和重发返回 503 `IDENTITY_EMAIL_VERIFICATION_DISABLED`；确认和取消不依赖 SMTP，仍可使用。
+- `POST /api/user/email-verifications` 重发；`/confirm` 提交 `{token}` 确认所有权；`/cancel` 提交当前展示的 `{pending_email}`，匹配时清空候选并失效该候选的未使用凭据，不匹配返回 409 `IDENTITY_EMAIL_PENDING_STALE`。
+- 验证邮件为中文，同时包含 `/profile#email_token=...` 链接和手动 token；token 15 分钟有效、一次性、每用户每小时最多签发 3 次。前端自动提交链接 token 后立即清除 fragment，不把 token 写入 Web Storage。
+- 待验证邮箱在验证成功、显式取消或再次换绑前保留，并继续占用该地址的唯一性；不会自动过期。邮箱换绑、确认和取消不提升授权版本，也不使现有会话失效。
 
 ## 前端注意事项
 
