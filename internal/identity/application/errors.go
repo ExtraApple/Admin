@@ -19,6 +19,8 @@ const (
 	CodeEmailVerificationRateLimited    ErrorCode = "IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED"
 	CodeEmailVerificationDeliveryFailed ErrorCode = "IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED"
 	CodeEmailVerificationInvalid        ErrorCode = "IDENTITY_EMAIL_VERIFICATION_INVALID"
+	CodeEmailVerificationDisabled       ErrorCode = "IDENTITY_EMAIL_VERIFICATION_DISABLED"
+	CodeEmailPendingStale               ErrorCode = "IDENTITY_EMAIL_PENDING_STALE"
 	CodeInternalError                   ErrorCode = "IDENTITY_INTERNAL_ERROR"
 )
 

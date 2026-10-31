@@ -144,6 +144,7 @@ type EmailVerificationRepository interface {
 	IssueCredential(context.Context, domain.EmailVerificationCredential, time.Time, int) (bool, error)
 	ReplaceActive(context.Context, domain.EmailVerificationCredential) error
 	InvalidateActive(context.Context, uint, string, time.Time) error
+	CancelPending(context.Context, uint, string, time.Time) (bool, error)
 	Confirm(context.Context, uint, string, time.Time) (EmailVerificationConfirmation, error)
 	DeleteTerminalBefore(context.Context, time.Time) error
 }

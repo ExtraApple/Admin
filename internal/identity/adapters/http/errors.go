@@ -77,9 +77,17 @@ func identityEmailVerificationInvalid() httpresponse.ErrorDefinition {
 	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_VERIFICATION_INVALID", Status: http.StatusUnprocessableEntity, Message: "email verification token is invalid or expired"}
 }
 
+func identityEmailVerificationDisabled() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_VERIFICATION_DISABLED", Status: http.StatusServiceUnavailable, Message: "email verification delivery is not configured"}
+}
+
+func identityEmailPendingStale() httpresponse.ErrorDefinition {
+	return httpresponse.ErrorDefinition{Owner: "identity", Code: "IDENTITY_EMAIL_PENDING_STALE", Status: http.StatusConflict, Message: "pending email has changed"}
+}
+
 func identityErrorDefinitions() []httpresponse.ErrorDefinition {
 	return []httpresponse.ErrorDefinition{
-		httpresponse.RequestInvalidDefinition(), authnCaptchaInvalid(), authnCredentialsInvalid(), authnLoginLocked(), authnRefreshInvalid(), authnTokenInvalid(), identityAccountDisabled(), identityValidationInvalid(), identityConflict(), identityPermissionDenied(), identityEmailVerificationRateLimited(), identityEmailVerificationDeliveryFailed(), identityEmailVerificationInvalid(), identityInternal(),
+		httpresponse.RequestInvalidDefinition(), authnCaptchaInvalid(), authnCredentialsInvalid(), authnLoginLocked(), authnRefreshInvalid(), authnTokenInvalid(), identityAccountDisabled(), identityValidationInvalid(), identityConflict(), identityPermissionDenied(), identityEmailVerificationRateLimited(), identityEmailVerificationDeliveryFailed(), identityEmailVerificationInvalid(), identityEmailVerificationDisabled(), identityEmailPendingStale(), identityInternal(),
 		authnCSRFInvalid(), authnRefreshSuperseded(),
 	}
 }
@@ -123,6 +131,10 @@ func classifyIdentityError(err error) (httpresponse.ErrorDefinition, any) {
 			return identityEmailVerificationDeliveryFailed(), nil
 		case application.CodeEmailVerificationInvalid:
 			return identityEmailVerificationInvalid(), nil
+		case application.CodeEmailVerificationDisabled:
+			return identityEmailVerificationDisabled(), nil
+		case application.CodeEmailPendingStale:
+			return identityEmailPendingStale(), nil
 		case application.CodeRefreshTokenInvalid:
 			return authnRefreshInvalid(), nil
 		case application.CodeRefreshSuperseded:

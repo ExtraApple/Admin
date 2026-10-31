@@ -86,7 +86,7 @@ func (service *UserService) UpdateSelf(ctx context.Context, userID uint, request
 		return service.Get(ctx, userID)
 	}
 	if service.emailVerificationIssuer == nil || service.verificationEmailSender == nil {
-		return domain.User{}, NewError(CodeInternalError, nil)
+		return domain.User{}, NewError(CodeEmailVerificationDisabled, nil)
 	}
 
 	var verificationToken string

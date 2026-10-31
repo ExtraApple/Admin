@@ -229,6 +229,53 @@ func TestRepositoryReplacesAndInvalidatesOldEmailCredential(t *testing.T) {
 	}
 }
 
+func TestRepositoryCancelsPendingEmailOnlyForExpectedCandidate(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(identitymodule.Models()...); err != nil {
+		t.Fatalf("migrate identity models: %v", err)
+	}
+	ctx := context.Background()
+	repository := identitygorm.NewRepository(db)
+	verifiedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	user := domain.User{Username: "cancel-pending", Password: "hash", Email: "old@example.test", PendingEmail: "new@example.test", EmailVerifiedAt: &verifiedAt, Role: "user", Status: 1}
+	if err := repository.Create(ctx, &user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	credential := identitymodule.EmailVerificationCredential{UserID: user.ID, Email: "new@example.test", TokenHash: "hash", ExpiresAt: verifiedAt.Add(15 * time.Minute)}
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+
+	cleared, err := repository.CancelPending(ctx, user.ID, "other@example.test", verifiedAt.Add(time.Minute))
+	if err != nil || cleared {
+		t.Fatalf("stale cancel = %v, %v", cleared, err)
+	}
+	loaded, err := repository.FindByID(ctx, user.ID)
+	if err != nil || loaded.PendingEmail != "new@example.test" {
+		t.Fatalf("stale cancel changed user = %#v, %v", loaded, err)
+	}
+	if err := db.First(&identitymodule.EmailVerificationCredential{}, credential.ID).Error; err != nil {
+		t.Fatalf("stale cancel removed credential: %v", err)
+	}
+	var staleCredential identitymodule.EmailVerificationCredential
+	if err := db.First(&staleCredential, credential.ID).Error; err != nil || staleCredential.UsedAt != nil {
+		t.Fatalf("stale cancel changed credential = %#v, %v", staleCredential, err)
+	}
+
+	cleared, err = repository.CancelPending(ctx, user.ID, "new@example.test", verifiedAt.Add(2*time.Minute))
+	if err != nil || !cleared {
+		t.Fatalf("cancel = %v, %v", cleared, err)
+	}
+	loaded, err = repository.FindByID(ctx, user.ID)
+	if err != nil || loaded.PendingEmail != "" || loaded.Email != "old@example.test" || loaded.EmailVerifiedAt == nil {
+		t.Fatalf("cancel changed current email = %#v, %v", loaded, err)
+	}
+	var usedCredential identitymodule.EmailVerificationCredential
+	if err := db.First(&usedCredential, credential.ID).Error; err != nil || usedCredential.UsedAt == nil {
+		t.Fatalf("credential used = %#v, error = %v", usedCredential, err)
+	}
+}
+
 func TestRepositoryPhysicallyCleansTerminalEmailCredentialsAfterRetention(t *testing.T) {
 	db := testutil.OpenIsolatedSQLite(t)
 	if err := db.AutoMigrate(identitygorm.UserModel{}, identitymodule.EmailVerificationCredential{}); err != nil {

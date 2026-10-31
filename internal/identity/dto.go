@@ -112,6 +112,14 @@ type EmailVerificationRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
+type CancelEmailVerificationRequest struct {
+	PendingEmail string `json:"pending_email" binding:"required,email"`
+}
+
+type EmailVerificationPolicy struct {
+	Enabled bool `json:"enabled"`
+}
+
 type AdminUpdateUserRequest struct {
 	Nickname string `json:"nickname" binding:"max=100"`
 	Email    string `json:"email"`

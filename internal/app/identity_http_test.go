@@ -12,6 +12,7 @@ import (
 	"admin/internal/app"
 	"admin/internal/identity"
 	identitygorm "admin/internal/identity/adapters/gorm"
+	identitypassword "admin/internal/identity/adapters/password"
 	identitydomain "admin/internal/identity/domain"
 	platformconfig "admin/internal/platform/config"
 	"admin/internal/routecatalog"
@@ -87,6 +88,11 @@ func TestApplicationDisabledSMTPKeepsUserProfileAvailable(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = application.Close() })
 	user := identitydomain.User{Username: "mail-disabled-user", Password: "hash", Email: "unverified@example.test", Status: 1}
+	hashed, err := identitypassword.Bcrypt{}.Hash("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Password = hashed
 	if err := identitygorm.NewRepository(db).Create(context.Background(), &user); err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +110,34 @@ func TestApplicationDisabledSMTPKeepsUserProfileAvailable(t *testing.T) {
 	}
 	if response.Code != http.StatusOK || result.Data.Username != user.Username || result.Data.EmailVerified {
 		t.Fatalf("profile with disabled SMTP = %d %s", response.Code, response.Body.String())
+	}
+
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/user/email-verification-policy", nil))
+	var policy struct {
+		Data struct {
+			Enabled bool `json:"enabled"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &policy); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || policy.Data.Enabled {
+		t.Fatalf("disabled SMTP policy = %d %s", response.Code, response.Body.String())
+	}
+
+	request := httptest.NewRequest(http.MethodPut, "/api/user/info", strings.NewReader(`{"email":"replacement@example.test","current_password":"secret"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	var failure struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &failure); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusServiceUnavailable || failure.ErrorCode != "IDENTITY_EMAIL_VERIFICATION_DISABLED" {
+		t.Fatalf("disabled SMTP email change = %d %s", response.Code, response.Body.String())
 	}
 }
 

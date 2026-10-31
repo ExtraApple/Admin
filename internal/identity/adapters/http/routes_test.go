@@ -36,6 +36,8 @@ func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
 		"PUT /api/admin/users/:id/kick":              routecatalog.PermissionControlled,
 		"POST /api/user/email-verifications":         routecatalog.Authenticated,
 		"POST /api/user/email-verifications/confirm": routecatalog.Authenticated,
+		"GET /api/user/email-verification-policy":    routecatalog.Authenticated,
+		"POST /api/user/email-verifications/cancel":  routecatalog.Authenticated,
 	}
 	got := make(map[string]routecatalog.AccessLevel, len(routes))
 	for _, route := range routes {
@@ -74,6 +76,26 @@ func TestEmailVerificationRoutesDeclareSafeSchemasAndStableErrors(t *testing.T) 
 				t.Fatal("delivery failure exposes response data")
 			}
 		}
+	}
+	policy, ok := byPath["GET /api/user/email-verification-policy"]
+	if !ok || policy.OpenAPI.Responses[200].Schema == nil {
+		t.Fatal("email verification policy route does not declare its response")
+	}
+	cancel, ok := byPath["POST /api/user/email-verifications/cancel"]
+	if !ok || cancel.OpenAPI.Request.Schema == nil {
+		t.Fatal("email verification cancel route does not declare its request")
+	}
+	for _, status := range []int{http.StatusConflict, http.StatusServiceUnavailable} {
+		if cancel.OpenAPI.Responses[status].Description == "" {
+			t.Fatalf("cancel route missing status %d definition", status)
+		}
+	}
+	codes := map[string]bool{}
+	for _, definition := range cancel.OpenAPI.Responses[http.StatusConflict].Errors {
+		codes[definition.Code] = true
+	}
+	if !codes["IDENTITY_EMAIL_PENDING_STALE"] {
+		t.Fatal("cancel route does not declare stale pending email error")
 	}
 }
 

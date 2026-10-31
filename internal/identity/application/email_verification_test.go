@@ -23,6 +23,11 @@ type emailCredentialRepositoryFake struct {
 	confirmUserID    uint
 	confirmHash      string
 	confirmAt        time.Time
+	cancelUserID     uint
+	cancelEmail      string
+	cancelAt         time.Time
+	cancelResult     bool
+	cancelErr        error
 }
 
 func (fake *emailCredentialRepositoryFake) IssueCredential(ctx context.Context, credential domain.EmailVerificationCredential, _ time.Time, limit int) (bool, error) {
@@ -57,6 +62,13 @@ func (fake *emailCredentialRepositoryFake) Confirm(_ context.Context, userID uin
 	fake.confirmHash = tokenHash
 	fake.confirmAt = at
 	return application.EmailVerificationConfirmation{}, nil
+}
+
+func (fake *emailCredentialRepositoryFake) CancelPending(_ context.Context, userID uint, email string, at time.Time) (bool, error) {
+	fake.cancelUserID = userID
+	fake.cancelEmail = email
+	fake.cancelAt = at
+	return fake.cancelResult, fake.cancelErr
 }
 
 type emailVerificationTransactionFake struct{}
@@ -204,3 +216,40 @@ type errorReader struct{}
 func (errorReader) Read([]byte) (int, error) { return 0, errors.New("random source unavailable") }
 
 var _ io.Reader = bytesReader{}
+
+func TestEmailVerificationCancelUsesExpectedPendingEmail(t *testing.T) {
+	repository := &emailCredentialRepositoryFake{cancelResult: true}
+	service := application.NewEmailVerificationService(repository, emailVerificationTransactionFake{}, application.WithEmailVerificationClock(func() time.Time {
+		return time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	}))
+	if err := service.Cancel(context.Background(), 42, " new@example.com "); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if repository.cancelUserID != 42 || repository.cancelEmail != "new@example.com" || repository.cancelAt.IsZero() {
+		t.Fatalf("cancel call = user:%d email:%q at:%s", repository.cancelUserID, repository.cancelEmail, repository.cancelAt)
+	}
+
+	repository.cancelResult = false
+	if err := service.Cancel(context.Background(), 42, "other@example.com"); err == nil {
+		t.Fatal("stale cancel succeeded")
+	} else if code, _ := application.CodeOf(err); code != application.CodeEmailPendingStale {
+		t.Fatalf("stale cancel error = %v, want %s", err, application.CodeEmailPendingStale)
+	}
+}
+
+func TestEmailVerificationEnabledReflectsSenderAndDisabledSend(t *testing.T) {
+	repository := &emailCredentialRepositoryFake{}
+	service := application.NewEmailVerificationService(repository, emailVerificationTransactionFake{})
+	if service.Enabled() {
+		t.Fatal("service reported enabled without sender")
+	}
+	if err := service.Send(context.Background(), 42, "new@example.com"); err == nil {
+		t.Fatal("send succeeded without sender")
+	} else if code, _ := application.CodeOf(err); code != application.CodeEmailVerificationDisabled {
+		t.Fatalf("disabled send error = %v, want %s", err, application.CodeEmailVerificationDisabled)
+	}
+	service.ConfigureSender(&verificationEmailSenderFake{})
+	if !service.Enabled() {
+		t.Fatal("service reported disabled with sender")
+	}
+}

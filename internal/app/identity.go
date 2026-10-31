@@ -66,7 +66,7 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 	emailVerification := identityapplication.NewEmailVerificationService(core.repository, platformdatabase.NewTransactionRunner(resources.DB), identityapplication.WithEmailVerificationUserRepository(core.repository))
 	var emailSender identityapplication.VerificationEmailSender
 	if config.SMTP.Enabled {
-		sender, err := identitymail.NewSender(config.SMTP)
+		sender, err := identitymail.NewSender(config.SMTP, config.BrowserSession.Origin)
 		if err != nil {
 			return identityComposition{}, fmt.Errorf("build identity SMTP sender: %w", err)
 		}

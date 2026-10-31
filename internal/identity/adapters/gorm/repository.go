@@ -299,6 +299,32 @@ func (repository *Repository) InvalidateActive(ctx context.Context, userID uint,
 		Update("used_at", at).Error
 }
 
+// CancelPending clears the pending candidate only when it still matches the
+// caller's expected value, and invalidates credentials for that candidate.
+func (repository *Repository) CancelPending(ctx context.Context, userID uint, expectedEmail string, at time.Time) (bool, error) {
+	cleared := false
+	err := repository.connection(ctx).Transaction(func(tx *gorm.DB) error {
+		var user identity.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
+			return err
+		}
+		if user.PendingEmail == "" || user.PendingEmail != expectedEmail {
+			return nil
+		}
+		if err := tx.Model(&identity.User{}).Where("id = ?", userID).Update("pending_email", "").Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&identity.EmailVerificationCredential{}).
+			Where("user_id = ? AND email = ? AND used_at IS NULL", userID, expectedEmail).
+			Update("used_at", at).Error; err != nil {
+			return err
+		}
+		cleared = true
+		return nil
+	})
+	return cleared, err
+}
+
 func (repository *Repository) Confirm(ctx context.Context, userID uint, tokenHash string, at time.Time) (application.EmailVerificationConfirmation, error) {
 	db := repository.connection(ctx)
 	var credential identity.EmailVerificationCredential

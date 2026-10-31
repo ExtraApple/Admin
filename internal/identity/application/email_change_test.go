@@ -96,6 +96,55 @@ func TestEmailConfirmationAndReplacementSerializeOnUserRow(t *testing.T) {
 	}
 }
 
+func TestEmailCancelAndConfirmationSerializeOnUserRow(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(identitymodule.Models()...); err != nil {
+		t.Fatalf("migrate identity models: %v", err)
+	}
+	repository := identitygorm.NewRepository(db)
+	verifiedAt := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	user := domain.User{Username: "cancel-concurrent", Password: "hash", Email: "old@example.com", PendingEmail: "candidate@example.com", EmailVerifiedAt: &verifiedAt, Role: "user", Status: 1}
+	if err := repository.Create(context.Background(), &user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	rawToken := bytes.Repeat([]byte{0x43}, 32)
+	digest := sha256.Sum256(rawToken)
+	if err := db.Create(&identitymodule.EmailVerificationCredential{UserID: user.ID, Email: user.PendingEmail, TokenHash: hex.EncodeToString(digest[:]), ExpiresAt: verifiedAt.Add(15 * time.Minute)}).Error; err != nil {
+		t.Fatalf("create credential: %v", err)
+	}
+	tx := platformdatabase.NewTransactionRunner(db)
+	verification := application.NewEmailVerificationService(repository, tx, application.WithEmailVerificationClock(func() time.Time { return verifiedAt }))
+	token := base64.RawURLEncoding.EncodeToString(rawToken)
+	confirmResult := make(chan error, 1)
+	cancelResult := make(chan error, 1)
+	go func() { confirmResult <- verification.Confirm(context.Background(), user.ID, token) }()
+	go func() { cancelResult <- verification.Cancel(context.Background(), user.ID, "candidate@example.com") }()
+	confirmErr := <-confirmResult
+	cancelErr := <-cancelResult
+
+	loaded, err := repository.FindByID(context.Background(), user.ID)
+	if err != nil || loaded.PendingEmail != "" || loaded.EmailVerifiedAt == nil {
+		t.Fatalf("concurrent cancel/confirm final user = %#v error=%v", loaded, err)
+	}
+	if loaded.Email == "candidate@example.com" {
+		if confirmErr != nil {
+			t.Fatalf("confirm won but returned %v", confirmErr)
+		}
+		if code, _ := application.CodeOf(cancelErr); code != application.CodeEmailPendingStale {
+			t.Fatalf("confirm won but cancel returned %v", cancelErr)
+		}
+	} else if loaded.Email == "old@example.com" {
+		if cancelErr != nil {
+			t.Fatalf("cancel won but returned %v", cancelErr)
+		}
+		if code, _ := application.CodeOf(confirmErr); code != application.CodeEmailVerificationInvalid {
+			t.Fatalf("cancel won but confirm returned %v", confirmErr)
+		}
+	} else {
+		t.Fatalf("concurrent final email = %q, want old or candidate", loaded.Email)
+	}
+}
+
 func TestUpdateSelfAtomicallyReplacesUnverifiedCurrentEmail(t *testing.T) {
 	repository := &managementRepositoryFake{userRepositoryFake: userRepositoryFake{user: domain.User{ID: 7, Password: "old-hash", Email: "old@example.com"}}}
 	issuer := &registrationVerificationIssuerFake{token: "verification-token"}

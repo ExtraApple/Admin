@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"io"
+	"strings"
 	"time"
 
 	"admin/internal/identity/domain"
@@ -64,6 +65,27 @@ func WithEmailVerificationUserRepository(users UserRepository) EmailVerification
 
 func (service *EmailVerificationService) ConfigureSender(sender VerificationEmailSender) {
 	service.sender = sender
+}
+
+// Enabled reports whether the deployment can send verification email. Confirm
+// and cancel remain available when it is false.
+func (service *EmailVerificationService) Enabled() bool {
+	return service.sender != nil
+}
+
+func (service *EmailVerificationService) Cancel(ctx context.Context, userID uint, expectedPendingEmail string) error {
+	expectedPendingEmail = strings.TrimSpace(expectedPendingEmail)
+	if expectedPendingEmail == "" {
+		return NewError(CodeEmailPendingStale, nil)
+	}
+	cleared, err := service.credentials.CancelPending(ctx, userID, expectedPendingEmail, service.now().UTC())
+	if err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	if !cleared {
+		return NewError(CodeEmailPendingStale, nil)
+	}
+	return nil
 }
 
 // Issue creates a new one-time credential. Created credentials remain in the
@@ -160,7 +182,7 @@ func (service *EmailVerificationService) Confirm(ctx context.Context, userID uin
 
 func (service *EmailVerificationService) Send(ctx context.Context, userID uint, email string) error {
 	if service.sender == nil {
-		return NewError(CodeInternalError, nil)
+		return NewError(CodeEmailVerificationDisabled, nil)
 	}
 	token, err := service.Issue(ctx, userID, email)
 	if err != nil {

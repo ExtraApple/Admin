@@ -29,7 +29,7 @@ func TestSenderUsesConfiguredSMTPAndSendsVerificationTokenSynchronously(t *testi
 	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
 		t.Fatalf("parse smtp test port: %v", err)
 	}
-	sender, err := mailadapter.NewSender(platformconfig.SMTPConfig{Host: host, Port: port, Username: "mailer", Password: "secret", From: "no-reply@example.test", TimeoutSeconds: 2, TLSMode: "disabled"})
+	sender, err := mailadapter.NewSender(platformconfig.SMTPConfig{Host: host, Port: port, Username: "mailer", Password: "secret", From: "no-reply@example.test", TimeoutSeconds: 2, TLSMode: "disabled"}, "http://localhost:5173")
 	if err != nil {
 		t.Fatalf("NewSender() error = %v", err)
 	}
@@ -40,7 +40,7 @@ func TestSenderUsesConfiguredSMTPAndSendsVerificationTokenSynchronously(t *testi
 	case err := <-serverErr:
 		t.Fatalf("smtp server error: %v", err)
 	case raw := <-message:
-		if !strings.Contains(raw, "user@example.test") || !strings.Contains(raw, "verification-tok") {
+		if !strings.Contains(raw, "user@example.test") || !strings.Contains(raw, "verification-token") || !strings.Contains(raw, "profile#email_token") {
 			t.Fatalf("SMTP message = %s", raw)
 		}
 	case <-time.After(time.Second):

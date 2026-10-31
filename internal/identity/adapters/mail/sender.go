@@ -3,6 +3,7 @@ package mailadapter
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	platformconfig "admin/internal/platform/config"
@@ -13,12 +14,17 @@ import (
 // connection. It deliberately exposes no SMTP details to the application
 // layer.
 type Sender struct {
-	client  *goMail.Client
-	from    string
-	timeout time.Duration
+	client         *goMail.Client
+	from           string
+	timeout        time.Duration
+	frontendOrigin string
 }
 
-func NewSender(config platformconfig.SMTPConfig) (*Sender, error) {
+func NewSender(config platformconfig.SMTPConfig, frontendOrigin string) (*Sender, error) {
+	origin := strings.TrimRight(strings.TrimSpace(frontendOrigin), "/")
+	if origin == "" {
+		return nil, fmt.Errorf("verification frontend origin is required")
+	}
 	options := []goMail.Option{
 		goMail.WithPort(config.Port),
 		goMail.WithTimeout(time.Duration(config.TimeoutSeconds) * time.Second),
@@ -40,7 +46,7 @@ func NewSender(config platformconfig.SMTPConfig) (*Sender, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create smtp client: %w", err)
 	}
-	return &Sender{client: client, from: config.From, timeout: time.Duration(config.TimeoutSeconds) * time.Second}, nil
+	return &Sender{client: client, from: config.From, timeout: time.Duration(config.TimeoutSeconds) * time.Second, frontendOrigin: origin}, nil
 }
 
 func (sender *Sender) SendVerification(ctx context.Context, recipient, token string) error {
@@ -51,8 +57,9 @@ func (sender *Sender) SendVerification(ctx context.Context, recipient, token str
 	if err := message.To(recipient); err != nil {
 		return fmt.Errorf("set verification recipient: %w", err)
 	}
-	message.Subject("Verify your email")
-	message.SetBodyString(goMail.TypeTextPlain, "Use this one-time verification token to verify your email: "+token)
+	link := sender.frontendOrigin + "/profile#email_token=" + token
+	message.Subject("验证你的邮箱")
+	message.SetBodyString(goMail.TypeTextPlain, "请使用以下链接验证邮箱（15 分钟内有效）：\n"+link+"\n\n如果链接无法打开，请手动输入以下验证码：\n"+token+"\n\n如果不是你发起的操作，请忽略本邮件。")
 	if sender.timeout <= 0 {
 		return sender.client.DialAndSendWithContext(ctx, message)
 	}

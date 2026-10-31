@@ -90,6 +90,8 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		changePassword,
 		identityRoute(http.MethodPost, "/api/user/email-verifications", "Resend Email Verification", routecatalog.Authenticated, handler.resendEmailVerification, nil, nil),
 		identityRoute(http.MethodPost, "/api/user/email-verifications/confirm", "Confirm Email Verification", routecatalog.Authenticated, handler.confirmEmailVerification, identity.EmailVerificationRequest{}, userResponse{}),
+		identityRoute(http.MethodGet, "/api/user/email-verification-policy", "Get Email Verification Policy", routecatalog.Authenticated, handler.emailVerificationPolicy, nil, identity.EmailVerificationPolicy{}),
+		identityRoute(http.MethodPost, "/api/user/email-verifications/cancel", "Cancel Email Verification", routecatalog.Authenticated, handler.cancelEmailVerification, identity.CancelEmailVerificationRequest{}, userResponse{}),
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
 		browserSessionRoute("Logout", "/api/user/logout", handler.logout, identity.SessionControlRequest{}, nil, false),
@@ -297,6 +299,33 @@ func (handler *routeHandler) confirmEmailVerification(c *gin.Context) {
 		return
 	}
 	if err := handler.emailVerification.Confirm(c.Request.Context(), c.GetUint("userID"), request.Token); err != nil {
+		writeIdentityError(c, err)
+		return
+	}
+	user, err := handler.users.Get(c.Request.Context(), c.GetUint("userID"))
+	if err != nil {
+		writeIdentityError(c, err)
+		return
+	}
+	identitySuccess(c, identity.UserInfoFromDomain(user))
+}
+
+func (handler *routeHandler) emailVerificationPolicy(c *gin.Context) {
+	enabled := handler.emailVerification != nil && handler.emailVerification.Enabled()
+	identitySuccess(c, identity.EmailVerificationPolicy{Enabled: enabled})
+}
+
+func (handler *routeHandler) cancelEmailVerification(c *gin.Context) {
+	if handler.emailVerification == nil {
+		writeIdentityError(c, application.NewError(application.CodeInternalError, nil))
+		return
+	}
+	var request identity.CancelEmailVerificationRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		identityRequestError(c, err)
+		return
+	}
+	if err := handler.emailVerification.Cancel(c.Request.Context(), c.GetUint("userID"), request.PendingEmail); err != nil {
 		writeIdentityError(c, err)
 		return
 	}
