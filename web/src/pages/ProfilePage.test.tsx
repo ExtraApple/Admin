@@ -21,7 +21,7 @@ vi.mock('@/lib/session', () => {
 vi.mock('@/lib/session-state', () => ({ sessionState: { getSnapshot: () => sessionFixture.current } }));
 
 const original: UserContext = {
-  user: { id: 7, username: 'operator', nickname: '已保存昵称', avatar: '/api/avatars/7', email: 'read@example.test', role: 'user', status: 1 },
+  user: { id: 7, username: 'operator', nickname: '已保存昵称', avatar: '/api/avatars/7', email: 'read@example.test', role: 'user', status: 1, pending_email: '', email_verified: true },
   roles: ['reader'], permissions: [], menus: [],
 };
 function envelope(data: unknown, status = 200, errorCode = '', fields?: unknown) {
@@ -45,6 +45,7 @@ describe('rendered profile self-service', () => {
   let logout: Mock<(reason?: 'password-changed') => Promise<void>>;
   let write: ((path: string, init: RequestInit) => Promise<Response>) | null;
   let policy: unknown;
+  let emailPolicyEnabled: boolean;
   let contextFailure: boolean;
   let policyUnavailable: boolean;
   function publish(patch: Partial<FixtureSession>) {
@@ -55,7 +56,7 @@ describe('rendered profile self-service', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:profile-test'); static revokeObjectURL = vi.fn(); });
-    saved = structuredClone(original); write = null; policy = { max_bytes: 4096 }; contextFailure = false; policyUnavailable = false;
+    saved = structuredClone(original); write = null; policy = { max_bytes: 4096 }; emailPolicyEnabled = true; contextFailure = false; policyUnavailable = false;
     logout = vi.fn(async (_reason?: 'password-changed') => {});
     sessionFixture.current = {
       phase: 'authenticated', context: structuredClone(original), sessionId: 'session-one', userRevision: 0,
@@ -69,10 +70,34 @@ describe('rendered profile self-service', () => {
     fetchMock = vi.fn(async (path: string, init: RequestInit = {}) => {
       if (init.method === 'PUT' || init.method === 'POST' || init.method === 'DELETE') {
         if (write) return write(path, init);
-        if (path === '/api/user/info') saved.user.nickname = JSON.parse(init.body as string).nickname;
+        if (path === '/api/user/info') {
+          const body = JSON.parse(init.body as string);
+          if (body.email) {
+            if (saved.user.email_verified) saved.user.pending_email = body.email;
+            else {
+              saved.user.email = body.email;
+              saved.user.pending_email = '';
+              saved.user.email_verified = false;
+            }
+          }
+          if (body.nickname !== undefined) saved.user.nickname = body.nickname;
+          return envelope(saved.user);
+        }
+        if (path === '/api/user/email-verifications') return envelope(null);
+        if (path === '/api/user/email-verifications/confirm') {
+          if (saved.user.pending_email) saved.user.email = saved.user.pending_email;
+          saved.user.pending_email = '';
+          saved.user.email_verified = true;
+          return envelope(saved.user);
+        }
+        if (path === '/api/user/email-verifications/cancel') {
+          saved.user.pending_email = '';
+          return envelope(saved.user);
+        }
         return envelope(saved.user);
       }
       if (path === '/api/user/info') return envelope(saved.user);
+      if (path === '/api/user/email-verification-policy') return envelope({ enabled: emailPolicyEnabled });
       if (path === '/api/user/context') return contextFailure ? envelope(null, 500, 'IDENTITY_INTERNAL_ERROR') : envelope(saved);
       if (path === '/api/user/avatar-upload-policy') return policyUnavailable ? envelope(null, 500, 'IDENTITY_INTERNAL_ERROR') : envelope(policy);
       if (path.startsWith('/api/avatars/')) return new Response(new Blob(['image'], { type: 'image/png' }));
@@ -85,17 +110,23 @@ describe('rendered profile self-service', () => {
     act(() => root.unmount()); disposeRouter?.(); container.remove();
     sessionFixture.listeners.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
-  async function mount() {
+  async function mount(entry = '/profile') {
     const router = createMemoryRouter([
       { path: '/profile', element: <><Link to="/away">其他页面</Link><Link to="/logout">退出登录</Link><ProfilePage /></> },
       { path: '/away', element: <p>已离开资料页</p> },
       { path: '/logout', element: <p>退出入口</p> },
       { path: '/login', element: <p>登录入口</p> },
-    ], { initialEntries: ['/away', '/profile'] });
+    ], { initialEntries: ['/away', entry] });
     disposeRouter = () => router.dispose();
     navigate = to => typeof to === 'number' ? router.navigate(to) : router.navigate(to);
     pathname = () => router.state.location.pathname;
     await act(async () => root.render(<RouterProvider router={router} />));
+  }
+  async function settle() {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   }
   function control(text: string) {
     const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
@@ -413,5 +444,82 @@ describe('rendered profile self-service', () => {
     expect(logout).not.toHaveBeenCalled();
     expect(container.querySelector<HTMLInputElement>('#profile-new_password')?.value).toBe('RefilledPass2!');
     expect(container.textContent).not.toContain('密码已修改');
+  });
+
+  it('submits a verified email change and shows the pending candidate', async () => {
+    await mount(); await click('编辑邮箱');
+    input('profile-email', 'new@example.test');
+    input('profile-current-password', 'secret');
+    await click('提交换绑');
+    const request = writes().find(([path]) => path === '/api/user/info');
+    expect(request).toBeDefined();
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({ email: 'new@example.test', current_password: 'secret' });
+    await settle();
+    expect(container.textContent).toContain('待验证的新邮箱：new@example.test');
+    expect(container.textContent).toContain('换绑请求已提交');
+  });
+
+  it('warns and directly replaces an unverified current email', async () => {
+    saved.user.email_verified = false;
+    await mount(); await click('编辑邮箱');
+    expect(container.textContent).toContain('保存后会立即替换当前邮箱');
+    input('profile-email', 'changed@example.test');
+    input('profile-current-password', 'secret');
+    await click('提交换绑');
+    await settle();
+    expect(container.textContent).toContain('邮箱已更换为未验证状态');
+    expect(container.textContent).toContain('changed@example.test');
+  });
+
+  it('confirms a pending email token and updates the verification state', async () => {
+    saved.user.pending_email = 'candidate@example.test';
+    await mount(); await click('验证待验证邮箱');
+    input('profile-email-token', 'A'.repeat(43));
+    await click('确认验证');
+    await settle();
+    const request = writes().find(([path]) => path.endsWith('/confirm'));
+    expect(request).toBeDefined();
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({ token: 'A'.repeat(43) });
+    expect(container.textContent).toContain('邮箱已验证');
+    expect(container.textContent).toContain('candidate@example.test');
+    expect(container.textContent).not.toContain('待验证的新邮箱');
+  });
+
+  it('auto-confirms a fragment token and clears the fragment', async () => {
+    saved.user.pending_email = 'linked@example.test';
+    const token = 'B'.repeat(43);
+    window.history.replaceState(null, '', `/profile#email_token=${token}`);
+    await mount(`/profile#email_token=${token}`);
+    await settle();
+    const request = writes().find(([path]) => path.endsWith('/confirm'));
+    expect(request).toBeDefined();
+    expect(JSON.parse(request?.[1]?.body as string)).toEqual({ token });
+    expect(window.location.hash).toBe('');
+    expect(container.textContent).toContain('邮箱已验证');
+  });
+
+  it('disables sending actions when the deployment policy is disabled', async () => {
+    emailPolicyEnabled = false;
+    saved.user.pending_email = 'pending@example.test';
+    await mount();
+    await settle();
+    await click('验证待验证邮箱');
+    expect(container.textContent).toContain('当前部署未启用邮件服务');
+    expect(control('提交换绑').disabled).toBe(true);
+    expect(control('重发验证邮件').disabled).toBe(true);
+    expect(control('确认验证').disabled).toBe(false);
+    expect(control('取消待验证邮箱').disabled).toBe(false);
+  });
+
+  it('reports resend throttling without a precise countdown', async () => {
+    saved.user.pending_email = 'pending@example.test';
+    write = async () => envelope(null, 429, 'IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED');
+    await mount();
+    await settle();
+    await click('验证待验证邮箱');
+    await click('重发验证邮件');
+    await settle();
+    expect(container.textContent).toContain('请求过于频繁');
+    expect(container.textContent).not.toContain('3600');
   });
 });

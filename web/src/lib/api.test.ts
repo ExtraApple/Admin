@@ -218,3 +218,35 @@ describe('audit log client contract', () => {
     expect(Object.keys(fieldMessages(error))).toEqual(['start_time']);
   });
 });
+describe('email verification client contract', () => {
+  it('uses the authenticated endpoints and payloads', async () => {
+    const policy = { enabled: true };
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(response(200, '', policy))
+      .mockResolvedValueOnce(response(200, '', null))
+      .mockResolvedValueOnce(response(200, '', { id: 7 }))
+      .mockResolvedValueOnce(response(200, '', { id: 7 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(api.emailVerification.policy()).resolves.toEqual(policy);
+    await expect(api.emailVerification.resend()).resolves.toBeNull();
+    await api.emailVerification.confirm('verification-token');
+    await api.emailVerification.cancel('new@example.com');
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/user/email-verification-policy', expect.objectContaining({ method: 'GET' }));
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/user/email-verifications', expect.objectContaining({ method: 'POST' }));
+    expect(fetch.mock.calls[1][1].body).toBeUndefined();
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ token: 'verification-token' });
+    expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({ pending_email: 'new@example.com' });
+  });
+
+  it('maps disabled and stale pending email errors', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(response(503, 'IDENTITY_EMAIL_VERIFICATION_DISABLED', null, 'disabled'))
+      .mockResolvedValueOnce(response(409, 'IDENTITY_EMAIL_PENDING_STALE', null, 'stale')));
+    const disabled = await api.emailVerification.resend().catch(value => value);
+    const stale = await api.emailVerification.cancel('new@example.com').catch(value => value);
+    expect(disabled).toMatchObject({ status: 503, errorCode: 'IDENTITY_EMAIL_VERIFICATION_DISABLED' });
+    expect(errorMessage(disabled)).toContain('未启用邮件服务');
+    expect(stale).toMatchObject({ status: 409, errorCode: 'IDENTITY_EMAIL_PENDING_STALE' });
+    expect(errorMessage(stale)).toContain('待验证邮箱已变化');
+  });
+});

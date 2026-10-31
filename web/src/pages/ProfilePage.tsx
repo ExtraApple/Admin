@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { errorMessage } from '@/lib/api';
+import { clearEmailTokenHash, emailTokenFromHash } from '@/lib/email-verification';
 import { useSession } from '@/lib/session';
 import { passwordRequirementsText } from '@/lib/password-policy';
 import { UserAvatar } from '@/components/WorkbenchShell';
@@ -25,9 +26,19 @@ export function ProfilePage() {
 
 function ProfileEditor({ userID, sessionID }: { userID: number; sessionID: string }) {
   const { context } = useSession();
+  const location = useLocation();
   const editor = useProfileEditor(userID, sessionID);
   const { user, fields, activeEditor } = editor;
   const disabled = editor.busy || editor.reading || editor.suspended;
+  const autoToken = useRef<string | null>(null);
+  useEffect(() => {
+    const token = emailTokenFromHash(location.hash);
+    if (!token || !user || autoToken.current === token) return;
+    autoToken.current = token;
+    clearEmailTokenHash();
+    editor.setEmailToken(token);
+    void editor.confirmEmail(token);
+  }, [location.hash, user, editor]);
   useEffect(() => {
     if (!editor.busy && Object.keys(fields).length) document.getElementById(`profile-${Object.keys(fields)[0]}`)?.focus();
   }, [fields, editor.busy]);
@@ -70,7 +81,30 @@ function ProfileEditor({ userID, sessionID }: { userID: number; sessionID: strin
             <div className="detail-actions"><Button type="submit" disabled={disabled}>{editor.busy ? '正在保存…' : '保存昵称'}</Button><Button type="button" variant="outline" disabled={disabled} onClick={editor.cancel}>取消昵称编辑</Button></div>
           </form> : <div className="detail-actions"><Button variant="outline" disabled={disabled} aria-expanded={false} aria-controls="profile-nickname-editor" onClick={() => editor.openEditor('nickname')}>编辑昵称</Button></div>}
         </CardContent></Card>
-        <Card><CardHeader><CardTitle>邮箱</CardTitle></CardHeader><CardContent><p>{user.email || '未设置邮箱'}</p>{user.email && <Badge variant={user.email_verified ? 'default' : 'secondary'}>{user.email_verified ? '已验证' : '未验证'}</Badge>}{user.pending_email && <p className="warning-note">待验证的新邮箱：{user.pending_email}</p>}<p className="hint profile-readonly-note">邮箱只读，本页不提供换绑或验证操作。</p></CardContent></Card>
+        <Card><CardHeader><CardTitle>邮箱</CardTitle></CardHeader><CardContent>
+          <p>{user.email || '未设置邮箱'}</p>
+          {user.email && <Badge variant={user.email_verified ? 'default' : 'secondary'}>{user.email_verified ? '已验证' : '未验证'}</Badge>}
+          {user.pending_email && <p className="warning-note">待验证的新邮箱：{user.pending_email}</p>}
+          {editor.emailPolicy.state === 'loading' && <p className="hint" role="status">正在读取邮箱验证策略…</p>}
+          {editor.emailPolicy.state === 'error' && <Alert variant="destructive"><AlertDescription><p>邮箱验证策略读取失败，暂不能换绑或重发。{errorMessage(editor.emailPolicy.error)}</p><Button variant="outline" disabled={editor.suspended} onClick={() => void editor.readEmailPolicy()}>重试读取策略</Button></AlertDescription></Alert>}
+          {editor.emailPolicy.state === 'ready' && !editor.emailPolicy.enabled && <p className="hint">当前部署未启用邮件服务，邮箱换绑与重发暂不可用；如已收到验证码仍可验证，待验证邮箱仍可取消。</p>}
+          {activeEditor === 'email' ? <div id="profile-email-editor" className="profile-inline-editor">
+            <h3>更换邮箱</h3>
+            <p className="hint">{user.email_verified ? '当前邮箱已验证。新邮箱会先进入待验证，验证成功后才替换当前邮箱。' : '当前邮箱未验证。保存后会立即替换当前邮箱，原未验证邮箱不再保留。'}</p>
+            <form className="profile-email-form" noValidate onSubmit={event => { event.preventDefault(); void editor.submit('email'); }}>
+              <div className="profile-field"><label htmlFor="profile-email">新邮箱</label><Input id="profile-email" name="email" type="email" autoComplete="email" value={editor.emailCandidate} disabled={disabled} aria-invalid={!!fields.email} aria-describedby={fields.email ? 'profile-email-errors' : undefined} onChange={event => editor.setEmailCandidate(event.target.value)} /><FieldErrors name="email" fields={fields} /></div>
+              <div className="profile-field"><label htmlFor="profile-current-password">当前密码</label><Input id="profile-current-password" name="current_password" type="password" autoComplete="current-password" value={editor.emailCurrentPassword} disabled={disabled} aria-invalid={!!fields.current_password} aria-describedby={fields.current_password ? 'profile-current-password-errors' : undefined} onChange={event => editor.setEmailCurrentPassword(event.target.value)} /><FieldErrors name="current_password" fields={fields} /></div>
+              <div className="detail-actions"><Button type="submit" disabled={disabled || editor.emailPolicy.state !== 'ready' || !editor.emailPolicy.enabled}>{editor.busy ? '正在提交…' : '提交换绑'}</Button><Button type="button" variant="outline" disabled={disabled} onClick={editor.cancel}>取消邮箱编辑</Button></div>
+            </form>
+            <h3>验证邮箱</h3>
+            {user.pending_email || !user.email_verified ? <form className="profile-email-form" noValidate onSubmit={event => { event.preventDefault(); void editor.confirmEmail(editor.emailToken); }}>
+              <p className="hint">{user.pending_email ? `验证待验证邮箱：${user.pending_email}` : `验证当前邮箱：${user.email}`}</p>
+              <div className="profile-field"><label htmlFor="profile-email-token">验证码</label><Input id="profile-email-token" name="token" autoComplete="one-time-code" value={editor.emailToken} disabled={disabled} aria-invalid={!!fields.token} aria-describedby={fields.token ? 'profile-email-token-errors' : 'profile-email-token-help'} onChange={event => editor.setEmailToken(event.target.value)} /><p id="profile-email-token-help" className="hint">从验证邮件中粘贴验证码；打开邮件链接会自动提交。</p><FieldErrors name="token" fields={fields} /></div>
+              <div className="detail-actions"><Button type="submit" disabled={disabled}>{editor.busy ? '正在验证…' : '确认验证'}</Button><Button type="button" variant="outline" disabled={disabled || editor.emailPolicy.state !== 'ready' || !editor.emailPolicy.enabled} onClick={() => void editor.resendEmail()}>重发验证邮件</Button>{user.pending_email && <Button type="button" variant="outline" disabled={disabled} onClick={() => void editor.cancelPendingEmail()}>取消待验证邮箱</Button>}</div>
+            </form> : <p className="hint">当前邮箱已验证。</p>}
+          </div> : <div className="detail-actions"><Button variant="outline" disabled={disabled} aria-expanded={false} aria-controls="profile-email-editor" onClick={() => editor.openEditor('email')}>编辑邮箱</Button>{user.pending_email && <Button variant="outline" disabled={disabled} onClick={() => editor.openEditor('email')}>验证待验证邮箱</Button>}</div>}
+          <p className="hint profile-readonly-note">邮箱和验证状态来自服务器；验证码请从验证邮件中获取，链接会自动提交。</p>
+        </CardContent></Card>
         <Card><CardHeader><CardTitle>当前角色</CardTitle></CardHeader><CardContent>{context?.roles.length ? <ul className="profile-role-list">{context.roles.map(role => <li key={role}><code>{role}</code></li>)}</ul> : <p className="hint">尚未分配角色</p>}<p className="hint">角色变更后，旧会话会在后续请求失效。</p></CardContent></Card>
       </div>
       <Card className="profile-password-card"><CardHeader><CardTitle>账号密码</CardTitle></CardHeader><CardContent>

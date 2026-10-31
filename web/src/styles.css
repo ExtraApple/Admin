@@ -206,6 +206,9 @@
 .profile-page .profile-readonly-note { margin-top: 17px; }
 .profile-page .profile-password-card { margin-top: 17px; }
 .profile-page .profile-password-form { max-width: 520px; }
+.profile-page .profile-email-form { display: grid; gap: 2px; }
+.profile-page .profile-email-form + h3 { margin-top: 24px; }
+.profile-page .profile-email-form .detail-actions { margin-top: 17px; }
 .profile-page .profile-operation-status { margin-top: 17px; }
 .warning-note { padding: 11px 13px; border-left: 3px solid var(--warning); background: var(--warning-bg); color: var(--warning-ink); font-size: 12px; border-radius: 0 6px 6px 0; margin-top: 14px; overflow-wrap: anywhere; }
 .no-management { max-width: 850px; }

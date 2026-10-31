@@ -12,6 +12,7 @@ import type {
   AuthorizationOverview,
   AuthorizationRiskPage,
   AuthorizationRiskQuery,
+  EmailVerificationPolicy,
   GenerateMenuButtonInput,
   ImpactPreview,
   ImpactPreviewRequest,
@@ -22,6 +23,7 @@ import type {
   MenuCreateInput,
   MenuSyncRequest,
   MenuUpdateInput,
+  UserInfo,
 } from './models';
 export interface FieldError { field: string; error_code: string; message: string }
 export interface SafeErrorData { remaining_attempts?: number; retry_after_seconds?: number }
@@ -199,5 +201,11 @@ export const api = {
   },
   auditLogs: {
     list: (path = '/api/admin/audit-logs') => request<AuditLogPage>(path, 'GET', undefined, 'json'),
+  },
+  emailVerification: {
+    policy: () => request<EmailVerificationPolicy>('/api/user/email-verification-policy', 'GET', undefined, 'json'),
+    resend: () => request<void>('/api/user/email-verifications', 'POST', undefined, 'json'),
+    confirm: (token: string) => request<UserInfo>('/api/user/email-verifications/confirm', 'POST', { token }, 'json'),
+    cancel: (pendingEmail: string) => request<UserInfo>('/api/user/email-verifications/cancel', 'POST', { pending_email: pendingEmail }, 'json'),
   },
 };

@@ -162,6 +162,9 @@ export interface ImpactPreviewRequest<TCandidate = unknown> {
   candidate: TCandidate;
 }
 export interface UserInfo { id: number; username: string; nickname: string; avatar: string; email: string; role: string; status: number; pending_email?: string; email_verified?: boolean }
+export interface EmailVerificationPolicy { enabled: boolean }
+export interface EmailVerificationInput { token: string }
+export interface CancelEmailVerificationInput { pending_email: string }
 export interface AvatarUploadPolicy { max_bytes: number }
 export interface Role { id: number; name: string; code: string; description: string; sort: number; status: number; data_scope: string }
 export interface RoleSummary { id: number; code: string; name: string; status: number }

@@ -32,6 +32,8 @@ export const errorTranslations: Readonly<Record<string, string>> = {
   IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED: '邮箱验证请求过于频繁，请稍后手动重试。',
   IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED: '验证邮件暂时无法发送，请稍后重试。',
   IDENTITY_EMAIL_VERIFICATION_INVALID: '邮箱验证链接无效或已过期。',
+  IDENTITY_EMAIL_VERIFICATION_DISABLED: '当前部署未启用邮件服务，邮箱换绑与重发暂不可用。',
+  IDENTITY_EMAIL_PENDING_STALE: '待验证邮箱已变化，请重新读取后再操作。',
   AUTHZ_NOT_FOUND: '角色或权限不存在。',
   AUTHZ_CONFLICT: '授权资料发生冲突或受到保护，请重新读取并核对后再提交。',
   AUTHZ_VALIDATION_INVALID: '授权设置不符合规则，请检查选择。',
