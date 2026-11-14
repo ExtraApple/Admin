@@ -50,6 +50,7 @@
 |---|---|
 | [`configuration.md`](runbooks/configuration.md) | 配置来源、Secret 和部署 |
 | [`login-security.md`](runbooks/login-security.md) | 验证码、登录锁定、Cookie 会话协议、退出恢复与安全命令 |
+| [`email-delivery.md`](runbooks/email-delivery.md) | 邮件发送：Mailpit 本地验收、QQ／生产 SMTP 切换 |
 | [`database-migration-and-seeding.md`](runbooks/database-migration-and-seeding.md) | AutoMigrate、Seed 和启动初始化 |
 | [`file-management.md`](runbooks/file-management.md) | 文件安全、状态和存储 |
 | [`runtime-logging.md`](runbooks/runtime-logging.md) | Zap 运行日志 |

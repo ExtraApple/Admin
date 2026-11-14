@@ -79,6 +79,8 @@ RabbitMQ 事件只包含事件 ID、事件名称/版本、消息副本、组织�
 
 本地验收可使用 Mailpit：`docker run --rm -p 1025:1025 -p 8025:8025 axllent/mailpit --smtp-auth-accept-any --smtp-auth-allow-insecure`；在隔离配置中临时设置 `smtp.enabled: true`、`host: 127.0.0.1`、`port: 1025`、`tls_mode: disabled` 和明文 `from: no-reply@example.test`，通过 `http://127.0.0.1:8025` 查看邮件并取得链接／token；验收后恢复默认关闭。后端统一使用 SMTP PLAIN 认证，Mailpit 必须启用上述两个认证参数，否则会表现为投递失败。
 
+完整的本地 Mailpit 验收、QQ／生产 SMTP 配置切换、环境矩阵和排障见 [邮件发送与本地 SMTP 验收](email-delivery.md)。
+
 ## 文件上传配置校验
 
 | Key | 合法范围 |

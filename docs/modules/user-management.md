@@ -53,6 +53,7 @@ Swagger UI 的 `identity` 标签包含：
 - `POST /api/user/email-verifications` 重发；`/confirm` 提交 `{token}` 确认所有权；`/cancel` 提交当前展示的 `{pending_email}`，匹配时清空候选并失效该候选的未使用凭据，不匹配返回 409 `IDENTITY_EMAIL_PENDING_STALE`。
 - 验证邮件为中文，同时包含 `/profile#email_token=...` 链接和手动 token；token 15 分钟有效、一次性、每用户每小时最多签发 3 次。前端自动提交链接 token 后立即清除 fragment，不把 token 写入 Web Storage。
 - 待验证邮箱在验证成功、显式取消或再次换绑前保留，并继续占用该地址的唯一性；不会自动过期。邮箱换绑、确认和取消不提升授权版本，也不使现有会话失效。
+- 本地 Mailpit 与真实 SMTP 的配置切换、持久化、安全边界和排障见 [邮件发送与本地 SMTP 验收](../runbooks/email-delivery.md)。
 
 ## 前端注意事项
 
