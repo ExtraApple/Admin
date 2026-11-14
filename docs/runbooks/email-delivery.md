@@ -37,6 +37,8 @@ docker run --rm --name mailpit \
 
 两个认证参数是必需的：后端发送器固定使用 SMTP PLAIN 认证，Mailpit 默认不接受本地明文认证；缺少后会表现为 `IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED`。
 
+Mailpit 默认将邮件保存在内存中；停止或重启容器会丢失历史邮件。需要跨重启保留时，必须启用下面的 `MP_DATABASE` 持久化配置。
+
 可选持久化与容量：
 
 ```bash
@@ -100,7 +102,11 @@ curl -s http://127.0.0.1:8025/api/v1/message/<ID>
 
 从返回的 `Text` 或 `HTML` 提取 `#email_token=` 后的 token。token 15 分钟有效、一次性，每用户每小时最多签发 3 次。
 
+本次隔离 Mailpit 联合验收的实际结果、message ID 和脱敏截图见 [邮箱投递联合验收证据](../reviews/evidence/email-delivery-2026-11-09.md)。
+
 ## 3. 真实 SMTP（QQ 邮箱示例）
+
+QQ 冒烟优先使用隔离环境的临时 `.env`；如果操作者确认仓库 `.env` 只用于本地且不会提交，也可以直接把凭据写入仓库 `.env`。仓库 `.env` 已被 `.gitignore` 忽略，`.env.example` 只保留空模板。无论使用哪种文件，`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 都不得写入 tracked 的 `config.yaml`、文档或证据。
 
 QQ 邮箱需要先在网页版开启 SMTP 服务并生成**授权码**；`SMTP_PASSWORD` 填授权码，不是 QQ 登录密码。
 
@@ -124,7 +130,7 @@ SMTP_FROM=123456789@qq.com
 
 - `SMTP_FROM` 必须与认证的 QQ 邮箱一致。
 - 465 使用 `tls_mode: implicit`；如果改用 587，使用 `tls_mode: starttls_required`。
-- 当前发送器使用 `SMTPAuthPlain`；QQ 支持该认证。若实际返回认证失败，可将发送器认证方式改为 `SMTPAuthLogin`，不影响业务层。
+- 当前发送器使用 `SMTPAuthPlain`；已实测 QQ `smtp.qq.com:465`＋`tls_mode:implicit` 可以成功发送和确认。若其他 QQ 账号或网络环境返回认证失败，可在确认后把发送器认证方式改为 `SMTPAuthLogin`，不影响业务层。
 - 其他 SMTP 服务按相同字段配置 host／port／TLS 模式；凭据放 `.env` 或部署 Secret，不写 YAML 明文。
 
 ## 4. 环境切换矩阵
