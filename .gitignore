@@ -5,3 +5,5 @@ logs/*.log
 .gocache/
 node_modules/
 /docs/runbooks/ui-acceptance-test-accounts.local.md
+/web/dist/
+/live-login.png
