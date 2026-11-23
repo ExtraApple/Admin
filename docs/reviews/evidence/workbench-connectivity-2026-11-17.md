@@ -91,8 +91,8 @@ curl 8.13 支持 `ws://`，可以设置 Authorization header，但不能模拟�
 ## 可访问性与性能
 
 - Lighthouse Accessibility：登录、首页、用户列表、用户详情、个人资料均为 `100`。
-- 性能基线：登录 LCP 284 ms、CLS 0.05；首页 LCP 439 ms、CLS 0.00。原始 trace 位于临时目录 `trace-login.json.gz`、`trace-home.json.gz`。
-- Lighthouse 报告位于临时目录 `lighthouse-login-page/`、`lighthouse-home/`、`lighthouse-users/`、`lighthouse-user-detail/`、`lighthouse-profile/`。
+- 性能基线：登录 LCP 284 ms、CLS 0.05；首页 LCP 439 ms、CLS 0.00。原始 trace 已随 11.6 清理，基线数值保留在本文件。
+- Lighthouse 报告已随 11.6 清理；本文件保留各页可访问性结果与基线数值。
 - 移动端 390×844、暗色、减少动态：无横向溢出，菜单按钮和账号菜单可用。
 - 控制台：未见未处理 Promise；角色／用户／接口／审计页有 Chrome “form field element should have an id or name attribute” issue，登录页 Lighthouse best-practices 96 由初始 401 console error 引起。
 
@@ -125,14 +125,14 @@ curl 8.13 支持 `ws://`，可以设置 Authorization header，但不能模拟�
 | W-02 | 修复后通过：真实 Chromium 无 `Authorization`、有效 ticket 升级返回 `101`（后端访问日志确认）；原阻塞保留在本节前文 |
 | W-03／W-04 | 修复后通过：无 ticket、无效 ticket、过期 ticket 均 `401 MSG_WS_TICKET_INVALID`；不可信 Origin、停用用户 `403`；依赖失败聚焦测试为 `503` |
 | W-05 | 修复后通过：新 ticket＋`cursor=0-0` 在 Chromium 重连返回 `101` |
-| W-06 | 修复后通过：依赖 W-02／W-05 的已修复链路 |
+| W-06 | 修复后通过：管理员创建组织广播后，WebSocket 收到 `inbox.refresh`，Outbox／Consumer ACK 日志一致 |
 | N-01～N-08 | 通过；a11y 100、性能基线已记录、移动端无横向溢出 |
 
 ## 当前状态
 
 已通过：环境、门禁、页面读取、代表写链路、角色／数据范围、403／422／409、离线／慢网、后端断连、Redis 故障、登录锁定、a11y／perf、证据和敏感信息扫描。
 WebSocket：原 W-02～W-06 阻塞已由 `fix-websocket-ticket-auth` 修复并复验，详见下一节。
-未清理：按用户要求保留环境、容器和浏览器页面。
+已清理：后端、Vite、浏览器页面、5 个 `workbench-connectivity-*` 容器、2 个命名卷、2 个匿名卷及临时配置／凭据目录均已移除；仓库内脱敏证据保留。
 
 ## WebSocket ticket 认证修复复验（2026-11-23）
 
@@ -167,6 +167,7 @@ Change：`fix-websocket-ticket-auth`。
 - `new WebSocket('ws://127.0.0.1:18080/api/user/messages/ws?ticket=...')` 不设置 `Authorization`，收到 `open`；后端访问日志记录 `GET /api/user/messages/ws status=101`。
 - 关闭后重新签发 ticket，并携带 `cursor=0-0` 重连，再次收到 `open`；后端日志第二条 `status=101`。
 - 游标补发：向空的 `admin:messaging:refresh:1` 临时写入两条合成事件，携带第一条 Stream ID 重连，收到第二条 `inbox.refresh`（`event_id=fix-replay-2`、`message_copy_id=9002`、`aggregate_version=2`）；测试后删除临时 Stream key。
+- 消息刷新：管理员通过真实 HTTP 创建组织广播后，manager WebSocket 收到 `inbox.refresh`（`message_copy_id=3`、`aggregate_version=1`）；后端日志确认 Outbox 发布、Consumer 完成和 ACK，广播随后撤销，manager 收件箱副本删除。
 - 修复后干净页面控制台无消息；随后对无效 ticket 单独测试，Chromium 关闭连接，后端日志记录 `status=401`。
 - 修复前控制台错误为握手前认证失败；修复后有效连接不再出现该失败。
 
@@ -179,5 +180,5 @@ Change：`fix-websocket-ticket-auth`。
 
 ### 环境
 
-本轮按既有验收要求保留隔离后端、Vite、容器和浏览器页面；未删除临时卷或配置。证据已落盘后再决定是否清理。
+本轮已于 2026-11-23 执行 11.6：停止后端与 Vite，关闭浏览器页面，移除 5 个 `workbench-connectivity-*` 容器，删除 2 个命名卷和 2 个匿名卷，并删除临时目录中的配置、凭据、token、日志、trace 与 Lighthouse 报告。仓库内脱敏证据、截图和基线数值保留。
 
