@@ -97,7 +97,7 @@ func New(ctx context.Context, conf platformconfig.Config, resources Resources, o
 	navigationRoutes := navigationmodule.Routes(modules.Navigation)
 	apiRoutes := apihttp.Routes(modules.APIService)
 	messagingRoutes := messaginghttp.Routes(messagingModule.service)
-	messagingRoutes = append(messagingRoutes, messaginghttp.WebSocketRoutes(messagingModule.tickets, messagingModule.gateway)...)
+	messagingRoutes = append(messagingRoutes, messaginghttp.WebSocketRoutes(messagingModule.tickets, messagingModule.gateway, conf.BrowserSession.Origin)...)
 	messagingRoutes = append(messagingRoutes, messaginghttp.AdminRoutes(messagingModule.service)...)
 	existingRoutes := make([]routecatalog.Descriptor, 0, len(dictionaryRoutes)+len(organizationRoutes)+len(navigationRoutes)+len(apiRoutes)+len(messagingRoutes)+len(options.Descriptors))
 	existingRoutes = append(existingRoutes, dictionaryRoutes...)

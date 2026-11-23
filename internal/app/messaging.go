@@ -80,6 +80,7 @@ func newMessagingComposition(resources Resources, config platformconfig.Config, 
 		Tickets:  ticketService,
 		Hub:      hub,
 		Recovery: messagingredis.NewRefreshReplayStore(resources.Redis),
+		Users:    messagingWebSocketUserGuard{users: identity.repository},
 	})
 	cleanupJob := BackgroundJob{Name: "messaging-cleanup", Run: func(ctx context.Context) {
 		runMessagingCleanup(ctx, files.service, service, repository, runtimeLogger, workerID, config.Messaging.CleanupBatchSize, configured, filesapplication.RotationConfig{Enabled: config.FileRotation.Enabled, Days: config.FileRotation.Days, HotBucket: config.FileRotation.HotBucket, ColdBucket: config.FileRotation.ColdBucket, BatchSize: config.FileRotation.BatchSize})
@@ -470,6 +471,21 @@ func (metrics messagingZapMetrics) RecordConsumerDLQPending(_ context.Context, o
 		return
 	}
 	metrics.logger.Warn("messaging_consumer_dlq_pending", messagingapplication.RuntimeLogField{Key: "consumer", Value: observation.ConsumerName}, messagingapplication.RuntimeLogField{Key: "failure_code", Value: observation.FailureCode}, messagingapplication.RuntimeLogField{Key: "pending_count", Value: observation.PendingCount}, messagingapplication.RuntimeLogField{Key: "oldest_pending_age", Value: observation.OldestPendingAge})
+}
+
+type messagingWebSocketUserGuard struct {
+	users identityapplication.UserRepository
+}
+
+func (guard messagingWebSocketUserGuard) IsActive(ctx context.Context, userID uint) (bool, error) {
+	user, err := guard.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, identityapplication.ErrUserNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return user.Enabled(), nil
 }
 
 type messagingIdentityReader struct {

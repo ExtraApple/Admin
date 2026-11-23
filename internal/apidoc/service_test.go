@@ -204,6 +204,55 @@ func TestDocumentDescribesEnvelopeAndErrorCodeEnums(t *testing.T) {
 	}
 }
 
+type webSocketQuery struct {
+	Ticket string `form:"ticket" binding:"required"`
+	Cursor string `form:"cursor"`
+}
+
+func TestDocumentProjectsPublicWebSocketTicketUpgradeContract(t *testing.T) {
+	definition := httpresponse.ErrorDefinition{Owner: "messaging", Code: "MSG_WS_TICKET_INVALID", Status: http.StatusUnauthorized, Message: "message WebSocket ticket is invalid"}
+	catalog, err := routecatalog.New([]routecatalog.Descriptor{{
+		Method: http.MethodGet, Path: "/api/user/messages/ws", Access: routecatalog.Public,
+		Handler: func(*gin.Context) {}, Name: "Upgrade Message WebSocket", Group: "messaging", DefaultAuditCategory: "message",
+		OpenAPI: routecatalog.Operation{
+			Summary: "Upgrade Message WebSocket", Description: "ticket required", Protocol: "websocket",
+			QuerySchema: reflect.TypeOf(webSocketQuery{}),
+			Request:     routecatalog.RequestBody{Kind: routecatalog.NoBody},
+			Responses: map[int]routecatalog.Response{
+				http.StatusSwitchingProtocols: {Description: "native RFC 6455 WebSocket protocol", Kind: routecatalog.NoBody},
+				http.StatusUnauthorized:       routecatalog.ErrorResponse("invalid ticket", definition),
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("build Route Catalog: %v", err)
+	}
+	document, err := apidoc.New(catalog, nil, apidoc.Config{}).Document(context.Background(), "https://admin.test")
+	if err != nil {
+		t.Fatalf("build OpenAPI document: %v", err)
+	}
+	operation := document["paths"].(map[string]any)["/api/user/messages/ws"].(map[string]any)["get"].(map[string]any)
+	if operation["x-native-protocol"] != "websocket" {
+		t.Fatalf("native protocol = %#v", operation["x-native-protocol"])
+	}
+	if _, exists := operation["security"]; exists {
+		t.Fatal("Public ticket upgrade must not advertise Bearer security")
+	}
+	parameters := operation["parameters"].([]map[string]any)
+	if len(parameters) != 2 || parameters[0]["name"] != "ticket" || parameters[0]["required"] != true || parameters[1]["name"] != "cursor" || parameters[1]["required"] != false {
+		t.Fatalf("query parameters = %#v", parameters)
+	}
+	responses := operation["responses"].(map[string]any)
+	if _, exists := responses["101"].(map[string]any)["content"]; exists {
+		t.Fatal("101 native upgrade must not declare a body")
+	}
+	schema := responses["401"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"].(map[string]any)
+	properties := schema["properties"].(map[string]any)
+	if properties["error_code"].(map[string]any)["enum"].([]string)[0] != "MSG_WS_TICKET_INVALID" {
+		t.Fatalf("401 contract = %#v", schema)
+	}
+}
+
 func TestDocumentProjectsCookieControlWithoutPathSpecificRules(t *testing.T) {
 	type accessData struct {
 		AccessToken string `json:"access_token"`

@@ -46,17 +46,27 @@ func Routes(service *application.Service) []routecatalog.Descriptor {
 	}
 }
 
-// WebSocketRoutes declares the authenticated ticket and native protocol upgrade
-func WebSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway) []routecatalog.Descriptor {
-	return webSocketRoutes(tickets, gateway, acceptCoderWebSocket)
+// WebSocketRoutes declares the authenticated ticket and native protocol upgrade.
+// The upgrade route is Public because browsers cannot attach a Bearer header;
+// its handler still requires a one-time ticket and never accepts anonymous
+// connections.
+func WebSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway, origin string) []routecatalog.Descriptor {
+	return webSocketRoutes(tickets, gateway, origin, func(writer http.ResponseWriter, request *http.Request) (application.WebSocketConnection, error) {
+		return acceptCoderWebSocket(writer, request, origin)
+	})
 }
 
-func webSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway, accept func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error)) []routecatalog.Descriptor {
-	h := &webSocketHandler{tickets: tickets, gateway: gateway, accept: accept}
+func webSocketRoutes(tickets *application.WebSocketTicketService, gateway *application.WebSocketGateway, origin string, accept func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error)) []routecatalog.Descriptor {
+	h := &webSocketHandler{tickets: tickets, gateway: gateway, origin: origin, accept: accept}
 	return []routecatalog.Descriptor{
 		messageRoute(http.MethodPost, "/api/user/messages/ws-ticket", "Issue Message WebSocket Ticket", routecatalog.Authenticated, h.issueTicket, nil, WebSocketTicketResponse{}),
-		webSocketUpgradeRoute(http.MethodGet, "/api/user/messages/ws", "Upgrade Message WebSocket", routecatalog.Authenticated, h.upgrade),
+		webSocketUpgradeRoute(http.MethodGet, "/api/user/messages/ws", "Upgrade Message WebSocket", routecatalog.Public, h.upgrade),
 	}
+}
+
+type webSocketUpgradeQuery struct {
+	Ticket string `form:"ticket" binding:"required"`
+	Cursor string `form:"cursor"`
 }
 
 func webSocketUpgradeRoute(method, path, name string, access routecatalog.AccessLevel, handler gin.HandlerFunc) routecatalog.Descriptor {
@@ -65,7 +75,8 @@ func webSocketUpgradeRoute(method, path, name string, access routecatalog.Access
 	delete(responses, http.StatusOK)
 	responses[http.StatusSwitchingProtocols] = routecatalog.Response{Description: "native RFC 6455 WebSocket protocol", Kind: routecatalog.NoBody}
 	descriptor.OpenAPI.Protocol = "websocket"
-	descriptor.OpenAPI.Description = "Native RFC 6455 WebSocket upgrade; successful connections do not use the business JSON envelope."
+	descriptor.OpenAPI.Description = "Native RFC 6455 WebSocket upgrade. This Public route requires no Authorization Bearer header; the one-time ticket query parameter is the sole upgrade credential and is consumed atomically. Requests carrying Origin must match browser_session.origin exactly. Success returns 101; invalid or expired ticket returns 401; disabled user or untrusted Origin returns 403; dependency failure returns 503. Successful connections do not use the business JSON envelope."
+	descriptor.OpenAPI.QuerySchema = reflect.TypeOf(webSocketUpgradeQuery{})
 	descriptor.OpenAPI.Responses = responses
 	return descriptor
 }
@@ -73,6 +84,7 @@ func webSocketUpgradeRoute(method, path, name string, access routecatalog.Access
 type webSocketHandler struct {
 	tickets *application.WebSocketTicketService
 	gateway *application.WebSocketGateway
+	origin  string
 	accept  func(http.ResponseWriter, *http.Request) (application.WebSocketConnection, error)
 }
 
@@ -98,8 +110,12 @@ func (h *webSocketHandler) upgrade(c *gin.Context) {
 		writeMessageError(c, application.ErrWebSocketGatewayUnavailable)
 		return
 	}
+	if origin := c.GetHeader("Origin"); origin != "" && (h.origin == "" || origin != h.origin) {
+		writeMessageError(c, application.ErrWebSocketOriginInvalid)
+		return
+	}
 	request := application.WebSocketRequest{Ticket: c.Query("ticket"), Cursor: c.Query("cursor")}
-	if err := h.gateway.Connect(c.Request.Context(), request, c.GetUint("userID"), func(context.Context) (application.WebSocketConnection, error) {
+	if err := h.gateway.Connect(c.Request.Context(), request, func(context.Context) (application.WebSocketConnection, error) {
 		return h.accept(c.Writer, c.Request)
 	}); err != nil {
 		writeMessageError(c, err)
@@ -121,8 +137,12 @@ func (connection coderWebSocketConnection) Close(reason string) error {
 	return connection.connection.Close(websocket.StatusGoingAway, reason)
 }
 
-func acceptCoderWebSocket(writer http.ResponseWriter, request *http.Request) (application.WebSocketConnection, error) {
-	connection, err := websocket.Accept(writer, request, nil)
+func acceptCoderWebSocket(writer http.ResponseWriter, request *http.Request, origin string) (application.WebSocketConnection, error) {
+	options := &websocket.AcceptOptions{}
+	if origin != "" {
+		options.OriginPatterns = []string{origin}
+	}
+	connection, err := websocket.Accept(writer, request, options)
 	if err != nil {
 		return nil, err
 	}

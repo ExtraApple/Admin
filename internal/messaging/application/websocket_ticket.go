@@ -41,18 +41,21 @@ func (service *WebSocketTicketService) Issue(ctx context.Context, userID uint) (
 	return ticket, nil
 }
 
-func (service *WebSocketTicketService) Consume(ctx context.Context, ticket string, authenticatedUserID uint) error {
-	if service == nil || service.store == nil || ticket == "" || authenticatedUserID == 0 {
-		return ErrWebSocketTicketInvalid
+// Consume atomically exchanges a one-time ticket for the user bound at issue
+// time. Empty, missing, expired, and already-consumed tickets are invalid; the
+// caller cannot supply an external user identity.
+func (service *WebSocketTicketService) Consume(ctx context.Context, ticket string) (uint, error) {
+	if service == nil || service.store == nil || ticket == "" {
+		return 0, ErrWebSocketTicketInvalid
 	}
 	userID, found, err := service.store.ConsumeWebSocketTicket(ctx, webSocketTicketKey(ticket))
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if !found || userID != authenticatedUserID {
-		return ErrWebSocketTicketInvalid
+	if !found || userID == 0 {
+		return 0, ErrWebSocketTicketInvalid
 	}
-	return nil
+	return userID, nil
 }
 
 func webSocketTicketKey(ticket string) string {

@@ -89,6 +89,9 @@ func (service *Service) syncRoutesInTransaction(ctx context.Context, facts []Rou
 	return created, nil
 }
 
+// routeAccessValues derives the persisted policy. NeedAuth=0 means the route is
+// outside the Bearer middleware; it does not mean anonymous access. For
+// example, the Public WebSocket upgrade still requires its one-time ticket.
 func routeAccessValues(fact RouteFact) (int, string) {
 	needAuth := 0
 	if fact.Authenticated || fact.PermissionControlled {

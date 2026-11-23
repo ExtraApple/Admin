@@ -2,6 +2,7 @@ package redisadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -38,11 +39,15 @@ func (backend redisWebSocketTicketBackend) Consume(ctx context.Context, key stri
 		return 0, false, fmt.Errorf("Redis client is unavailable")
 	}
 	value, err := backend.client.Eval(ctx, consumeWebSocketTicketLua, []string{key}).Result()
+	return parseConsumedWebSocketTicket(value, err)
+}
+
+func parseConsumedWebSocketTicket(value any, err error) (uint, bool, error) {
+	if errors.Is(err, goredis.Nil) || err == nil && value == nil {
+		return 0, false, nil
+	}
 	if err != nil {
 		return 0, false, err
-	}
-	if value == nil {
-		return 0, false, nil
 	}
 	text, ok := value.(string)
 	if !ok {

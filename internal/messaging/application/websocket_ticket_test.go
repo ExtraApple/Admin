@@ -37,18 +37,28 @@ func TestWebSocketTicketServiceIssuesOpaqueSixtySecondUserBoundTicket(t *testing
 	}
 }
 
-func TestWebSocketTicketServiceConsumesTicketExactlyOnceForItsAuthenticatedUser(t *testing.T) {
-	store := &webSocketTicketStoreFake{owner: 7, found: true}
+func TestWebSocketTicketServiceConsumesTicketAndReturnsItsBoundUser(t *testing.T) {
+	store := &webSocketTicketStoreFake{owner: 8, found: true}
 	service := application.NewWebSocketTicketService(store)
-	if err := service.Consume(context.Background(), "opaque-ticket", 7); err != nil {
-		t.Fatalf("Consume() = %v", err)
-	}
-	store.owner = 8
-	if err := service.Consume(context.Background(), "opaque-ticket", 7); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
-		t.Fatalf("cross-user Consume() = %v, want invalid ticket", err)
+	userID, err := service.Consume(context.Background(), "opaque-ticket")
+	if err != nil || userID != 8 {
+		t.Fatalf("Consume() user=%d err=%v", userID, err)
 	}
 	store.found = false
-	if err := service.Consume(context.Background(), "opaque-ticket", 7); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
+	if _, err := service.Consume(context.Background(), "opaque-ticket"); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
 		t.Fatalf("missing Consume() = %v, want invalid ticket", err)
+	}
+	store.found = true
+	store.owner = 0
+	if _, err := service.Consume(context.Background(), "opaque-ticket"); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
+		t.Fatalf("ownerless Consume() = %v, want invalid ticket", err)
+	}
+}
+
+func TestWebSocketTicketServicePreservesStoreDependencyErrors(t *testing.T) {
+	dependencyErr := errors.New("redis unavailable")
+	service := application.NewWebSocketTicketService(&webSocketTicketStoreFake{err: dependencyErr})
+	if _, err := service.Consume(context.Background(), "opaque-ticket"); !errors.Is(err, dependencyErr) {
+		t.Fatalf("Consume() = %v, want dependency error", err)
 	}
 }

@@ -17,7 +17,16 @@ const (
 var (
 	ErrWebSocketGatewayUnavailable = errors.New("messaging WebSocket gateway is unavailable")
 	ErrWebSocketQueueFull          = errors.New("messaging WebSocket write queue is full")
+	ErrWebSocketUserInactive       = errors.New("messaging WebSocket user is inactive")
+	ErrWebSocketUserUnavailable    = errors.New("messaging WebSocket user status is unavailable")
+	ErrWebSocketOriginInvalid      = errors.New("messaging WebSocket origin is not trusted")
 )
+
+// WebSocketUserGuard rechecks the ticket owner's active state after ticket
+// consumption so a user disabled after issue cannot upgrade with a live ticket.
+type WebSocketUserGuard interface {
+	IsActive(context.Context, uint) (bool, error)
+}
 
 // WebSocketConnection is the transport-neutral connection surface used by the
 // gateway. HTTP and concrete WebSocket protocol details stay in the Adapter.
@@ -38,6 +47,7 @@ type WebSocketGatewayConfig struct {
 	Tickets      *WebSocketTicketService
 	Hub          *RefreshHub
 	Recovery     RefreshRecoveryStore
+	Users        WebSocketUserGuard
 	QueueSize    int
 	WriteTimeout time.Duration
 }
@@ -46,6 +56,7 @@ type WebSocketGateway struct {
 	tickets      *WebSocketTicketService
 	hub          *RefreshHub
 	recovery     RefreshRecoveryStore
+	users        WebSocketUserGuard
 	queueSize    int
 	writeTimeout time.Duration
 
@@ -61,7 +72,7 @@ func NewWebSocketGateway(config WebSocketGatewayConfig) *WebSocketGateway {
 		config.WriteTimeout = WebSocketWriteTimeout
 	}
 	return &WebSocketGateway{
-		tickets: config.Tickets, hub: config.Hub, recovery: config.Recovery,
+		tickets: config.Tickets, hub: config.Hub, recovery: config.Recovery, users: config.Users,
 		queueSize: config.QueueSize, writeTimeout: config.WriteTimeout,
 		sessions: make(map[*webSocketSession]struct{}),
 	}
@@ -70,15 +81,23 @@ func NewWebSocketGateway(config WebSocketGatewayConfig) *WebSocketGateway {
 // Connect consumes the short-lived ticket before accepting a transport
 // connection, then binds it to the ticket's authenticated user. The Adapter
 // supplies the transport-specific accept function.
-func (gateway *WebSocketGateway) Connect(ctx context.Context, request WebSocketRequest, userID uint, accept WebSocketAcceptor) error {
-	if gateway == nil || gateway.tickets == nil || gateway.hub == nil || accept == nil {
+func (gateway *WebSocketGateway) Connect(ctx context.Context, request WebSocketRequest, accept WebSocketAcceptor) error {
+	if gateway == nil || gateway.tickets == nil || gateway.hub == nil || gateway.users == nil || accept == nil {
 		return ErrWebSocketGatewayUnavailable
 	}
-	if userID == 0 || request.Ticket == "" {
+	if request.Ticket == "" {
 		return ErrWebSocketTicketInvalid
 	}
-	if err := gateway.tickets.Consume(ctx, request.Ticket, userID); err != nil {
+	userID, err := gateway.tickets.Consume(ctx, request.Ticket)
+	if err != nil {
 		return err
+	}
+	active, err := gateway.users.IsActive(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrWebSocketUserUnavailable, err)
+	}
+	if !active {
+		return ErrWebSocketUserInactive
 	}
 
 	var recovery RefreshRecovery

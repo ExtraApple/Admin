@@ -2,14 +2,24 @@ package httpadapter
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"admin/internal/routecatalog"
 )
 
+func messageResponseHasCode(response routecatalog.Response, code string) bool {
+	for _, definition := range response.Errors {
+		if definition.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestMessagingRouteDescriptorsCoverAllConfiguredHTTPAndWebSocketEntrypoints(t *testing.T) {
 	routes := append([]routecatalog.Descriptor{}, Routes(nil)...)
-	routes = append(routes, WebSocketRoutes(nil, nil)...)
+	routes = append(routes, WebSocketRoutes(nil, nil, "https://admin.example.test")...)
 	routes = append(routes, AdminRoutes(nil)...)
 	catalog, err := routecatalog.New(routes)
 	if err != nil {
@@ -60,7 +70,19 @@ func TestMessagingRouteDescriptorsCoverAllConfiguredHTTPAndWebSocketEntrypoints(
 		}
 	}
 	ws := findMessageRoute(t, catalog.Snapshot(), http.MethodGet, "/api/user/messages/ws")
-	if ws.OpenAPI.Protocol != "websocket" || ws.OpenAPI.Responses[http.StatusSwitchingProtocols].Kind != routecatalog.NoBody || ws.OpenAPI.Description == "" {
-		t.Fatalf("WebSocket descriptor = %#v", ws.OpenAPI)
+	if ws.Access != routecatalog.Public || ws.OpenAPI.Protocol != "websocket" || ws.OpenAPI.QuerySchema == nil || ws.OpenAPI.Responses[http.StatusSwitchingProtocols].Kind != routecatalog.NoBody || !strings.Contains(ws.OpenAPI.Description, "ticket") {
+		t.Fatalf("WebSocket descriptor = %#v", ws)
+	}
+	if !messageResponseHasCode(ws.OpenAPI.Responses[http.StatusUnauthorized], CodeTicketInvalid) || !messageResponseHasCode(ws.OpenAPI.Responses[http.StatusServiceUnavailable], CodeWebSocketUnavailable) {
+		t.Fatalf("WebSocket error responses = %#v", ws.OpenAPI.Responses)
+	}
+	ticket := findMessageRoute(t, catalog.Snapshot(), http.MethodPost, "/api/user/messages/ws-ticket")
+	if ticket.Access != routecatalog.Authenticated {
+		t.Fatalf("ticket route access = %v, want Authenticated", ticket.Access)
+	}
+	for _, descriptor := range catalog.Snapshot() {
+		if descriptor.Access < routecatalog.Public || descriptor.Access > routecatalog.PermissionControlled {
+			t.Fatalf("route %s %s introduced access level %v", descriptor.Method, descriptor.Path, descriptor.Access)
+		}
 	}
 }

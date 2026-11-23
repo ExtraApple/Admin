@@ -2,6 +2,14 @@
 
 前端页面接入单独追踪；其他模块原有勾选不代表相应工作台页面已完成。
 
+## 已完成：WebSocket 验收问题修复
+
+change 名称：`fix-websocket-ticket-auth`。代码、自动化回归、隔离 curl 冒烟与真实 Chromium 复验已完成；详细证据见 [`docs/reviews/evidence/workbench-connectivity-2026-11-17.md`](docs/reviews/evidence/workbench-connectivity-2026-11-17.md) 的「WebSocket ticket 认证修复复验」。
+
+- [x] 浏览器 WebSocket ticket 升级：`GET /api/user/messages/ws` 改为 `Public` + Handler ticket 认证，Chromium 无 `Authorization` 升级返回 `101`；ticket 签发路由仍为 `Authenticated`。W-02、W-05、W-06 已关闭。
+- [x] 无效 WebSocket ticket：Redis `redis.Nil` 映射为未找到，无／无效／过期／重复 ticket 均返回 `401 MSG_WS_TICKET_INVALID`，不再返回 500；W-03 已关闭。
+- [x] Origin 与用户状态：不可信 Origin 和停用用户拒绝升级，用户状态查询失败返回 `503`；未新增 access level、消息权限码或 RabbitMQ 拓扑。
+
 ## 前端后续待办
 
 以下是已讨论的候选事项，按建议优先级排列，尚未立项或实施。实施前先确认范围并创建独立 OpenSpec change；仅在实现并验证后勾选，详细执行步骤以对应 change 的 `tasks.md` 为准。

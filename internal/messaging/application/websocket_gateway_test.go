@@ -60,6 +60,17 @@ func (connection *gatewayConnectionFake) writtenMessages() []map[string]any {
 	return append([]map[string]any(nil), connection.writes...)
 }
 
+type gatewayUserGuardFake struct {
+	active  bool
+	err     error
+	checked uint
+}
+
+func (guard *gatewayUserGuardFake) IsActive(_ context.Context, userID uint) (bool, error) {
+	guard.checked = userID
+	return guard.active, guard.err
+}
+
 type gatewayRecoveryStoreFake struct {
 	recovery application.RefreshRecovery
 	userID   uint
@@ -77,12 +88,14 @@ func TestWebSocketGatewayConsumesTicketBindsUserAndBootstrapsRecovery(t *testing
 	connection := newGatewayConnectionFake()
 	recovery := &gatewayRecoveryStoreFake{recovery: application.RefreshRecovery{Events: []application.RefreshEvent{{EventID: "event-1", Cursor: "cursor-2", MessageCopyID: 41, UserID: 7, AggregateVersion: 2}}}}
 	accepted := false
+	guard := &gatewayUserGuardFake{active: true}
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets:  application.NewWebSocketTicketService(ticketStore),
 		Hub:      application.NewRefreshHub(),
 		Recovery: recovery,
+		Users:    guard,
 	})
-	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket", Cursor: "cursor-1"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket", Cursor: "cursor-1"}, func(context.Context) (application.WebSocketConnection, error) {
 		accepted = true
 		return connection, nil
 	}); err != nil {
@@ -94,7 +107,7 @@ func TestWebSocketGatewayConsumesTicketBindsUserAndBootstrapsRecovery(t *testing
 		t.Fatal("recovery event was not written")
 	}
 	messages := connection.writtenMessages()
-	if !accepted || recovery.userID != 7 || recovery.cursor != "cursor-1" || len(messages) != 1 || messages[0]["type"] != "inbox.refresh" || messages[0]["event_id"] != "event-1" || messages[0]["cursor"] != "cursor-2" || messages[0]["message_copy_id"] != float64(41) {
+	if !accepted || guard.checked != 7 || recovery.userID != 7 || recovery.cursor != "cursor-1" || len(messages) != 1 || messages[0]["type"] != "inbox.refresh" || messages[0]["event_id"] != "event-1" || messages[0]["cursor"] != "cursor-2" || messages[0]["message_copy_id"] != float64(41) {
 		t.Fatalf("gateway state accepted=%t recovery=%#v messages=%#v", accepted, recovery, messages)
 	}
 	for _, forbidden := range []string{"body", "html", "markdown", "token", "image", "url"} {
@@ -118,8 +131,9 @@ func TestWebSocketGatewayConnectUsesTransportNeutralAcceptor(t *testing.T) {
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 7, found: true}),
 		Hub:     application.NewRefreshHub(),
+		Users:   &gatewayUserGuardFake{active: true},
 	})
-	err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+	err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, func(context.Context) (application.WebSocketConnection, error) {
 		accepted = true
 		return transportNeutralGatewayConnectionFake{}, nil
 	})
@@ -135,10 +149,11 @@ func TestWebSocketGatewayClosesSlowConnectionWhenQueueFills(t *testing.T) {
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
 		Tickets:      application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 7, found: true}),
 		Hub:          hub,
+		Users:        &gatewayUserGuardFake{active: true},
 		QueueSize:    1,
 		WriteTimeout: 20 * time.Millisecond,
 	})
-	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, func(context.Context) (application.WebSocketConnection, error) {
 		return connection, nil
 	}); err != nil {
 		t.Fatalf("Connect() = %v", err)
@@ -162,10 +177,11 @@ func TestWebSocketGatewayClosesSlowConnectionWhenQueueFills(t *testing.T) {
 func TestWebSocketGatewayRejectsInvalidTicketBeforeUpgrade(t *testing.T) {
 	accepted := false
 	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
-		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 8, found: true}),
+		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{found: false}),
 		Hub:     application.NewRefreshHub(),
+		Users:   &gatewayUserGuardFake{active: true},
 	})
-	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, 7, func(context.Context) (application.WebSocketConnection, error) {
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, func(context.Context) (application.WebSocketConnection, error) {
 		accepted = true
 		return newGatewayConnectionFake(), nil
 	}); !errors.Is(err, application.ErrWebSocketTicketInvalid) {
@@ -173,5 +189,37 @@ func TestWebSocketGatewayRejectsInvalidTicketBeforeUpgrade(t *testing.T) {
 	}
 	if accepted {
 		t.Fatal("invalid ticket reached WebSocket upgrade")
+	}
+}
+
+func TestWebSocketGatewayRejectsDisabledTicketOwnerBeforeUpgrade(t *testing.T) {
+	accepted := false
+	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
+		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 7, found: true}),
+		Hub:     application.NewRefreshHub(),
+		Users:   &gatewayUserGuardFake{active: false},
+	})
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, func(context.Context) (application.WebSocketConnection, error) {
+		accepted = true
+		return newGatewayConnectionFake(), nil
+	}); !errors.Is(err, application.ErrWebSocketUserInactive) {
+		t.Fatalf("disabled owner error = %v", err)
+	}
+	if accepted {
+		t.Fatal("disabled owner reached WebSocket upgrade")
+	}
+}
+
+func TestWebSocketGatewayDistinguishesUserLookupFailure(t *testing.T) {
+	dependencyErr := errors.New("identity unavailable")
+	gateway := application.NewWebSocketGateway(application.WebSocketGatewayConfig{
+		Tickets: application.NewWebSocketTicketService(&webSocketTicketStoreFake{owner: 7, found: true}),
+		Hub:     application.NewRefreshHub(),
+		Users:   &gatewayUserGuardFake{err: dependencyErr},
+	})
+	if err := gateway.Connect(context.Background(), application.WebSocketRequest{Ticket: "opaque-ticket"}, func(context.Context) (application.WebSocketConnection, error) {
+		return newGatewayConnectionFake(), nil
+	}); !errors.Is(err, application.ErrWebSocketUserUnavailable) || errors.Is(err, application.ErrWebSocketTicketInvalid) {
+		t.Fatalf("user lookup error = %v", err)
 	}
 }

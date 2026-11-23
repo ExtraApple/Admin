@@ -12,6 +12,7 @@ API 元数据不会创建或替换 Gin 路由。真实路由由业务模块声�
 
 - `method + path` 唯一，创建和修改时规范化方法与路径；API Metadata 不创建或替换 Gin 路由。
 - 列表和详情只读投影当前 Route Catalog 状态：`matched`、`metadata_only`、`access_mismatch`；同步影响预览还会标注 `catalog_only`。状态不持久化，Route Catalog 是运行时路由唯一事实来源。
+- `need_auth=0` 只表示请求不经过统一 Bearer 中间件，不表示匿名可访问。`GET /api/user/messages/ws` 属于此类：升级仍必须提供一次性 ticket，并经 Origin 和用户启用状态校验；`POST /api/user/messages/ws-ticket` 仍为 `Authenticated`。
 - API 权限同步继续处理现行 `NeedAuth=1` 候选，空码按 Method + Path 派生；公开项跳过，已有权限不重复创建。一次同步的 API、菜单码、权限、角色授权及适用用户版本共同提交或回滚。
 - 路由同步只消费当前 Route Catalog Snapshot，不扫描 Gin Engine；已有管理员名称、分组、权限码、备注、排序和策略字段不被同步覆盖，返回实际创建统计。
 - `created`/`created_count` 只包含最终提交且实际新增的权限，恢复既有权限不算新建；`updated_api` 统计补齐空码项。失败不返回部分成功统计。

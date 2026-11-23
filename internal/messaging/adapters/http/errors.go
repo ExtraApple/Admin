@@ -106,6 +106,10 @@ func classifyMessageError(err error) httpresponse.ErrorDefinition {
 		return messageError(CodeRecipientUnavailable, http.StatusUnprocessableEntity, "message recipient is unavailable")
 	case errors.Is(err, application.ErrWebSocketTicketInvalid):
 		return messageError(CodeTicketInvalid, http.StatusUnauthorized, "message WebSocket ticket is invalid")
+	case errors.Is(err, application.ErrWebSocketOriginInvalid), errors.Is(err, application.ErrWebSocketUserInactive):
+		return messageError(CodePermissionDenied, http.StatusForbidden, "message permission is denied")
+	case errors.Is(err, application.ErrWebSocketUserUnavailable):
+		return messageError(CodeWebSocketUnavailable, http.StatusServiceUnavailable, "message WebSocket is unavailable")
 	case errors.Is(err, application.ErrWebSocketGatewayUnavailable), errors.Is(err, application.ErrWebSocketQueueFull):
 		return messageError(CodeWebSocketUnavailable, http.StatusServiceUnavailable, "message WebSocket is unavailable")
 	case errors.Is(err, application.ErrMessagingDependency):

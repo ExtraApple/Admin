@@ -10,7 +10,7 @@
 |---|---|
 | 契约一致 | Route Catalog 与 Gin 业务路由集合一致；技术路由、业务 JSON、OpenAPI、头像原生响应、404／405、Access Level 静态边界和 required／optional 接线的代表性行为符合当前判据。 |
 | 实现偏差 | 新建 API Metadata 对 7 条当前 Public 路由保存了 `need_auth = 1`，只有 `POST /api/refresh` 保存了 `need_auth = 0`；这与 `route-catalog` 和 `api-management` 的公共路由同步契约不一致。当前 Gin Public 静态中间件边界未被该字段降级或升级，因此未观察到匿名访问被阻断。 |
-| 证据不足 | 429、500、503 没有通过生产式故障注入在真实隔离 App 中触发；使用 Descriptor、OpenAPI 和聚焦测试覆盖。浏览器 WebSocket 不能附加当前 Authenticated 中间件要求的 Authorization header，实时升级仅取得升级前 401；原生 Handler 的有效 ticket 测试通过。 |
+| 证据不足 | 429、500、503 没有通过生产式故障注入在真实隔离 App 中触发；使用 Descriptor、OpenAPI 和聚焦测试覆盖。浏览器 WebSocket 升级限制已由 `fix-websocket-ticket-auth` 裁决并修复：upgrade 路由改为 `Public` + Handler ticket 认证，浏览器不再需要 Authorization header；修复证据见 `docs/reviews/evidence/workbench-connectivity-2026-11-17.md` 的修复记录。 |
 | 语义／文档待裁决 | 当前浏览器对 `OPTIONS /api/admin/apis` 返回信封化 405，没有成功 CORS 预检协议；本审计不推断系统是否应启用 CORS。组织范围外查询当前返回 `422 ORG_VALIDATION_INVALID`，而不是专用 403；这被记录为当前实现语义，不在本 change 内改写。 |
 
 未发现需要在本 change 内修复的安全降级。产品偏差只保留证据，后续应分别创建产品修复、规格裁决或文档修复 change。
@@ -195,7 +195,8 @@ Route Catalog 聚焦测试通过：重复 Method + Path、缺字段、未知 Met
 - OpenAPI JSON：未包装的 `application/json`
 - 默认头像：`image/png`，真实 HTTP 200
 - WebSocket Descriptor：`x-native-protocol = websocket`，101 无 body，升级前错误为四字段 JSON
-- 浏览器 WebSocket 真实尝试因当前 Authenticated 中间件要求 Authorization header 而在升级前返回 401；有效 ticket 的 handler 测试通过，未把该浏览器限制改写为产品结论。
+- `GET /api/user/messages/ws` 当前为 `Public`，表示不经过 Bearer 中间件，而不是匿名：Handler 原子消费一次性 ticket，校验精确 Origin 和用户启用状态；无效／过期 ticket 返回 401，停用用户或不可信 Origin 返回 403，依赖失败返回 503。`POST /api/user/messages/ws-ticket` 仍为 `Authenticated`。
+- 浏览器真实 Chromium 升级与重连证据见 `docs/reviews/evidence/workbench-connectivity-2026-11-17.md` 的修复记录。
 - CORS OPTIONS 当前返回 405 信封化错误；没有在本 change 中新增 CORS 能力或假定其应启用。
 
 ### 6.3 错误 owner 与恢复
