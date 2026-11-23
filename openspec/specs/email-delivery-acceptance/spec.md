@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义邮箱投递在隔离本地环境与可选真实 SMTP 下的验收边界、状态覆盖、证据要求和失败处理规则。
+定义邮箱验证在隔离本地环境与可选真实 SMTP 下的可重复验收边界、状态覆盖、证据要求、脱敏检查和失败处理规则。
 
 ## Requirements
 ### Requirement: Isolated local email delivery acceptance
