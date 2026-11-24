@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { api, ApiError } from '@/lib/api';
@@ -38,13 +38,13 @@ function useUserActions(onChanged: (user: AdminUser, action: UserAction, status?
   const feedback = <><ErrorNotice error={error} />{message && <p className="mg-success" role="status">{message}</p>}<Confirm open={!!pending} onOpenChange={open => { if (!open) setPending(null); }} busy={busy} title={`确认${label}${pending?.user.nickname || pending?.user.username || ''}？`} label={`确认${label}`} onConfirm={execute}><p>对象：{pending?.user.nickname || pending?.user.username} · {pending?.user.username}</p><p>{pending?.action === 'delete' ? '此操作删除用户，不是停用，无法撤销。' : pending?.action === 'kick' ? '使该用户的旧会话失效；资料和状态保持不变。' : '切换该用户启用状态；旧会话将在后续请求失效。'}</p></Confirm></>;
   return { choose, feedback, busy };
 }
-function UserMenu({ user, open, setOpen, onAction, disabled }: { user: AdminUser; open: number | null; setOpen: Dispatch<SetStateAction<number | null>>; onAction: (user: AdminUser, action: UserAction) => void; disabled: boolean }) {
+function UserMenu({ user, open, setOpen, onAction, disabled, align }: { user: AdminUser; open: number | null; setOpen: Dispatch<SetStateAction<number | null>>; onAction: (user: AdminUser, action: UserAction) => void; disabled: boolean; align: 'start' | 'end' }) {
   const { context, can } = useSession();
   const reason = protectedReason(user, context?.user.id);
   if (reason) return <span className="mg-protected" title={reason}>受保护{user.id === context?.user.id ? ' · 本人' : ' · admin'}</span>;
   const actions = (['status', 'kick', 'delete'] as UserAction[]).filter(action => can(actionPermissions[action]));
   if (!actions.length) return <span className="mg-hint">无可用动作</span>;
-  return <DropdownMenu modal={false} open={open === user.id} onOpenChange={value => setOpen(current => value ? user.id : current === user.id ? null : current)}><DropdownMenuTrigger asChild><Button variant="outline" disabled={disabled} aria-label={`${user.nickname || user.username}的操作`}>操作</Button></DropdownMenuTrigger><DropdownMenuContent className="mg-action-menu" side="right" align="start" sideOffset={8} avoidCollisions={false}>{actions.map(action => <div key={action}>{action === 'delete' && actions.length > 1 && <DropdownMenuSeparator />}<DropdownMenuItem disabled={disabled} className={action === 'delete' ? 'mg-danger' : ''} onSelect={() => { setOpen(null); onAction(user, action); }}>{action === 'status' ? user.status === 1 ? '停用用户' : '启用用户' : action === 'kick' ? '强制下线' : '删除用户'}</DropdownMenuItem></div>)}</DropdownMenuContent></DropdownMenu>;
+  return <DropdownMenu modal={false} open={open === user.id} onOpenChange={value => setOpen(current => value ? user.id : current === user.id ? null : current)}><DropdownMenuTrigger asChild><Button variant="outline" disabled={disabled} aria-label={`${user.nickname || user.username}的操作`}>操作</Button></DropdownMenuTrigger><DropdownMenuContent className="mg-action-menu" side="bottom" align={align}>{actions.map(action => <Fragment key={action}>{action === 'delete' && actions.length > 1 && <DropdownMenuSeparator />}<DropdownMenuItem disabled={disabled} className={action === 'delete' ? 'mg-danger' : ''} onSelect={() => { setOpen(null); onAction(user, action); }}>{action === 'status' ? user.status === 1 ? '停用用户' : '启用用户' : action === 'kick' ? '强制下线' : '删除用户'}</DropdownMenuItem></Fragment>)}</DropdownMenuContent></DropdownMenu>;
 }
 export function UsersList() {
   const list = useListQuery();
@@ -57,15 +57,14 @@ export function UsersList() {
   useEffect(() => { const close = () => setOpen(null); window.addEventListener('scroll', close, true); return () => window.removeEventListener('scroll', close, true); }, []);
   useEffect(() => setOpen(null), [list.query, resource.loading, actions.busy]);
   const identity = (user: AdminUser) => <>{can('admin.users.id.get') ? <Link className="mg-list-link" to={`/users/${user.id}`}>{user.nickname || user.username}</Link> : <strong>{user.nickname || user.username}</strong>}<small className="mg-row-sub">{user.username}</small></>;
-  const menu = (user: AdminUser) => <div className="mg-action-reserve"><UserMenu user={user} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} /></div>;
   const columns: ColumnDef<AdminUser>[] = [
     { id: 'user', header: '用户', cell: ({ row }) => identity(row.original) },
     { id: 'roles', header: '角色', cell: ({ row }) => row.original.roles.map(role => role.name).join('、') || '未分配角色' },
     { id: 'organizations', header: '范围内组织', cell: ({ row }) => <OrganizationsText user={row.original} /> },
     { id: 'status', header: '状态', cell: ({ row }) => <Status value={row.original.status} /> },
-    { id: 'actions', header: '操作', cell: ({ row }) => menu(row.original) },
+    { id: 'actions', header: '操作', cell: ({ row }) => <UserMenu user={row.original} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} align="end" /> },
   ];
-  return <><PageHeading title="用户管理" intro="核对真实角色、状态及当前范围内的组织归属。列表只统计可管理范围内的结果。" />{actions.feedback}<Card className="mg-list mg-user-list"><div className="mg-toolbar"><strong>范围内用户</strong><ListFilters list={list} label="搜索用户名或昵称" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? compact ? <div className="mg-user-cards">{resource.data.list.map(user => <article className="mg-person-card" key={user.id}><div className="mg-card-head"><div>{identity(user)}</div><Status value={user.status} /></div><p>角色 · {user.roles.map(role => role.name).join('、') || '未分配角色'}</p><p>可见组织 · <OrganizationsText user={user} /></p>{menu(user)}</article>)}</div> : <DataTable columns={columns} data={resource.data.list} caption="范围内真实用户列表" /> : <Notice title="没有符合条件的用户">换个用户名、昵称或状态试试。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></>;
+  return <><PageHeading title="用户管理" intro="核对真实角色、状态及当前范围内的组织归属。列表只统计可管理范围内的结果。" />{actions.feedback}<Card className="mg-list mg-user-list"><div className="mg-toolbar"><strong>范围内用户</strong><ListFilters list={list} label="搜索用户名或昵称" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? compact ? <div className="mg-user-cards">{resource.data.list.map(user => <article className="mg-person-card" key={user.id}><div className="mg-card-head"><div>{identity(user)}</div><Status value={user.status} /></div><p>角色 · {user.roles.map(role => role.name).join('、') || '未分配角色'}</p><p>可见组织 · <OrganizationsText user={user} /></p><div className="mg-card-actions"><UserMenu user={user} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} align="start" /></div></article>)}</div> : <DataTable columns={columns} data={resource.data.list} caption="范围内真实用户列表" /> : <Notice title="没有符合条件的用户">换个用户名、昵称或状态试试。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></>;
 }
 export function UserDetail() {
   const id = useObjectId();

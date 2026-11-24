@@ -5,7 +5,7 @@
   --line: #dce7e9; --warning: #a9593f; --warning-bg: #fcf4f0; --warning-line: #e4c9bd; --warning-ink: #82432f; --danger-ink: #945038;
   --success-bg: #eff8f5; --success-line: #b6d8d2; --success-ink: #246257;
   --muted: #637780; --tint: #eaf3f3; --hover: #fafcfc; --input: #bacdd1; --input-placeholder: #75868c; --checkbox: #8faeb4; --ring: #388892;
-  --warning-accent: #c57d62; --info-accent: #287467; --shadow: rgb(27 65 75 / 2.5%); --overlay: rgb(20 40 45 / 48%);
+  --warning-accent: #c57d62; --info-accent: #287467; --shadow: rgb(27 65 75 / 2.5%); --popover-shadow: 0 12px 28px rgb(20 40 45 / 14%), 0 2px 6px rgb(20 40 45 / 6%); --overlay: rgb(20 40 45 / 48%);
   --brand: #245e68; --brand-muted: #d7e8e8; --brand-foreground: #fff; --brand-mark-background: var(--accent); --brand-mark-foreground: #fff;
   --body: "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
@@ -21,7 +21,7 @@
   --line: #36565d; --warning: #f0a48a; --warning-bg: #482d29; --warning-line: #a86758; --warning-ink: #ffd0c3; --danger-ink: #ffc5b5;
   --success-bg: #183d35; --success-line: #579486; --success-ink: #b8ecd9;
   --muted: #b2c6c9; --tint: #1d3d42; --hover: #1b373c; --input: #527177; --input-placeholder: #b0c2c5; --checkbox: #769297; --ring: #8de5dd;
-  --warning-accent: #e19a7d; --info-accent: #7cd4bf; --shadow: rgb(0 0 0 / 32%); --overlay: rgb(0 0 0 / 68%);
+  --warning-accent: #e19a7d; --info-accent: #7cd4bf; --shadow: rgb(0 0 0 / 32%); --popover-shadow: 0 14px 32px rgb(0 0 0 / 52%), 0 2px 8px rgb(0 0 0 / 32%); --overlay: rgb(0 0 0 / 68%);
   --brand: #1c5961; --brand-muted: #c0dedf; --brand-foreground: #fff; --brand-mark-background: var(--accent); --brand-mark-foreground: var(--canvas);
   --primary-foreground: var(--canvas); --accent-foreground: var(--canvas); --destructive-foreground: var(--canvas);
 }
@@ -101,7 +101,7 @@
   .ui-dialog-title { font-size: 21px; margin: 0; }
   .ui-dialog-description { color: var(--muted); font-size: 14px; margin: 0; }
   .ui-dialog-footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
-  .ui-dropdown-content, .ui-select-content { z-index: 40; min-width: 148px; max-width: calc(100vw - 24px); max-height: var(--radix-dropdown-menu-content-available-height, 65dvh); overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px; box-shadow: 0 10px 30px var(--shadow); }
+  .ui-dropdown-content, .ui-select-content { z-index: 40; min-width: 148px; max-width: calc(100vw - 24px); max-height: var(--radix-dropdown-menu-content-available-height, 65dvh); overflow-y: auto; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 5px; box-shadow: var(--popover-shadow); }
   .ui-dropdown-item, .ui-select-item { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 10px; border-radius: 5px; font-size: 13px; cursor: pointer; outline-offset: -2px; user-select: none; }
   .ui-dropdown-item[data-highlighted], .ui-select-item[data-highlighted] { color: var(--accent); background: var(--tint); outline: none; }
   .ui-dropdown-item[data-disabled], .ui-select-item[data-disabled] { pointer-events: none; }
