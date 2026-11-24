@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Menu, UserContext } from './models';
 import type { ManagementModule } from './navigation';
-import { getInitialOpenGroups, getWorkbenchGroups, useWorkbenchNavigation, type WorkbenchGroupId } from './workbench-navigation';
+import { getInitialOpenGroups, getWorkbenchBreadcrumbs, getWorkbenchGroups, resolveWorkbenchModule, useWorkbenchNavigation, type WorkbenchGroupId } from './workbench-navigation';
 
 function moduleMenu(module: ManagementModule, overrides: Partial<Menu> = {}): Menu {
   return { id: 1, parent_id: 0, name: '后端菜单名称', path: `/system/${module}`, component: `system/${module}/index`, icon: '', permission_code: `admin.${module}.get`, sort: 10, type: 2, status: 1, ...overrides };
@@ -81,36 +81,59 @@ describe('permission-filtered workbench groups', () => {
   });
 });
 
-describe('workbench path matching and initialization', () => {
+describe('workbench initialization, breadcrumbs, and route resolution', () => {
+  it('opens all visible groups by default and keeps hidden groups closed regardless of route', () => {
+    expect(getInitialOpenGroups(getWorkbenchGroups(administrator), '/users/7')).toEqual({
+      'authorization-review': true,
+      'identity-organization': true,
+      'configuration-management': false,
+      audit: true,
+    });
+    expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), '/profile')).toEqual({
+      'authorization-review': true,
+      'identity-organization': true,
+      'configuration-management': true,
+      audit: true,
+    });
+    expect(getInitialOpenGroups(getWorkbenchGroups(restrictedContext), '/unknown')).toEqual(allClosed);
+  });
+
   it.each([
-    ['/authorization-overview', 'authorization-review'], ['/authorization-risks', 'authorization-review'],
-    ['/roles', 'identity-organization'], ['/roles/12', 'identity-organization'], ['/roles/12/permissions', 'identity-organization'],
-    ['/users', 'identity-organization'], ['/users/7/roles', 'identity-organization'],
-    ['/organizations', 'identity-organization'], ['/organizations/4', 'identity-organization'],
-  ] as const)('opens only the visible group for %s', (pathname, groupId) => {
-    expect(getInitialOpenGroups(getWorkbenchGroups(administrator), pathname)).toEqual({ ...allClosed, [groupId]: true });
+    ['/authorization-overview', [{ label: '工作台', to: '/' }, { label: '授权总览' }]],
+    ['/authorization-risks', [{ label: '工作台', to: '/' }, { label: '风险清单' }]],
+    ['/roles', [{ label: '工作台', to: '/' }, { label: '角色管理' }]],
+    ['/roles/3', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3' }]],
+    ['/roles/3/permissions', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑权限' }]],
+    ['/roles/3/menus', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑菜单' }]],
+    ['/roles/3/data-scope', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑数据范围' }]],
+    ['/users/12', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12' }]],
+    ['/users/12/roles', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑角色' }]],
+    ['/users/12/organizations', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑组织' }]],
+    ['/organizations/5', [{ label: '工作台', to: '/' }, { label: '组织管理', to: '/organizations' }, { label: '组织详情 #5' }]],
+    ['/organizations/5/move', [{ label: '工作台', to: '/' }, { label: '组织管理', to: '/organizations' }, { label: '组织详情 #5', to: '/organizations/5' }, { label: '调整上级' }]],
+    ['/menus', [{ label: '工作台', to: '/' }, { label: '菜单管理' }]],
+    ['/apis', [{ label: '工作台', to: '/' }, { label: '接口管理' }]],
+    ['/audit-logs', [{ label: '工作台', to: '/' }, { label: '审计日志' }]],
+    ['/profile', [{ label: '工作台', to: '/' }, { label: '个人资料' }]],
+    ['/no-management', [{ label: '工作台', to: '/' }, { label: '访问说明' }]],
+    ['/roles/3/unknown', [{ label: '工作台', to: '/' }, { label: '页面不存在' }]],
+    ['/apis/42', [{ label: '工作台', to: '/' }, { label: '页面不存在' }]],
+  ])('builds static hierarchical breadcrumbs for %s', (pathname, expected) => {
+    expect(getWorkbenchBreadcrumbs(pathname)).toEqual(expected);
   });
 
-  it.each(['/menus', '/apis/42'])('opens configuration management for %s', pathname => {
-    expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), pathname)).toEqual({ ...allClosed, 'configuration-management': true });
+  it('rejects 404 paths and unauthorized detail routes when resolving modules', () => {
+    const listOnlyRoles: UserContext = {
+      ...restrictedContext,
+      permissions: ['admin.roles.get'],
+      menus: [moduleMenu('roles')],
+    };
+    expect(resolveWorkbenchModule('/roles', listOnlyRoles)?.key).toBe('roles');
+    expect(resolveWorkbenchModule('/roles/3', listOnlyRoles)).toBeNull();
+    expect(resolveWorkbenchModule('/roles/3/unknown', administrator)).toBeNull();
+    expect(resolveWorkbenchModule('/apis/42', configurationAdministrator)).toBeNull();
+    expect(resolveWorkbenchModule('/profile', restrictedContext)?.key).toBe('profile');
   });
-
-  it('opens the audit group for /audit-logs', () => {
-    expect(getInitialOpenGroups(getWorkbenchGroups(configurationAdministrator), '/audit-logs')).toEqual({ ...allClosed, audit: true });
-  });
-
-  it.each(['/', '/no-management', '/unknown', '/roles-extra', '/usersettings', '/organizations-other/1', '/authorization-overview/extra', '/authorization-risks/extra', '/profile', '/profile/edit', '/profile/'])('leaves all groups closed for unmatched pathname %s', pathname => {
-    expect(getInitialOpenGroups(getWorkbenchGroups(administrator), pathname)).toEqual(allClosed);
-  });
-
-  it('does not open a hidden group or a visible group whose matching item is denied', () => {
-    expect(getInitialOpenGroups(getWorkbenchGroups(restrictedContext), '/users/7')).toEqual(allClosed);
-    const usersOnly = { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users')] };
-    expect(getInitialOpenGroups(getWorkbenchGroups(usersOnly), '/roles/12')).toEqual(allClosed);
-    expect(getInitialOpenGroups(getWorkbenchGroups(usersOnly), '/users/7')).toEqual({ ...allClosed, 'identity-organization': true });
-    expect(getInitialOpenGroups(getWorkbenchGroups({ ...administrator, permissions: [] }), '/authorization-overview')).toEqual(allClosed);
-  });
-
 });
 
 function NavigationConsumer({ context, pathname, layout }: { context: UserContext | null; pathname: string; layout: 'desktop' | 'mobile' }) {
@@ -148,10 +171,11 @@ describe('mounted workbench navigation state', () => {
     expect(button(id).getAttribute('aria-expanded')).toBe(String(expanded));
   }
 
-  it('keeps the user-collapsed active group closed across routes and desktop/mobile rerenders', () => {
+  it('opens all visible groups on mount and keeps user-collapsed groups closed across routes and desktop/mobile rerenders', () => {
     render(administrator, '/users/7');
     expectExpanded('identity-organization', true);
-    expectExpanded('authorization-review', false);
+    expectExpanded('authorization-review', true);
+    expectExpanded('audit', true);
     expect(container.querySelector('a[href="/users"]')).not.toBeNull();
 
     act(() => button('identity-organization').click());
@@ -160,63 +184,63 @@ describe('mounted workbench navigation state', () => {
     render(administrator, '/users/8');
     expectExpanded('identity-organization', false);
     render(administrator, '/authorization-overview');
-    expectExpanded('authorization-review', false);
+    expectExpanded('authorization-review', true);
     expectExpanded('identity-organization', false);
 
     act(() => {
       button('authorization-review').click();
     });
-    expectExpanded('authorization-review', true);
+    expectExpanded('authorization-review', false);
     render(administrator, '/profile', 'mobile');
-    expectExpanded('authorization-review', true);
+    expectExpanded('authorization-review', false);
     expectExpanded('identity-organization', false);
     render(administrator, '/roles/12', 'desktop');
-    expectExpanded('authorization-review', true);
+    expectExpanded('authorization-review', false);
     expectExpanded('identity-organization', false);
   });
 
-  it('keeps configuration management active and preserves its collapse choice on narrow layouts', () => {
-    render(configurationAdministrator, '/apis/7');
+  it('keeps configuration management open by default and preserves manual collapse on narrow layouts', () => {
+    render(configurationAdministrator, '/apis');
     expectExpanded('configuration-management', true);
     expect(container.querySelector('a[href="/apis"]')).not.toBeNull();
     act(() => button('configuration-management').click());
     expectExpanded('configuration-management', false);
     render(configurationAdministrator, '/menus', 'mobile');
     expectExpanded('configuration-management', false);
-    render(configurationAdministrator, '/apis/9', 'desktop');
+    render(configurationAdministrator, '/apis', 'desktop');
     expectExpanded('configuration-management', false);
   });
 
-  it('updates visible permissions without resetting state, retaining choices when groups disappear and return', () => {
+  it('retains manual collapse choices when permissions temporarily disappear and return', () => {
     render(restrictedContext, '/profile');
     expect(container.querySelector('button[data-group]')).toBeNull();
     render(administrator, '/users/7');
-    expectExpanded('authorization-review', false);
-    expectExpanded('identity-organization', false);
-    act(() => button('identity-organization').click());
+    expectExpanded('authorization-review', true);
     expectExpanded('identity-organization', true);
+    act(() => button('identity-organization').click());
+    expectExpanded('identity-organization', false);
 
     render(restrictedContext, '/profile');
     expect(container.querySelector('button[data-group="identity-organization"]')).toBeNull();
     expect(container.querySelector('button[data-group="authorization-review"]')).toBeNull();
     render({ ...administrator, permissions: [...administrator.permissions] }, '/authorization-overview', 'mobile');
-    expectExpanded('identity-organization', true);
-    expectExpanded('authorization-review', false);
+    expectExpanded('identity-organization', false);
+    expectExpanded('authorization-review', true);
   });
 
-  it('initializes unmatched routes closed and resets choices only on a new mount', () => {
+  it('resets manual collapse choices only on a fresh mount', () => {
     render(administrator, '/unknown');
-    expectExpanded('authorization-review', false);
+    expectExpanded('authorization-review', true);
+    expectExpanded('identity-organization', true);
+    act(() => button('identity-organization').click());
     expectExpanded('identity-organization', false);
     render(administrator, '/profile');
     expectExpanded('identity-organization', false);
-    act(() => button('identity-organization').click());
-    expectExpanded('identity-organization', true);
 
     act(() => root.unmount());
     root = createRoot(container);
     render(administrator, '/profile');
-    expectExpanded('authorization-review', false);
-    expectExpanded('identity-organization', false);
+    expectExpanded('authorization-review', true);
+    expectExpanded('identity-organization', true);
   });
 });

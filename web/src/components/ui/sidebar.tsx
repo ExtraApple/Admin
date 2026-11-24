@@ -12,6 +12,8 @@ interface SidebarContextValue {
   isMobile: boolean;
   openMobile: boolean;
   setOpenMobile: React.Dispatch<React.SetStateAction<boolean>>;
+  openDesktop: boolean;
+  setOpenDesktop: React.Dispatch<React.SetStateAction<boolean>>;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   sidebarId: string;
 }
@@ -27,6 +29,7 @@ export function useSidebar() {
 export function SidebarProvider({ className, style, children, ...props }: React.ComponentProps<'div'>) {
   const isMobile = useIsMobile();
   const [openMobile, setOpenMobile] = React.useState(false);
+  const [openDesktop, setOpenDesktop] = React.useState(true);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const sidebarId = React.useId();
 
@@ -35,8 +38,8 @@ export function SidebarProvider({ className, style, children, ...props }: React.
   }, [isMobile]);
 
   const context = React.useMemo<SidebarContextValue>(
-    () => ({ isMobile, openMobile, setOpenMobile, triggerRef, sidebarId }),
-    [isMobile, openMobile, sidebarId],
+    () => ({ isMobile, openMobile, setOpenMobile, openDesktop, setOpenDesktop, triggerRef, sidebarId }),
+    [isMobile, openMobile, openDesktop, sidebarId],
   );
 
   return (
@@ -44,6 +47,7 @@ export function SidebarProvider({ className, style, children, ...props }: React.
       <TooltipProvider delayDuration={0}>
         <div
           data-slot="sidebar-wrapper"
+          data-sidebar-state={openDesktop ? 'expanded' : 'collapsed'}
           className={cn('ui-sidebar-provider flex min-h-dvh w-full bg-background text-foreground', className)}
           style={{ '--sidebar-width': '228px', ...style } as React.CSSProperties}
           {...props}
@@ -60,7 +64,7 @@ type SidebarProps = React.ComponentProps<'div'> & {
 };
 
 export function Sidebar({ className, children, onCloseAutoFocus, ...props }: SidebarProps) {
-  const { isMobile, openMobile, setOpenMobile, triggerRef, sidebarId } = useSidebar();
+  const { isMobile, openMobile, setOpenMobile, openDesktop, triggerRef, sidebarId } = useSidebar();
 
   if (isMobile) {
     return (
@@ -91,6 +95,10 @@ export function Sidebar({ className, children, onCloseAutoFocus, ...props }: Sid
     );
   }
 
+  if (!openDesktop) {
+    return null;
+  }
+
   return (
     <div
       {...props}
@@ -98,6 +106,7 @@ export function Sidebar({ className, children, onCloseAutoFocus, ...props }: Sid
       data-slot="sidebar"
       data-sidebar="sidebar"
       data-mobile="false"
+      data-state="expanded"
       className={cn('ui-sidebar flex w-(--sidebar-width) shrink-0 flex-col border-r border-border bg-popover text-popover-foreground', className)}
     >
       {children}
@@ -107,12 +116,16 @@ export function Sidebar({ className, children, onCloseAutoFocus, ...props }: Sid
 
 export const SidebarTrigger = React.forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>(
   ({ className, onClick, children, ...props }, ref) => {
-    const { isMobile, openMobile, setOpenMobile, triggerRef, sidebarId } = useSidebar();
+    const { isMobile, openMobile, setOpenMobile, openDesktop, setOpenDesktop, triggerRef, sidebarId } = useSidebar();
     const setTriggerRef = React.useCallback((node: HTMLButtonElement | null) => {
       triggerRef.current = node;
       if (typeof ref === 'function') return ref(node);
       if (ref) ref.current = node;
     }, [ref, triggerRef]);
+    const expanded = isMobile ? openMobile : openDesktop;
+    const label = isMobile
+      ? (openMobile ? '关闭导航' : '打开导航')
+      : (openDesktop ? '收起导航' : '展开导航');
 
     return (
       <Button
@@ -122,13 +135,16 @@ export const SidebarTrigger = React.forwardRef<HTMLButtonElement, React.Componen
         size="icon"
         data-slot="sidebar-trigger"
         data-sidebar="trigger"
-        aria-label={openMobile ? '关闭导航' : '打开导航'}
-        aria-expanded={openMobile}
-        aria-controls={sidebarId}
-        className={cn('ui-sidebar-trigger min-h-11 min-w-11 min-[851px]:hidden', className)}
+        aria-label={label}
+        title={label}
+        aria-expanded={expanded}
+        aria-controls={isMobile || openDesktop ? sidebarId : undefined}
+        className={cn('ui-sidebar-trigger', className)}
         onClick={(event) => {
           onClick?.(event);
-          if (!event.defaultPrevented && isMobile) setOpenMobile((open) => !open);
+          if (event.defaultPrevented) return;
+          if (isMobile) setOpenMobile((open) => !open);
+          else setOpenDesktop((open) => !open);
         }}
       >
         {children ?? <PanelLeft size={18} aria-hidden="true" />}

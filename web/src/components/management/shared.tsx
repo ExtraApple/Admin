@@ -71,12 +71,12 @@ export function ErrorNotice({ error, onRetry, retryLabel = '重新尝试' }: { e
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {
   return <Card className="mg-notice"><h2>{title}</h2>{children && <div>{children}</div>}</Card>;
 }
-export function PageHeading({ title, intro, eyebrow, back }: { title: string; intro?: string; eyebrow: string; back?: { to: string; label: string } }) {
+export function PageHeading({ title, intro, eyebrow, back }: { title: string; intro?: string; eyebrow?: string; back?: { to: string; label: string } }) {
   const location = useLocation();
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { heading.current?.focus(); }, [location.pathname]);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [location.pathname]);
   const message = location.state && typeof location.state.message === 'string' ? location.state.message : '';
-  return <header className="mg-heading">{back && <Link className="mg-back" to={back.to}>← {back.label}</Link>}<span className="mg-eyebrow">{eyebrow}</span><h1 ref={heading} tabIndex={-1}>{title}</h1>{intro && <p>{intro}</p>}{message && <p className="mg-success" role="status">{message}</p>}</header>;
+  return <header className="mg-heading">{back && <Link className="mg-back" to={back.to}>← {back.label}</Link>}{eyebrow && <span className="mg-eyebrow">{eyebrow}</span>}<h1 ref={heading} tabIndex={-1}>{title}</h1>{intro && <p>{intro}</p>}{message && <p className="mg-success" role="status">{message}</p>}</header>;
 }
 export function Status({ value }: { value: number }) { return <span className={`mg-status ${value === 1 ? '' : 'mg-off'}`}>{value === 1 ? '已启用' : '已停用'}</span>; }
 export const scopeLabels: Record<string, string> = { all: '全部组织', self: '仅本人', org: '本组织', org_and_children: '本组织及下级', custom: '指定组织单位' };
@@ -283,5 +283,5 @@ export function ListFilters({ list, label }: { list: ListQuery; label: string })
 }
 export function Pagination({ list, total, loading }: { list: ListQuery; total: number; loading: boolean }) {
   const pages = Math.max(1, Math.ceil(total / list.size));
-  return <nav className="mg-pagination" aria-label="列表分页"><span>范围内共 {total} 项 · 第 {list.page} / {pages} 页</span><div><label>每页 <select value={list.size} onChange={event => list.update({ size: event.target.value, page: 1 })}>{[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}</select></label><Button variant="outline" disabled={loading || list.page <= 1} onClick={() => list.update({ page: list.page - 1 })}>上一页</Button><Button variant="outline" disabled={loading || list.page >= pages} onClick={() => list.update({ page: list.page + 1 })}>下一页</Button></div></nav>;
+  return <nav className="mg-pagination" aria-label="列表分页"><span className="mg-num">范围内共 {total} 项 · 第 {list.page} / {pages} 页</span><div><label>每页 <select value={list.size} onChange={event => list.update({ size: event.target.value, page: 1 })}>{[10, 20, 50].map(size => <option key={size} value={size}>{size}</option>)}</select></label><Button variant="outline" disabled={loading || list.page <= 1} onClick={() => list.update({ page: list.page - 1 })}>上一页</Button><Button variant="outline" disabled={loading || list.page >= pages} onClick={() => list.update({ page: list.page + 1 })}>下一页</Button></div></nav>;
 }

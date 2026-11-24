@@ -51,13 +51,13 @@ function AuditTable({ items, onSelect }: { items: AuditLog[]; onSelect: (log: Au
         <caption className="sr-only">审计日志列表</caption>
         <TableHeader><TableRow><TableHead>时间</TableHead><TableHead>分类</TableHead><TableHead>用户</TableHead><TableHead>Method / Path</TableHead><TableHead>状态</TableHead><TableHead>耗时</TableHead><TableHead>客户端 IP</TableHead></TableRow></TableHeader>
         <TableBody>{items.map(log => <TableRow key={log.id}>
-          <TableCell><button className="mg-list-link" type="button" aria-label={`查看日志 ${log.id} 详情`} onClick={() => onSelect(log)}>{log.created_at}</button><small>#{log.id}</small></TableCell>
+          <TableCell className="mg-num"><button className="mg-list-link" type="button" aria-label={`查看日志 ${log.id} 详情`} onClick={() => onSelect(log)}>{log.created_at}</button><small>#{log.id}</small></TableCell>
           <TableCell>{categoryLabels[log.category] ?? log.category}</TableCell>
-          <TableCell><div className="mg-audit-user"><strong>{log.username || '—'}</strong><small>ID {log.user_id || '—'}</small></div></TableCell>
+          <TableCell><div className="mg-audit-user"><strong>{log.username || '—'}</strong><small className="mg-num">ID {log.user_id || '—'}</small></div></TableCell>
           <TableCell><code>{log.method} {log.path}</code></TableCell>
-          <TableCell><AuditStatus value={log.status} /></TableCell>
-          <TableCell>{log.duration} ms</TableCell>
-          <TableCell><code>{log.client_ip || '—'}</code></TableCell>
+          <TableCell className="mg-num"><AuditStatus value={log.status} /></TableCell>
+          <TableCell className="mg-num">{log.duration} ms</TableCell>
+          <TableCell><code className="mg-num">{log.client_ip || '—'}</code></TableCell>
         </TableRow>)}</TableBody>
       </Table>
     </div>
@@ -222,7 +222,7 @@ export function AuditLogsPage() {
   const total = result.data?.total ?? 0;
   if (!allowed.length) return <section className="management-page"><Notice title="没有访问权限">当前账号没有读取审计日志的权限。请联系管理员核对授权。</Notice></section>;
   return <section className="management-page">
-    <PageHeading eyebrow="审计 / 审计日志" title="审计日志" intro="按类型查询真实审计记录，只读；仅查询热表，不包含已归档数据。" />
+    <PageHeading title="审计日志" intro="按类型查询真实审计记录，只读；仅查询热表，不包含已归档数据。" />
     <nav className="mg-audit-tabs" aria-label="审计日志类型">
       {allowed.map(tab => <button key={tab} type="button" aria-current={tab === type ? 'page' : undefined} onClick={() => update({ type: tab, page: 1 })}>{AUDIT_TAB_LABELS[tab]}</button>)}
     </nav>

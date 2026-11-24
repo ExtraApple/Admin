@@ -76,3 +76,46 @@ describe('mobile navigation with a nested unsaved confirmation', () => {
     expect(document.activeElement).toBe(trigger);
   });
 });
+
+describe('desktop sidebar collapse toggle', () => {
+  let root: Root;
+  let container: HTMLDivElement;
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }));
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('collapses and expands the desktop sidebar completely without rendering an icon rail', () => {
+    act(() => root.render(
+      <SidebarProvider>
+        <Sidebar><SidebarContent><a href="/roles">角色管理</a></SidebarContent></Sidebar>
+        <SidebarTrigger />
+      </SidebarProvider>,
+    ));
+
+    const trigger = container.querySelector<HTMLButtonElement>('.ui-sidebar-trigger')!;
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(trigger.getAttribute('aria-label')).toBe('收起导航');
+    expect(container.querySelector('[data-sidebar="sidebar"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/roles"]')).not.toBeNull();
+
+    act(() => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger.getAttribute('aria-label')).toBe('展开导航');
+    expect(container.querySelector('[data-sidebar="sidebar"]')).toBeNull();
+    expect(container.querySelector('a[href="/roles"]')).toBeNull();
+
+    act(() => trigger.click());
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[data-sidebar="sidebar"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/roles"]')).not.toBeNull();
+  });
+});

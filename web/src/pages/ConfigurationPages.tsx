@@ -271,7 +271,7 @@ export function MenusPage() {
   const dirty = !!draft && JSON.stringify(menuPayload(draft)) !== JSON.stringify(menuPayload(baseline)) || bindingDirty;
   return <section className="management-page">
     <UnsavedGuard dirty={dirty} busy={busy} />
-    <PageHeading eyebrow="配置管理 / 菜单" title="菜单管理" intro="维护菜单树、菜单类型和后续 API 绑定关系。" />
+    <PageHeading title="菜单管理" intro="维护菜单树、菜单类型和后续 API 绑定关系。" />
     <ResourceState loading={menus.loading} error={menus.error} reload={menus.reload} />
     {!menus.error && <MenuRouteSync onChanged={menus.reload} />}
     {!menus.loading && !menus.error && !menus.data?.length && !creating && <Notice title="暂无菜单">当前账号可见的菜单数据为空。可以先创建一个根目录。</Notice>}
@@ -304,7 +304,7 @@ function ApiFilters({ query, groups, update }: { query: ApiListQueryState; group
 
 function ApiTable({ items, onSelect }: { items: ApiMetadata[]; onSelect: (id: number) => void }) {
   return <>
-    <div className="mg-table-desktop"><Table><caption className="sr-only">接口列表</caption><TableHeader><TableRow><TableHead>名称</TableHead><TableHead>Method / Path</TableHead><TableHead>分组</TableHead><TableHead>RouteState</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{items.map(apiInfo => <TableRow key={apiInfo.id}><TableCell><button className="mg-list-link" type="button" onClick={() => onSelect(apiInfo.id)}>{apiInfo.name}</button><small>ID {apiInfo.id}</small></TableCell><TableCell><code>{apiInfo.method} {apiInfo.path}</code></TableCell><TableCell>{apiInfo.group || '—'}</TableCell><TableCell>{routeStateTag(apiInfo.route_state)}</TableCell><TableCell><Status value={apiInfo.status} /></TableCell></TableRow>)}</TableBody></Table></div>
+    <div className="mg-table-desktop"><Table><caption className="sr-only">接口列表</caption><TableHeader><TableRow><TableHead>名称</TableHead><TableHead>Method / Path</TableHead><TableHead>分组</TableHead><TableHead>RouteState</TableHead><TableHead>状态</TableHead></TableRow></TableHeader><TableBody>{items.map(apiInfo => <TableRow key={apiInfo.id}><TableCell><button className="mg-list-link" type="button" onClick={() => onSelect(apiInfo.id)}>{apiInfo.name}</button><small className="mg-num">ID {apiInfo.id}</small></TableCell><TableCell><code>{apiInfo.method} {apiInfo.path}</code></TableCell><TableCell>{apiInfo.group || '—'}</TableCell><TableCell>{routeStateTag(apiInfo.route_state)}</TableCell><TableCell><Status value={apiInfo.status} /></TableCell></TableRow>)}</TableBody></Table></div>
     <div className="mg-mobile-cards">{items.map(apiInfo => <Card key={apiInfo.id} className="mg-mobile-card"><div className="mg-card-head"><h2><button className="mg-list-link" type="button" onClick={() => onSelect(apiInfo.id)}>{apiInfo.name}</button></h2>{routeStateTag(apiInfo.route_state)}</div><code>{apiInfo.method} {apiInfo.path}</code><p>{apiInfo.group || '未分组'} · <Status value={apiInfo.status} /></p></Card>)}</div>
   </>;
 }
@@ -479,7 +479,7 @@ export function ApisPage() {
   }
   const total = result.data?.total ?? 0;
   return <section className="management-page">
-    <PageHeading eyebrow="配置管理 / 接口" title="接口管理" intro="以 Route Catalog 为事实来源，维护 API Metadata 与授权诊断。" />
+    <PageHeading title="接口管理" intro="以 Route Catalog 为事实来源，维护 API Metadata 与授权诊断。" />
     <Card className="mg-toolbar"><ApiFilters query={query} groups={groups.data ?? []} update={update} /></Card>
     <ApiSyncPanel onChanged={result.reload} />
     <ResourceState loading={result.loading} error={result.error} reload={result.reload} />

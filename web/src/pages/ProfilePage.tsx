@@ -45,7 +45,7 @@ function ProfileEditor({ userID, sessionID }: { userID: number; sessionID: strin
 
   return <section className="profile-page">
     <UnsavedGuard dirty={editor.dirty} busy={editor.busy} />
-    <span className="eyebrow">当前账号</span><h1>个人资料</h1>
+    <h1>个人资料</h1>
     <p className="intro">资料来自当前会话的真实用户信息。角色与权限以实际授权上下文为准。</p>
     {editor.outcome && <Alert variant={editor.outcome.kind === 'saved' ? 'default' : 'destructive'} role={editor.outcome.kind === 'saved' ? 'status' : 'alert'} className="profile-feedback"><AlertDescription>
       <p>{editor.outcome.message}</p>
