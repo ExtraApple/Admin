@@ -109,6 +109,9 @@
   .ui-dropdown-inset, .ui-select-item { padding-left: 30px; }
   .ui-dropdown-indicator { position: absolute; left: 9px; display: inline-flex; align-items: center; }
   .ui-dropdown-separator { height: 1px; background: var(--line); margin: 5px -5px; }
+  @media (min-width: 851px) {
+    .ui-dropdown-item, .ui-select-item { min-height: 34px; padding-block: 6px; }
+  }
   .ui-select-trigger { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; min-width: 120px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--input); border-radius: 7px; color: var(--ink); }
   .ui-select-content { max-height: var(--radix-select-content-available-height, 65dvh); min-width: var(--radix-select-trigger-width); }
   .ui-select-viewport { padding: 2px; }
@@ -285,9 +288,6 @@ main.content[tabindex="-1"]:focus, main.content[tabindex="-1"]:focus-visible { o
 @media (max-width: 1100px) {
   .profile-grid { grid-template-columns: 1fr 1fr; }
   .profile-grid > :last-child { grid-column: 1 / -1; }
-}
-@media (min-width: 851px) {
-  .ui-dropdown-item, .ui-select-item { min-height: 34px; padding: 6px 10px; }
 }
 @media (max-width: 850px) {
   .workbench-tabbar { display: none; }
