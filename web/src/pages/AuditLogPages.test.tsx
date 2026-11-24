@@ -155,23 +155,109 @@ describe('audit log page', () => {
     expect(lastURL().searchParams.get('user_id')).toBe('7');
   });
 
-  it('opens the detail sheet, collapses long values, and closes with a descriptive label', async () => {
+  it('opens the detail sheet with semantic metadata, compact actions, and closes with a descriptive label', async () => {
     await mount(`/audit-logs?type=all&page=1&size=20&${range}`);
     await click(button('2026-10-30 10:00:00'));
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.textContent).toContain('审计日志 #9');
     expect(dialog?.textContent).toContain('test-agent');
+    const meta = dialog?.querySelector('dl.mg-audit-meta');
+    expect(meta?.querySelectorAll('dt').length).toBe(4);
+    expect(meta?.querySelectorAll('dd').length).toBe(4);
+    expect(meta?.querySelector('li')).toBeNull();
     const bodyBlock = [...(dialog?.querySelectorAll('.mg-audit-block') ?? [])].find(block => block.querySelector('h3')?.textContent === 'Body');
     const pre = bodyBlock?.querySelector('.mg-audit-pre');
     expect(pre?.className).toContain('mg-audit-pre-collapsed');
-    const expand = [...document.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === '展开');
-    if (!expand) throw new Error('Missing expand button in detail sheet');
-    await click(expand);
+    const actionButtons = [...(bodyBlock?.querySelectorAll<HTMLButtonElement>('.mg-audit-block-actions button') ?? [])];
+    expect(actionButtons.map(item => item.textContent?.trim())).toEqual(['复制', '展开']);
+    expect(actionButtons.every(item => item.className.includes('ui-button-sm'))).toBe(true);
+    await click(actionButtons[1]);
     expect(pre?.className).not.toContain('mg-audit-pre-collapsed');
     expect(document.querySelector('button[aria-label="关闭审计日志详情"]')).not.toBeNull();
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     await flush();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('formats JSON body, falls back on truncated JSON, copies displayed text with auto-reset, and shows non-expanding copy errors', async () => {
+    const jsonBody = '{"username":"alice","role_ids":[1,2],"org_ids":[3,4],"status":1,"remark":"ok"}';
+    const formatted = JSON.stringify(JSON.parse(jsonBody), null, 2);
+    const truncatedBody = '{"username":"bob","note":"truncated...';
+    const jsonLog: AuditLog = { ...log, id: 21, created_at: '2026-10-30 10:05:00', body: jsonBody };
+    const truncatedLog: AuditLog = { ...log, id: 22, created_at: '2026-10-30 10:06:00', body: truncatedBody };
+    routes['/api/admin/audit-logs'] = () => envelope({ list: [jsonLog, truncatedLog], total: 2, page: 1, size: 20 });
+
+    const writeText = vi.fn<(text: string) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('clipboard blocked'));
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+
+    await mount(`/audit-logs?type=all&page=1&size=20&${range}`);
+    await click(button('2026-10-30 10:05:00'));
+
+    const dialog = document.querySelector('[role="dialog"]');
+    const bodyBlock = [...(dialog?.querySelectorAll('.mg-audit-block') ?? [])].find(block => block.querySelector('h3')?.textContent === 'Body');
+    const pre = bodyBlock?.querySelector('.mg-audit-pre');
+    expect(pre?.textContent).toBe(formatted);
+    expect(pre?.className).toContain('mg-audit-pre-collapsed');
+
+    vi.useFakeTimers();
+    try {
+      const copyBtn = [...(bodyBlock?.querySelectorAll<HTMLButtonElement>('.mg-audit-block-actions button') ?? [])]
+        .find(item => item.textContent?.trim() === '复制');
+      if (!copyBtn) throw new Error('Missing copy button');
+      await act(async () => { copyBtn.click(); await Promise.resolve(); });
+      expect(writeText).toHaveBeenCalledWith(formatted);
+      expect(copyBtn.textContent?.trim()).toBe('已复制');
+      await act(async () => { vi.advanceTimersByTime(2000); });
+      expect(copyBtn.textContent?.trim()).toBe('复制');
+
+      await act(async () => { copyBtn.click(); await Promise.resolve(); });
+      expect(copyBtn.textContent?.trim()).toBe('复制');
+      expect(bodyBlock?.querySelector('[role="alert"]')?.textContent).toContain('复制失败');
+    } finally {
+      vi.useRealTimers();
+    }
+
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await flush();
+    await click(button('2026-10-30 10:06:00'));
+    const secondDialog = document.querySelector('[role="dialog"]');
+    const secondBody = [...(secondDialog?.querySelectorAll('.mg-audit-block') ?? [])].find(block => block.querySelector('h3')?.textContent === 'Body');
+    expect(secondBody?.querySelector('.mg-audit-pre')?.textContent).toBe(truncatedBody);
+  });
+
+  it('resets expanded and copy state when switching logs or reopening the same log', async () => {
+    const secondLog: AuditLog = { ...log, id: 11, created_at: '2026-10-30 09:30:00', body: 'y'.repeat(300) };
+    routes['/api/admin/audit-logs'] = () => envelope({ list: [log, secondLog], total: 2, page: 1, size: 20 });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+
+    await mount(`/audit-logs?type=all&page=1&size=20&${range}`);
+    await click(button('2026-10-30 10:00:00'));
+    const firstBody = () => [...(document.querySelector('[role="dialog"]')?.querySelectorAll('.mg-audit-block') ?? [])]
+      .find(block => block.querySelector('h3')?.textContent === 'Body');
+    const buttonsOf = (block: Element | undefined) => [...(block?.querySelectorAll<HTMLButtonElement>('.mg-audit-block-actions button') ?? [])];
+
+    await click(buttonsOf(firstBody())[0]);
+    await click(buttonsOf(firstBody())[1]);
+    expect(buttonsOf(firstBody())[0].textContent?.trim()).toBe('已复制');
+    expect(firstBody()?.querySelector('.mg-audit-pre')?.className).not.toContain('mg-audit-pre-collapsed');
+
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await flush();
+
+    await click(button('2026-10-30 09:30:00'));
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('审计日志 #11');
+    expect(buttonsOf(firstBody())[0].textContent?.trim()).toBe('复制');
+    expect(firstBody()?.querySelector('.mg-audit-pre')?.className).toContain('mg-audit-pre-collapsed');
+
+    await click(buttonsOf(firstBody())[1]);
+    expect(firstBody()?.querySelector('.mg-audit-pre')?.className).not.toContain('mg-audit-pre-collapsed');
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await flush();
+
+    await click(button('2026-10-30 09:30:00'));
+    expect(firstBody()?.querySelector('.mg-audit-pre')?.className).toContain('mg-audit-pre-collapsed');
   });
 
   it('shows an empty state and a permission state instead of false success', async () => {

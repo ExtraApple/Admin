@@ -140,43 +140,93 @@ function metadataText(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
+function formatBodyText(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) return value;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed !== null && typeof parsed === 'object') return JSON.stringify(parsed, null, 2);
+  } catch {
+    // Truncated or non-JSON payloads keep verbatim plain text.
+  }
+  return value;
+}
+
+interface SelectedAuditLog {
+  log: AuditLog;
+  seq: number;
+}
+
 function LogBlock({ title, value }: { title: string; value: string }) {
   const [open, setOpen] = useState(false);
-  const [copyState, setCopyState] = useState('');
-  if (!value) return <section className="mg-audit-block"><h3>{title}</h3><p className="mg-hint">无</p></section>;
-  const long = value.length > 240;
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  const resetTimer = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+  }, []);
+
+  if (!value) {
+    return <section className="mg-audit-block mg-audit-block-empty"><h3>{title}</h3><p className="mg-hint">无</p></section>;
+  }
+
+  const long = value.length > 240 || value.split('\n').length > 6;
+
   async function copy() {
+    if (resetTimer.current !== null) {
+      window.clearTimeout(resetTimer.current);
+      resetTimer.current = null;
+    }
     try {
       await navigator.clipboard.writeText(value);
-      setCopyState('已复制');
+      setCopyError('');
+      setCopied(true);
+      resetTimer.current = window.setTimeout(() => {
+        setCopied(false);
+        resetTimer.current = null;
+      }, 2000);
     } catch {
-      setCopyState('复制失败，请手动选择');
+      setCopied(false);
+      setCopyError('复制失败，请手动选择');
     }
   }
+
   return <section className="mg-audit-block">
-    <div className="mg-card-head"><h3>{title}</h3><div className="mg-detail-actions"><Button type="button" variant="outline" onClick={() => void copy()}>{copyState || '复制'}</Button>{long && <Button type="button" variant="outline" onClick={() => setOpen(!open)}>{open ? '收起' : '展开'}</Button>}</div></div>
+    <div className="mg-audit-block-head">
+      <h3>{title}</h3>
+      <div className="mg-audit-block-actions">
+        <Button type="button" variant="outline" size="sm" onClick={() => void copy()}>{copied ? '已复制' : '复制'}</Button>
+        {long && <Button type="button" variant="outline" size="sm" onClick={() => setOpen(!open)}>{open ? '收起' : '展开'}</Button>}
+      </div>
+    </div>
+    {copyError && <p className="mg-audit-copy-error" role="alert">{copyError}</p>}
     <pre className={`mg-audit-pre ${long && !open ? 'mg-audit-pre-collapsed' : ''}`}>{value}</pre>
   </section>;
 }
 
-function AuditDetail({ log, onOpenChange }: { log: AuditLog | null; onOpenChange: (open: boolean) => void }) {
-  const lastLog = useRef(log);
-  if (log) lastLog.current = log;
-  const shown = log ?? lastLog.current;
+function AuditDetail({ selected, onOpenChange }: { selected: SelectedAuditLog | null; onOpenChange: (open: boolean) => void }) {
+  const lastSelected = useRef<SelectedAuditLog | null>(selected);
+  if (selected) lastSelected.current = selected;
+  const shown = selected ?? lastSelected.current;
   if (!shown) return null;
-  return <Sheet open={!!log} onOpenChange={onOpenChange}>
+  const { log, seq } = shown;
+  return <Sheet open={!!selected} onOpenChange={onOpenChange}>
     <SheetContent side="right" className="mg-audit-sheet" closeLabel="关闭审计日志详情">
-      <SheetHeader><SheetTitle>审计日志 #{shown.id}</SheetTitle><SheetDescription>{shown.created_at} · {categoryLabels[shown.category] ?? shown.category}</SheetDescription></SheetHeader>
-      <dl className="mg-detail-list">
-        <li><strong>用户</strong><span>{shown.username || '—'}（ID {shown.user_id || '—'}）</span></li>
-        <li><strong>Method / Path</strong><code>{shown.method} {shown.path}</code></li>
-        <li><strong>状态 / 耗时</strong><span><AuditStatus value={shown.status} /> · {shown.duration} ms</span></li>
-        <li><strong>客户端 IP</strong><code>{shown.client_ip || '—'}</code></li>
+      <SheetHeader>
+        <SheetTitle>审计日志 #{log.id}</SheetTitle>
+        <SheetDescription>{log.created_at} · {categoryLabels[log.category] ?? log.category}</SheetDescription>
+      </SheetHeader>
+      <dl className="mg-audit-meta">
+        <div><dt>用户</dt><dd>{log.username || '—'}（ID {log.user_id || '—'}）</dd></div>
+        <div><dt>Method / Path</dt><dd><code>{log.method} {log.path}</code></dd></div>
+        <div><dt>状态 / 耗时</dt><dd className="mg-audit-meta-status"><AuditStatus value={log.status} /><span>· {log.duration} ms</span></dd></div>
+        <div><dt>客户端 IP</dt><dd><code className="mg-num">{log.client_ip || '—'}</code></dd></div>
       </dl>
-      <LogBlock title="Query" value={shown.query} />
-      <LogBlock title="Body" value={shown.body} />
-      <LogBlock title="Metadata" value={metadataText(shown.metadata)} />
-      <LogBlock title="User-Agent" value={shown.user_agent} />
+      <LogBlock key={`${seq}:query`} title="Query" value={log.query} />
+      <LogBlock key={`${seq}:body`} title="Body" value={formatBodyText(log.body)} />
+      <LogBlock key={`${seq}:metadata`} title="Metadata" value={metadataText(log.metadata)} />
+      <LogBlock key={`${seq}:user-agent`} title="User-Agent" value={log.user_agent} />
     </SheetContent>
   </Sheet>;
 }
@@ -201,7 +251,13 @@ export function AuditLogsPage() {
     if (!allowed.length || rangeError) return Promise.resolve(null);
     return api.auditLogs.list(auditLogPath(query));
   });
-  const [selected, setSelected] = useState<AuditLog | null>(null);
+  const detailSeq = useRef(0);
+  const [selected, setSelected] = useState<SelectedAuditLog | null>(null);
+
+  function selectLog(log: AuditLog) {
+    detailSeq.current += 1;
+    setSelected({ log, seq: detailSeq.current });
+  }
 
   useEffect(() => {
     const next = encodeAuditLogQuery({ ...parseAuditLogQuery(searchParams, now.current), type });
@@ -231,7 +287,7 @@ export function AuditLogsPage() {
     {!rangeError && denied && <Notice title="没有访问权限"><p>当前账号没有读取该类型审计日志的权限。</p><Button variant="outline" onClick={result.reload}>重新读取</Button></Notice>}
     {!rangeError && !denied && <ResourceState loading={result.loading} error={result.error} reload={result.reload} />}
     {!rangeError && !denied && !result.loading && !result.error && !result.data?.list.length && <Notice title="暂无日志">没有符合当前条件的审计日志。</Notice>}
-    {!rangeError && !!result.data?.list.length && <Card className="mg-list-card mg-audit-list"><AuditTable items={result.data.list} onSelect={setSelected} /><Pagination list={{ page: query.page, size: query.size, keyword: '', status: '', query: '', update: changes => update({ page: Number(changes.page ?? query.page), size: Number(changes.size ?? query.size) }) }} total={total} loading={result.loading} /></Card>}
-    <AuditDetail log={selected} onOpenChange={open => { if (!open) setSelected(null); }} />
+    {!rangeError && !!result.data?.list.length && <Card className="mg-list-card mg-audit-list"><AuditTable items={result.data.list} onSelect={selectLog} /><Pagination list={{ page: query.page, size: query.size, keyword: '', status: '', query: '', update: changes => update({ page: Number(changes.page ?? query.page), size: Number(changes.size ?? query.size) }) }} total={total} loading={result.loading} /></Card>}
+    <AuditDetail selected={selected} onOpenChange={open => { if (!open) setSelected(null); }} />
   </section>;
 }

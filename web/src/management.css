@@ -317,11 +317,22 @@
 .mg-audit-status-info { border-color: var(--mg-info); color: var(--mg-info); background: var(--mg-tint); }
 .mg-audit-status-warn { border-color: var(--mg-warning-line); color: var(--mg-danger); background: var(--mg-warning-bg); }
 .mg-audit-status-error { border-color: var(--mg-warning-accent); color: var(--mg-danger); background: var(--mg-warning-bg); }
-.mg-audit-sheet.ui-sheet-content { width: min(620px, 100vw); max-width: none; padding: 24px; gap: 16px; overflow-y: auto; }
-.mg-audit-sheet .ui-sheet-header { padding: 0; }
-.mg-audit-block { margin-top: 18px; }
-.mg-audit-block h3 { margin: 0 0 8px; font-size: 15px; }
-.mg-audit-block .mg-detail-actions { margin-top: 0; }
+.mg-audit-sheet.ui-sheet-content { width: min(620px, 100vw); max-width: none; padding: 24px; gap: 20px; overflow-y: auto; }
+.mg-audit-sheet > * { flex-shrink: 0; }
+.mg-audit-sheet .ui-sheet-header { padding: 0 48px 0 0; }
+.mg-audit-meta { margin: 0; border-top: 1px solid var(--mg-line); }
+.mg-audit-meta > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 4px 14px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--mg-line); }
+.mg-audit-meta dt { color: var(--mg-muted); font-size: 12.5px; font-weight: 600; }
+.mg-audit-meta dd { margin: 0; min-width: 0; color: var(--mg-ink); overflow-wrap: anywhere; }
+.mg-audit-meta-status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mg-audit-block { margin-top: 0; }
+.mg-audit-block h3 { margin: 0; font-size: 15px; line-height: 1.4; color: var(--mg-ink); }
+.mg-audit-block-empty h3 { margin-bottom: 4px; }
+.mg-audit-block-empty .mg-hint { margin: 0; }
+.mg-audit-block-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.mg-audit-block-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.mg-audit-sheet .mg-audit-block-actions .ui-button-sm { min-height: 32px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
+.mg-audit-copy-error { margin: 0 0 8px; color: var(--mg-danger); font-size: 12.5px; }
 .mg-audit-pre { max-height: 360px; margin: 0; padding: 12px 14px; overflow: auto; border: 1px solid var(--mg-line); border-radius: 7px; color: var(--mg-ink); background: var(--mg-canvas); font: 12px/1.65 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mg-audit-pre-collapsed { max-height: 120px; }
 @media (max-width: 1100px) {
@@ -338,10 +349,14 @@
   .mg-audit-actions .ui-button { flex: 1; }
   .mg-audit-sheet.ui-sheet-content { width: 100vw; padding: 20px; }
 }
+@media (max-width: 520px) {
+  .mg-audit-meta > div { grid-template-columns: 1fr; gap: 3px; }
+}
 .mg-overview-risk-results { margin-top: 18px; }
 @media (max-width: 850px) {
   .management button, .management select, .management input { min-height: 44px; }
   .management input[type="checkbox"], .management button[role="checkbox"], .management button[role="radio"] { min-height: 20px; }
   .management .mg-back, .management .mg-list-link, .management .mg-tree-node, .management .mg-audit-tabs button, .management .mg-audit-filters input, .management .mg-pagination select { min-height: 44px; }
   .management .mg-table-desktop .ui-button, .management .mg-pagination .ui-button, .management .mg-risk-pager .ui-button, .management .mg-audit-presets .ui-button { min-height: 44px; padding: 8px 14px; font-size: 14px; }
+  .mg-audit-sheet .mg-audit-block-actions .ui-button-sm { min-height: 44px; padding: 8px 14px; font-size: 14px; }
 }
