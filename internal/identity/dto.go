@@ -127,6 +127,14 @@ type AdminUpdateUserRequest struct {
 	Status   *int   `json:"status"`
 }
 
+type AdminCreateUserRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=100"`
+	Password string `json:"password" binding:"required,min=6"`
+	Email    string `json:"email" binding:"required,email,max=100"`
+	Nickname string `json:"nickname" binding:"max=100"`
+	Status   *int   `json:"status" binding:"omitempty,oneof=0 1"`
+}
+
 type InitialContextResponse struct {
 	User        UserInfo     `json:"user"`
 	Roles       []string     `json:"roles"`

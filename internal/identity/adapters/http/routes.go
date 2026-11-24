@@ -63,6 +63,8 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 	protection := http.NewCrossOriginProtection()
 	originError := protection.AddTrustedOrigin(browser.Origin)
 	handler := &routeHandler{service: service, users: users, context: contextService, avatars: avatars, emailVerification: verification, captcha: captcha, avatarMaxBytes: int64(avatarMaxSizeMB) * 1024 * 1024, browser: browser, crossOrigin: protection, originError: originError}
+	createUser := permissionIdentityRoute(http.MethodPost, "/api/admin/users", "Create User", "admin.users.post", handler.createUser, identity.AdminCreateUserRequest{}, adminUserDetailResponse{})
+	createUser.OpenAPI.Description = "仅允许 all 数据范围管理员创建纯用户身份，不写入角色或组织归属，旧 role 列固定写入 user，不触发验证邮件。密码复用共享策略（至少 6 个 Unicode 字符、至多 72 UTF-8 字节及三类字符）；超限或复杂度不足返回 422 password / IDENTITY_PASSWORD_INVALID，非全量范围返回 403 IDENTITY_PERMISSION_DENIED，用户名或邮箱（含待验证与软删唯一约束）冲突返回 409 IDENTITY_CONFLICT。"
 	updateUser := permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{})
 	updateUser.OpenAPI.Description = "管理保护和邮箱禁写先校验；纯昵称变更及合法全同值更新不创建或提升授权版本，旧有效会话保持。真实已接受角色／状态变化仍与资料同事务失效一次；空请求拒绝。旧 role 字段不作为 RBAC 管理身份来源，Kick 和状态翻转不适用资料豁免。"
 	register := identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{})
@@ -95,6 +97,7 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		avatarUploadRoute(handler.uploadAvatar),
 		identityRoute(http.MethodDelete, "/api/user/avatar", "Restore Default Avatar", routecatalog.Authenticated, handler.restoreDefaultAvatar, nil, userResponse{}),
 		browserSessionRoute("Logout", "/api/user/logout", handler.logout, identity.SessionControlRequest{}, nil, false),
+		createUser,
 		updateUser,
 		permissionIdentityRoute(http.MethodDelete, "/api/admin/users/:id", "Delete User", "admin.users.id.delete", handler.deleteUser, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/status", "Toggle User Status", "admin.users.id.status.put", handler.toggleStatus, nil, nil),
@@ -335,6 +338,26 @@ func (handler *routeHandler) cancelEmailVerification(c *gin.Context) {
 		return
 	}
 	identitySuccess(c, identity.UserInfoFromDomain(user))
+}
+
+func (handler *routeHandler) createUser(c *gin.Context) {
+	var request identity.AdminCreateUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		identityRequestError(c, err)
+		return
+	}
+	user, err := handler.users.CreateByAdmin(c.Request.Context(), c.GetUint("userID"), application.AdminCreateUserRequest{
+		Username: request.Username,
+		Password: request.Password,
+		Email:    request.Email,
+		Nickname: request.Nickname,
+		Status:   request.Status,
+	})
+	if err != nil {
+		writeIdentityError(c, err)
+		return
+	}
+	identitySuccess(c, user)
 }
 
 func (handler *routeHandler) updateUser(c *gin.Context) {

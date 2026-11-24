@@ -16,6 +16,11 @@ type managementRepositoryFake struct {
 	emailExists       bool
 	emailExistsValues []bool
 	updateErr         error
+	identityConflict       bool
+	identityConflictValues []bool
+	createErr              error
+	created                domain.User
+	createCalls            int
 	lockCalls         int
 }
 
@@ -31,6 +36,23 @@ func (fake *managementRepositoryFake) EmailExists(_ context.Context, _ string, _
 		return exists, nil
 	}
 	return fake.emailExists, nil
+}
+func (fake *managementRepositoryFake) ExistsIdentityConflict(_ context.Context, _, _ string) (bool, error) {
+	if len(fake.identityConflictValues) > 0 {
+		exists := fake.identityConflictValues[0]
+		fake.identityConflictValues = fake.identityConflictValues[1:]
+		return exists, nil
+	}
+	return fake.identityConflict, nil
+}
+func (fake *managementRepositoryFake) Create(_ context.Context, user *domain.User) error {
+	fake.createCalls++
+	if fake.createErr != nil {
+		return fake.createErr
+	}
+	user.ID = 88
+	fake.created = *user
+	return nil
 }
 func (fake *managementRepositoryFake) Update(_ context.Context, _ uint, changes application.UserChanges) error {
 	if fake.updateErr != nil {
@@ -67,6 +89,9 @@ func (fake *transactionFake) Run(ctx context.Context, callback func(context.Cont
 type accessManagementFake struct {
 	incremented   []uint
 	scope         domain.UserScope
+	managementScope *domain.UserScope
+	versions        map[uint]int
+	ensureErr       error
 	administrator bool
 }
 
@@ -77,11 +102,28 @@ func (fake *accessManagementFake) UserScope(context.Context, uint) (domain.UserS
 	return domain.UserScope{All: true}, nil
 }
 func (fake *accessManagementFake) ManagementUserScope(ctx context.Context, userID uint) (domain.UserScope, error) {
+	if fake.managementScope != nil {
+		return *fake.managementScope, nil
+	}
 	return fake.UserScope(ctx, userID)
 }
 func (fake *accessManagementFake) IncrementVersions(_ context.Context, ids []uint) error {
 	fake.incremented = append([]uint(nil), ids...)
 	return nil
+}
+func (fake *accessManagementFake) EnsureVersions(_ context.Context, ids []uint) (map[uint]int, error) {
+	if fake.ensureErr != nil {
+		return nil, fake.ensureErr
+	}
+	result := make(map[uint]int, len(ids))
+	for _, id := range ids {
+		if fake.versions != nil && fake.versions[id] > 0 {
+			result[id] = fake.versions[id]
+		} else {
+			result[id] = 1
+		}
+	}
+	return result, nil
 }
 func (fake *accessManagementFake) IsProtectedUser(context.Context, uint, uint) (bool, error) {
 	return fake.administrator, nil

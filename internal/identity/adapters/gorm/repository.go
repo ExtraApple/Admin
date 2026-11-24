@@ -77,10 +77,25 @@ func (repository *Repository) ExistsByUsernameOrEmail(ctx context.Context, usern
 	return count > 0, err
 }
 
+func (repository *Repository) ExistsIdentityConflict(ctx context.Context, username, email string) (bool, error) {
+	var count int64
+	err := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Where("username = ? OR email = ? OR (deleted_at IS NULL AND pending_email <> '' AND pending_email = ?)", username, email, email).
+		Count(&count).Error
+	return count > 0, err
+}
+
 func (repository *Repository) Create(ctx context.Context, user *domain.User) error {
 	record := fromDomain(*user)
-	if err := repository.connection(ctx).Create(&record).Error; err != nil {
+	db := repository.connection(ctx)
+	if err := db.Create(&record).Error; err != nil {
 		return err
+	}
+	if user.Status == 0 && record.Status != 0 {
+		if err := db.Model(&record).UpdateColumn("status", 0).Error; err != nil {
+			return err
+		}
+		record.Status = 0
 	}
 	*user = toDomain(record)
 	return nil

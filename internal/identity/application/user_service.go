@@ -4,6 +4,7 @@ import (
 	"admin/internal/identity/domain"
 	"context"
 	"errors"
+	"strings"
 )
 
 type UpdateSelfRequest struct {
@@ -23,6 +24,14 @@ type AdminUpdateUserRequest struct {
 	Nickname string
 	Email    string
 	Role     string
+	Status   *int
+}
+
+type AdminCreateUserRequest struct {
+	Username string
+	Password string
+	Email    string
+	Nickname string
 	Status   *int
 }
 
@@ -184,6 +193,104 @@ func (service *UserService) ChangePassword(ctx context.Context, userID uint, req
 		return NewError(CodeInternalError, err)
 	}
 	return nil
+}
+
+func (service *UserService) CreateByAdmin(ctx context.Context, operatorID uint, request AdminCreateUserRequest) (AdminUser, error) {
+	if operatorID == 0 {
+		return AdminUser{}, NewError(CodePermissionDenied, nil)
+	}
+	scope, err := service.access.UserScope(ctx, operatorID)
+	if err != nil {
+		return AdminUser{}, NewError(CodeInternalError, err)
+	}
+	if !scope.All {
+		return AdminUser{}, NewError(CodePermissionDenied, nil)
+	}
+	if strings.TrimSpace(request.Username) == "" || strings.TrimSpace(request.Email) == "" {
+		return AdminUser{}, NewError(CodeValidationInvalid, nil)
+	}
+	if request.Nickname != "" && strings.TrimSpace(request.Nickname) == "" {
+		return AdminUser{}, NewError(CodeValidationInvalid, nil)
+	}
+	status := 1
+	if request.Status != nil {
+		if *request.Status != 0 && *request.Status != 1 {
+			return AdminUser{}, NewError(CodeValidationInvalid, nil)
+		}
+		status = *request.Status
+	}
+	if err := validatePassword(request.Password); err != nil {
+		return AdminUser{}, err
+	}
+	hashed, err := service.passwords.Hash(request.Password)
+	if err != nil {
+		return AdminUser{}, NewError(CodeInternalError, err)
+	}
+	var created domain.User
+	var accessVersion int
+	err = service.transactions.Run(ctx, func(tx context.Context) error {
+		currentScope, err := service.access.ManagementUserScope(tx, operatorID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if !currentScope.All {
+			return NewError(CodePermissionDenied, nil)
+		}
+		exists, err := service.users.ExistsIdentityConflict(tx, request.Username, request.Email)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if exists {
+			return NewError(CodeConflict, nil)
+		}
+		user := domain.User{
+			Username: request.Username,
+			Password: hashed,
+			Email:    request.Email,
+			Nickname: request.Nickname,
+			Role:     "user",
+			Status:   status,
+		}
+		if err := service.users.Create(tx, &user); err != nil {
+			return err
+		}
+		versions, err := service.access.EnsureVersions(tx, []uint{user.ID})
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		version := versions[user.ID]
+		if version < 1 {
+			return NewError(CodeInternalError, nil)
+		}
+		created = user
+		accessVersion = version
+		return nil
+	})
+	if err != nil {
+		if _, ok := CodeOf(err); ok {
+			return AdminUser{}, err
+		}
+		return AdminUser{}, service.classifyCreateConflictFailure(ctx, request.Username, request.Email, err)
+	}
+	return AdminUser{
+		ID:                        created.ID,
+		Username:                  created.Username,
+		Nickname:                  created.Nickname,
+		Avatar:                    "/api/avatars/default",
+		Email:                     created.Email,
+		Status:                    created.Status,
+		Roles:                     []RoleSummary{},
+		Organizations:             []OrganizationSummary{},
+		HasUnmanagedOrganizations: false,
+		AccessVersion:             accessVersion,
+	}, nil
+}
+
+func (service *UserService) classifyCreateConflictFailure(ctx context.Context, username, email string, cause error) *Error {
+	if exists, err := service.users.ExistsIdentityConflict(ctx, username, email); err == nil && exists {
+		return NewError(CodeConflict, nil)
+	}
+	return NewError(CodeInternalError, cause)
 }
 
 func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targetID uint, request AdminUpdateUserRequest) (domain.User, error) {

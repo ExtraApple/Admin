@@ -71,12 +71,12 @@ export function ErrorNotice({ error, onRetry, retryLabel = '重新尝试' }: { e
 export function Notice({ title, children }: { title: string; children?: ReactNode }) {
   return <Card className="mg-notice"><h2>{title}</h2>{children && <div>{children}</div>}</Card>;
 }
-export function PageHeading({ title, intro, eyebrow, back }: { title: string; intro?: string; eyebrow?: string; back?: { to: string; label: string } }) {
+export function PageHeading({ title, intro, eyebrow, back, actions }: { title: string; intro?: string; eyebrow?: string; back?: { to: string; label: string }; actions?: ReactNode }) {
   const location = useLocation();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [location.pathname]);
   const message = location.state && typeof location.state.message === 'string' ? location.state.message : '';
-  return <header className="mg-heading">{back && <Link className="mg-back" to={back.to}>← {back.label}</Link>}{eyebrow && <span className="mg-eyebrow">{eyebrow}</span>}<h1 ref={heading} tabIndex={-1}>{title}</h1>{intro && <p>{intro}</p>}{message && <p className="mg-success" role="status">{message}</p>}</header>;
+  return <header className="mg-heading">{back && <Link className="mg-back" to={back.to}>← {back.label}</Link>}<div className="mg-heading-row"><div className="mg-heading-main">{eyebrow && <span className="mg-eyebrow">{eyebrow}</span>}<h1 ref={heading} tabIndex={-1}>{title}</h1>{intro && <p>{intro}</p>}</div>{actions && <div className="mg-heading-actions">{actions}</div>}</div>{message && <p className="mg-success" role="status">{message}</p>}</header>;
 }
 export function Status({ value }: { value: number }) { return <span className={`mg-status ${value === 1 ? '' : 'mg-off'}`}>{value === 1 ? '已启用' : '已停用'}</span>; }
 export const scopeLabels: Record<string, string> = { all: '全部组织', self: '仅本人', org: '本组织', org_and_children: '本组织及下级', custom: '指定组织单位' };
@@ -212,11 +212,14 @@ export function UnsavedGuard({ dirty, busy = false }: { dirty: boolean; busy?: b
   return <Confirm open={blocker.state === 'blocked'} onOpenChange={open => { if (!open && blocker.state === 'blocked') blocker.reset(); }} title={busy ? '提交尚未结束' : '放弃未保存的修改？'} label="放弃修改并离开" busy={busy} onConfirm={() => { if (blocker.state === 'blocked') blocker.proceed(); }}>当前选择尚未保存。留在此页可以继续编辑。</Confirm>;
 }
 
-export function useSavedNavigation(to: string) {
+export function useSavedNavigation(defaultTo: string) {
   const navigate = useNavigate();
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { if (saved) navigate(to, { state: { message: '已保存，服务器已确认本次变更。' } }); }, [saved, navigate, to]);
-  return { saved, finish: () => setSaved(true) };
+  const [pending, setPending] = useState<{ to: string; message: string } | null>(null);
+  useEffect(() => { if (pending) navigate(pending.to, { state: { message: pending.message } }); }, [pending, navigate]);
+  return {
+    saved: !!pending,
+    finish: (to = defaultTo, message = '已保存，服务器已确认本次变更。') => setPending({ to, message }),
+  };
 }
 
 export function Choice({ checked, onChange, disabled, label, description }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; label: ReactNode; description?: ReactNode }) {

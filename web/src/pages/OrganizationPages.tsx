@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { api, ApiError } from '@/lib/api';
-import type { AdminUser, Organization, Page, UserInfo } from '@/lib/models';
+import type { AdminUser, Organization, OrganizationCreateInput, Page, UserInfo } from '@/lib/models';
 import { useSession } from '@/lib/session';
 import { canAccessModule } from '@/lib/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { allPages, Choice, Confirm, DataTable, ErrorNotice, flattenTree, Guard, ListFilters, Notice, orgPath, OrganizationsText, PageHeading, Pagination, protectedReason, ResourceState, SelectionSummary, Status, UnsavedGuard, useListQuery, useObjectId, useResource, useSavedNavigation } from '@/components/management/shared';
 
 function OrganizationTree({ tree, selected }: { tree: Organization[]; selected?: number }) {
@@ -15,6 +16,7 @@ function OrganizationTree({ tree, selected }: { tree: Organization[]; selected?:
 }
 export function OrganizationsList() {
   const list = useListQuery();
+  const { can } = useSession();
   const tree = useResource('organizations-tree', () => api.get<Organization[]>('/api/admin/organizations/tree'));
   const resource = useResource(`organizations:${list.query}`, () => api.get<Page<Organization>>(`/api/admin/organizations?${list.query}`));
   const all = flattenTree(tree.data || []);
@@ -25,7 +27,100 @@ export function OrganizationsList() {
     { id: 'path', header: '完整路径', cell: ({ row }) => orgPath(row.original.id, all) || '正在读取层级' },
     { id: 'status', header: '状态', cell: ({ row }) => <Status value={row.original.status} /> },
   ];
-  return <><PageHeading title="组织管理" intro="从层级定位组织。浅色祖先仅补全路径，不能查看成员或修改。" /><div className="mg-org-layout"><Card><ResourceState {...tree} />{tree.data && <OrganizationTree tree={tree.data} />}</Card><Card className="mg-list"><div className="mg-toolbar"><strong>范围内组织</strong><ListFilters list={list} label="搜索组织名称或编码" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? <><DataTable columns={columns} data={resource.data.list} caption="服务端组织分页结果" /><div className="mg-mobile-cards">{resource.data.list.map(node => <article className="mg-person-card" key={node.id}><h2>{name(node)}</h2><code>{node.code}</code><p>{orgPath(node.id, all)}</p><Status value={node.status} /></article>)}</div></> : <Notice title="没有符合条件的组织">调整关键词或状态筛选。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></div></>;
+  return <><PageHeading title="组织管理" intro="从层级定位组织。浅色祖先仅补全路径，不能查看成员或修改。" actions={can('admin.organizations.post') && can('admin.organizations.tree.get') && <Button asChild><Link to="/organizations/new">新建组织</Link></Button>} /><div className="mg-org-layout"><Card><ResourceState {...tree} />{tree.data && <OrganizationTree tree={tree.data} />}</Card><Card className="mg-list"><div className="mg-toolbar"><strong>范围内组织</strong><ListFilters list={list} label="搜索组织名称或编码" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? <><DataTable columns={columns} data={resource.data.list} caption="服务端组织分页结果" /><div className="mg-mobile-cards">{resource.data.list.map(node => <article className="mg-person-card" key={node.id}><h2>{name(node)}</h2><code>{node.code}</code><p>{orgPath(node.id, all)}</p><Status value={node.status} /></article>)}</div></> : <Notice title="没有符合条件的组织">调整关键词或状态筛选。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></div></>;
+}
+
+export function OrganizationCreate() {
+  const [params] = useSearchParams();
+  const rawParent = params.get('parentId') || '';
+  const requestedParentId = /^[1-9]\d*$/.test(rawParent) && Number.isSafeInteger(Number(rawParent)) ? Number(rawParent) : 0;
+  const resource = useResource('organization-create-tree', () => api.get<Organization[]>('/api/admin/organizations/tree'));
+  const all = flattenTree(resource.data || []);
+  const validRequested = requestedParentId && all.some(item => item.id === requestedParentId && item.manageable) ? requestedParentId : 0;
+  const back = validRequested ? { to: `/organizations/${validRequested}`, label: '返回组织详情' } : { to: '/organizations', label: '返回组织列表' };
+  return <>
+    <PageHeading title="新建组织" back={back} intro="填写组织名称、编码及上级位置；仅可挂在当前可管理组织下（全量数据范围可创建根组织）。" />
+    <ResourceState {...resource} />
+    {resource.data && <OrganizationCreateForm key={`create:${validRequested}`} tree={resource.data} requestedParentId={validRequested} cancelTo={back.to} />}
+  </>;
+}
+
+function OrganizationCreateForm({ tree, requestedParentId, cancelTo }: { tree: Organization[]; requestedParentId: number; cancelTo: string }) {
+  const all = flattenTree(tree);
+  const manageable = all.filter(item => item.manageable);
+  const hasReadonlyAncestor = all.some(item => !item.manageable);
+  const initialParentId = requestedParentId || (hasReadonlyAncestor ? (manageable.length === 1 ? manageable[0].id : 0) : 0);
+  const [parentId, setParentId] = useState(initialParentId);
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [remark, setRemark] = useState('');
+  const [sort, setSort] = useState(0);
+  const [status, setStatus] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [validationError, setValidationError] = useState('');
+  const navigation = useSavedNavigation('/organizations');
+  const dirty = !navigation.saved && (name !== '' || code !== '' || remark !== '' || sort !== 0 || status !== 1 || parentId !== initialParentId);
+
+  const submit = async () => {
+    if (busy) return;
+    const trimmedName = name.trim();
+    const trimmedCode = code.trim();
+    if (!trimmedName) { setValidationError('请填写组织名称。'); return; }
+    if (!trimmedCode) { setValidationError('请填写组织编码。'); return; }
+    if (hasReadonlyAncestor && !parentId) { setValidationError('当前管理范围仅允许在可管理组织下新建子组织，请选择上级组织。'); return; }
+    if (parentId !== 0 && !manageable.some(item => item.id === parentId)) { setValidationError('所选上级组织不在当前可管理范围内。'); return; }
+    setValidationError('');
+    setError(null);
+    setBusy(true);
+    try {
+      const payload: OrganizationCreateInput = {
+        parent_id: parentId,
+        name: trimmedName,
+        code: trimmedCode,
+        remark: remark.trim(),
+        sort,
+        status,
+      };
+      const created = await api.post<Organization>('/api/admin/organizations', payload);
+      navigation.finish(`/organizations/${created.id}`, '组织已创建。');
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <>
+    <UnsavedGuard dirty={dirty} busy={busy} />
+    <Card className="mg-panel mg-create-panel">
+      <form className="mg-menu-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+        <fieldset disabled={busy} className="mg-fieldset">
+          <legend className="sr-only">新建组织信息</legend>
+          <div className="mg-form-grid">
+            <label className="mg-form-span">上级组织
+              <select value={parentId} onChange={event => setParentId(Number(event.target.value))}>
+                {hasReadonlyAncestor ? <option value={0}>请选择可管理的上级组织</option> : <option value={0}>无上级 · 作为根组织</option>}
+                {manageable.map(item => <option key={item.id} value={item.id}>{orgPath(item.id, all)}（{item.code}）</option>)}
+              </select>
+            </label>
+            <label>组织名称<Input value={name} required maxLength={100} placeholder="如 华东大区" onChange={event => setName(event.target.value)} /></label>
+            <label>组织编码<Input value={code} required maxLength={100} placeholder="如 east_region" onChange={event => setCode(event.target.value)} /></label>
+            <label className="mg-form-span">备注<Input value={remark} maxLength={255} placeholder="可选" onChange={event => setRemark(event.target.value)} /></label>
+            <label>排序<Input type="number" value={sort} onChange={event => setSort(Number(event.target.value) || 0)} /></label>
+            <label>状态<select value={status} onChange={event => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select></label>
+          </div>
+          {hasReadonlyAncestor && <p className="mg-hint">当前树包含仅供层级定位的范围外祖先，非全量数据范围不能创建根组织，请选择一个可管理上级。</p>}
+        </fieldset>
+        <ErrorNotice error={error} />
+        {validationError && <div className="mg-error" role="alert"><p>{validationError}</p></div>}
+        <div className="mg-edit-footer">
+          <Button asChild variant="outline" disabled={busy}><Link to={cancelTo}>取消</Link></Button>
+          <Button type="submit" disabled={busy}>{busy ? '正在创建…' : '创建组织'}</Button>
+        </div>
+      </form>
+    </Card>
+  </>;
 }
 export function OrganizationDetail() {
   const id = useObjectId();
@@ -33,7 +128,41 @@ export function OrganizationDetail() {
   const all = flattenTree(resource.data || []);
   const node = all.find(item => item.id === id);
   const { can } = useSession();
-  return <><PageHeading title="组织详情" back={{ to: '/organizations', label: '返回组织树和列表' }} /><ResourceState {...resource} />{resource.data && <div className="mg-org-layout mg-show-detail"><Card className="mg-org-detail-tree"><OrganizationTree tree={resource.data} selected={id || undefined} /></Card><div>{!node ? <Notice title="未找到可见组织">该组织不存在或不在当前可见层级中。</Notice> : !node.manageable ? <Notice title="仅供层级定位">此祖先不属于可管理范围，不能查看成员、调整上级或修改归属。</Notice> : <><Card className="mg-panel"><div className="mg-card-head"><div><span className="mg-eyebrow">组织单位</span><h1>{node.name}</h1><code>{node.code}</code></div><Status value={node.status} /></div><dl className="mg-summary"><div><dt>完整路径</dt><dd>{orgPath(node.id, all)}</dd></div><div><dt>备注</dt><dd>{node.remark || '无备注'}</dd></div></dl>{can('admin.organizations.id.put') && <Button asChild variant="outline"><Link to={`/organizations/${node.id}/move`}>修改上级组织</Link></Button>}</Card>{can('admin.organizations.id.users.get') ? <OrganizationMembers key={node.id} node={node} tree={resource.data} /> : <Notice title="没有成员读取权限">需要 admin.organizations.id.users.get 才能查看成员。</Notice>}</>}</div></div>}</>;
+  return <><PageHeading title="组织详情" back={{ to: '/organizations', label: '返回组织树和列表' }} /><ResourceState {...resource} />{resource.data && <div className="mg-org-layout mg-show-detail"><Card className="mg-org-detail-tree"><OrganizationTree tree={resource.data} selected={id || undefined} /></Card><div>{!node ? <Notice title="未找到可见组织">该组织不存在或不在当前可见层级中。</Notice> : !node.manageable ? <Notice title="仅供层级定位">此祖先不属于可管理范围，不能查看成员、调整上级、新建子组织或删除。</Notice> : <><Card className="mg-panel"><div className="mg-card-head"><div><span className="mg-eyebrow">组织单位</span><h1>{node.name}</h1><code>{node.code}</code></div><Status value={node.status} /></div><dl className="mg-summary"><div><dt>完整路径</dt><dd>{orgPath(node.id, all)}</dd></div><div><dt>备注</dt><dd>{node.remark || '无备注'}</dd></div></dl><div className="mg-inline-actions">{can('admin.organizations.id.put') && <Button asChild variant="outline"><Link to={`/organizations/${node.id}/move`}>修改上级组织</Link></Button>}{can('admin.organizations.post') && <Button asChild variant="outline"><Link to={`/organizations/new?parentId=${node.id}`}>新建子组织</Link></Button>}</div></Card>{can('admin.organizations.id.users.get') ? <OrganizationMembers key={node.id} node={node} tree={resource.data} /> : <Notice title="没有成员读取权限">需要 admin.organizations.id.users.get 才能查看成员。</Notice>}{can('admin.organizations.id.delete') && <OrganizationDeleteSection key={`delete:${node.id}`} node={node} all={all} />}</>}</div></div>}</>;
+}
+
+function OrganizationDeleteSection({ node, all }: { node: Organization; all: Organization[] }) {
+  const navigate = useNavigate();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const childCount = node.children?.length ?? 0;
+  const path = orgPath(node.id, all);
+
+  const remove = async () => {
+    if (busy || childCount > 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.delete(`/api/admin/organizations/${node.id}`);
+      setConfirmOpen(false);
+      navigate('/organizations', { state: { message: '组织已删除。' } });
+    } catch (failure) {
+      setError(failure);
+      setConfirmOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <>
+    <ErrorNotice error={error} />
+    {childCount > 0 ? <p className="mg-warning">当前组织下仍有 {childCount} 个可见下级组织，无法直接删除。请先调整下级组织的上级或删除下级组织。</p> : <div className="mg-detail-actions"><Button variant="outline" className="mg-danger" disabled={busy} onClick={() => setConfirmOpen(true)}>删除组织</Button></div>}
+    <Confirm open={confirmOpen} onOpenChange={open => { if (!busy) setConfirmOpen(open); }} busy={busy} title={`确认删除组织「${node.name}」？`} label="确认删除" onConfirm={remove}>
+      <p>对象：{path} · <code>{node.code}</code></p>
+      <p>删除将解除该组织现有成员绑定，并使受影响成员的旧会话在后续请求失效；若存在角色自定义数据范围引用、受保护或范围外成员、或并发新增下级组织，服务端将拒绝删除。此操作无法在界面撤销。</p>
+    </Confirm>
+  </>;
 }
 
 interface PendingMember { user: AdminUser; operation: 'add' | 'remove'; ids: number[]; }

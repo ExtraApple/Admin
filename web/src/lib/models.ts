@@ -173,6 +173,29 @@ export interface AdminUser { id: number; username: string; nickname: string; ava
 export interface Permission { id: number; name: string; code: string; group: string; sort: number }
 export interface Menu { id: number; parent_id: number; name: string; path: string; component: string; icon: string; permission_code: string; sort: number; type: number; status: number; children?: Menu[] }
 export interface Organization { id: number; parent_id: number; name: string; code: string; remark: string; sort: number; status: number; manageable: boolean; children?: Organization[] }
+export interface RoleCreateInput {
+  name: string;
+  code: string;
+  description?: string;
+  sort: number;
+  status: number;
+  data_scope: 'all' | 'self' | 'org' | 'org_and_children';
+}
+export interface AdminUserCreateInput {
+  username: string;
+  password: string;
+  email: string;
+  nickname?: string;
+  status: number;
+}
+export interface OrganizationCreateInput {
+  parent_id: number;
+  name: string;
+  code: string;
+  remark?: string;
+  sort: number;
+  status: number;
+}
 export interface DataScope { role_id: number; data_scope: string; organization_ids: number[] }
 export interface UserContext { user: UserInfo; roles: string[]; permissions: string[]; menus: Menu[] }
 export interface LoginInput { username: string; password: string; captcha_id: string; captcha_code: string }

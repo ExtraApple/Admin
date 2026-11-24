@@ -126,6 +126,33 @@ func TestAuthorizationHTTPRoutesPreserveRBACContracts(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("update role status = %d, body = %s", response.Code, response.Body.String())
 	}
+
+	disabledReq := httptest.NewRequest(http.MethodPost, "/api/admin/roles", strings.NewReader(`{"name":"DisabledRole","code":"disabled_role","status":0,"data_scope":"self"}`))
+	disabledReq.Header.Set("Content-Type", "application/json")
+	disabledResp := httptest.NewRecorder()
+	engine.ServeHTTP(disabledResp, disabledReq)
+	if disabledResp.Code != http.StatusOK {
+		t.Fatalf("create disabled role status = %d, body = %s", disabledResp.Code, disabledResp.Body.String())
+	}
+	var disabledRole struct {
+		Data struct {
+			ID     uint `json:"id"`
+			Status int  `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(disabledResp.Body.Bytes(), &disabledRole); err != nil {
+		t.Fatalf("decode disabled role: %v", err)
+	}
+	getResp := httptest.NewRecorder()
+	engine.ServeHTTP(getResp, httptest.NewRequest(http.MethodGet, "/api/admin/roles/"+strconv.FormatUint(uint64(disabledRole.Data.ID), 10), nil))
+	var fetched struct {
+		Data struct {
+			Status int `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getResp.Body.Bytes(), &fetched); err != nil || disabledRole.Data.Status != 0 || fetched.Data.Status != 0 {
+		t.Fatalf("disabled role create/get = %d / %d (err=%v), want 0 / 0", disabledRole.Data.Status, fetched.Data.Status, err)
+	}
 }
 
 func TestAuthorizationRoleUsersUseIdentityDirectoryAvatars(t *testing.T) {

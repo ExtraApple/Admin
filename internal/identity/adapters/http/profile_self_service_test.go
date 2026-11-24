@@ -53,6 +53,9 @@ func (repository *profileRepository) Update(_ context.Context, _ uint, changes a
 func (repository *profileRepository) ExistsByUsernameOrEmail(context.Context, string, string) (bool, error) {
 	return false, nil
 }
+func (repository *profileRepository) ExistsIdentityConflict(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 func (repository *profileRepository) Create(_ context.Context, user *domain.User) error {
 	repository.creates++
 	user.ID = 42
@@ -85,6 +88,16 @@ func (access *profileAccess) ManagementUserScope(context.Context, uint) (domain.
 func (access *profileAccess) IncrementVersions(context.Context, []uint) error {
 	access.increments++
 	return nil
+}
+func (access *profileAccess) UserScope(context.Context, uint) (domain.UserScope, error) {
+	return domain.UserScope{All: true}, nil
+}
+func (access *profileAccess) EnsureVersions(_ context.Context, ids []uint) (map[uint]int, error) {
+	result := make(map[uint]int, len(ids))
+	for _, id := range ids {
+		result[id] = 1
+	}
+	return result, nil
 }
 
 func serveProfileRequest(t *testing.T, users *application.UserService, method, path, body string) *httptest.ResponseRecorder {

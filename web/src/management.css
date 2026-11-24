@@ -31,7 +31,7 @@
 .management h2 { margin: 0 0 10px; font-size: 16px; font-weight: 650; }
 .management h3 { margin: 12px 0 8px; font-size: 14.5px; font-weight: 650; }
 .management p { margin: 0 0 10px; }
-.management a { color: var(--mg-accent); }
+.management a:not(.ui-button) { color: var(--mg-accent); }
 .management button, .management select, .management input { min-height: 36px; }
 .management .ui-button { max-width: 100%; overflow-wrap: anywhere; }
 .management input[type="checkbox"], .management button[role="checkbox"], .management button[role="radio"] { min-height: 20px; flex: none; }
@@ -41,7 +41,10 @@
 .management code { display: inline-block; font: 12px/1.6 var(--mono); color: var(--mg-muted); overflow-wrap: anywhere; }
 .mg-num { font-variant-numeric: tabular-nums; }
 .mg-heading { margin-bottom: 16px; }
-.mg-heading > p { max-width: 75ch; margin-bottom: 0; color: var(--mg-muted); font-size: 13px; }
+.mg-heading-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px 16px; flex-wrap: wrap; }
+.mg-heading-main { min-width: 0; flex: 1 1 280px; }
+.mg-heading-main > p { max-width: 75ch; margin-bottom: 0; color: var(--mg-muted); font-size: 13px; }
+.mg-heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; }
 .mg-eyebrow { display: block; margin-bottom: 4px; color: var(--mg-accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .mg-back { display: inline-flex; align-items: center; min-height: 28px; margin: 0 0 6px; font-size: 13px; font-weight: 600; }
 .mg-back:hover, .mg-list-link:hover { text-decoration: underline; text-underline-offset: 4px; }
@@ -65,6 +68,15 @@
 .mg-user-list th:nth-child(4) { width: 100px; }
 .mg-user-list th:last-child { width: 136px; text-align: right; }
 .mg-user-list td:last-child { text-align: right; }
+.mg-role-list th:first-child { width: 28%; }
+.mg-role-list th:nth-child(2) { width: 22%; }
+.mg-role-list th:nth-child(3) { width: 100px; }
+.mg-role-list th:nth-child(4) { width: 18%; }
+.mg-role-list th:last-child { width: 136px; text-align: right; }
+.mg-role-list td:last-child { text-align: right; }
+.mg-create-panel { max-width: 820px; }
+.mg-form-span { grid-column: 1 / -1; }
+.mg-inline-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .mg-status { display: inline-block; white-space: nowrap; flex-shrink: 0; border: 1px solid var(--mg-success-line); border-radius: 100px; padding: 2px 10px; background: var(--mg-success-bg); color: var(--mg-success-ink); font-size: 12px; font-weight: 600; }
 .mg-status.mg-off { border-color: var(--mg-warning-line); background: var(--mg-warning-bg); color: var(--mg-danger); }
 .mg-route-state { display: inline-block; white-space: nowrap; flex-shrink: 0; border: 1px solid var(--mg-line); border-radius: 100px; padding: 2px 10px; color: var(--mg-muted); background: var(--mg-canvas); font-size: 12px; font-weight: 600; }

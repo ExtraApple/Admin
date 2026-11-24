@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AdminUser, Page, UserContext } from '@/lib/models';
-import { UsersList } from './UserPages';
+import { UserCreate, UsersList } from './UserPages';
 
 const session = vi.hoisted(() => ({
   context: null as UserContext | null,
@@ -216,5 +216,73 @@ describe('UsersList action menu', () => {
     await flush();
     expect(document.querySelector('.mg-action-menu[role="menu"]')).toBeNull();
     expect(container.querySelector('.mg-user-cards')).not.toBeNull();
+  });
+});
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+describe('UserCreate and create button gating', () => {
+  it('shows create user link only when admin.users.post permission is granted', async () => {
+    await mount();
+    expect(container.querySelector('a[href="/users/new"]')).toBeNull();
+
+    session.context = { ...baseContext, permissions: [...baseContext.permissions, 'admin.users.post'] };
+    await mount();
+    expect(container.querySelector('a[href="/users/new"]')?.textContent).toBe('新建用户');
+  });
+
+  it('validates password confirmation locally, submits pure identity payload, and redirects to detail', async () => {
+    session.context = { ...baseContext, permissions: [...baseContext.permissions, 'admin.users.post'] };
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || 'GET';
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      calls.push({ url, method, body });
+      if (url === '/api/admin/users' && method === 'POST') {
+        return envelope({
+          id: 55, username: 'new_ops', nickname: '新成员', avatar: '/api/avatars/default',
+          email: 'new.ops@example.com', status: 1, roles: [], organizations: [],
+          has_unmanaged_organizations: false, access_version: 1,
+        });
+      }
+      throw new Error(`Unexpected ${method} ${url}`);
+    }));
+
+    const router = createMemoryRouter([
+      { path: '/users/new', element: <UserCreate /> },
+      { path: '/users/:id', element: <div>user detail</div> },
+    ], { initialEntries: ['/users/new'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await flush();
+
+    const inputs = container.querySelectorAll<HTMLInputElement>('input');
+    await act(async () => {
+      setInputValue(inputs[0], 'new_ops');
+      setInputValue(inputs[1], 'new.ops@example.com');
+      setInputValue(inputs[2], '新成员');
+      setInputValue(inputs[3], 'Password1!');
+      setInputValue(inputs[4], 'Mismatch1!');
+    });
+    const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    await act(async () => { submit.click(); });
+    await flush();
+    expect(calls).toHaveLength(0);
+    expect(container.textContent).toContain('两次输入的密码不一致');
+
+    await act(async () => { setInputValue(inputs[4], 'Password1!'); });
+    await act(async () => { submit.click(); });
+    await flush();
+    await flush();
+
+    expect(calls).toEqual([{
+      url: '/api/admin/users',
+      method: 'POST',
+      body: { username: 'new_ops', email: 'new.ops@example.com', password: 'Password1!', nickname: '新成员', status: 1 },
+    }]);
+    expect(router.state.location.pathname).toBe('/users/55');
   });
 });

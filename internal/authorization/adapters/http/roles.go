@@ -12,7 +12,7 @@ type createRoleRequest struct {
 	Code        string `json:"code" binding:"required,min=1,max=50"`
 	Description string `json:"description" binding:"max=255"`
 	Sort        int    `json:"sort"`
-	Status      int    `json:"status"`
+	Status      *int   `json:"status" binding:"omitempty,oneof=0 1"`
 	DataScope   string `json:"data_scope"`
 }
 
@@ -116,7 +116,11 @@ func (handler *Handler) createRole(c *gin.Context) {
 	if !bindJSON(c, &req) {
 		return
 	}
-	role, err := handler.service.CreateRole(c.Request.Context(), application.CreateRoleRequest{Name: req.Name, Code: req.Code, Description: req.Description, Sort: req.Sort, Status: req.Status, DataScope: req.DataScope})
+	status := 1
+	if req.Status != nil {
+		status = *req.Status
+	}
+	role, err := handler.service.CreateRole(c.Request.Context(), application.CreateRoleRequest{Name: req.Name, Code: req.Code, Description: req.Description, Sort: req.Sort, Status: status, DataScope: req.DataScope})
 	if err != nil {
 		badRequest(c, err)
 		return

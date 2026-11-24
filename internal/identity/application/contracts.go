@@ -69,6 +69,7 @@ type UserManagementRepository interface {
 	UserRepository
 	UserLockRepository
 	EmailExists(context.Context, string, uint) (bool, error)
+	ExistsIdentityConflict(context.Context, string, string) (bool, error)
 	Update(context.Context, uint, UserChanges) error
 	UpdatePassword(context.Context, uint, string) error
 	Delete(context.Context, uint) error
@@ -86,6 +87,7 @@ type AccessManager interface {
 	UserScope(context.Context, uint) (domain.UserScope, error)
 	ManagementUserScope(context.Context, uint) (domain.UserScope, error)
 	IncrementVersions(context.Context, []uint) error
+	EnsureVersions(context.Context, []uint) (map[uint]int, error)
 	IsProtectedUser(context.Context, uint, uint) (bool, error)
 }
 

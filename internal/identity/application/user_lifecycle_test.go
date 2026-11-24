@@ -52,6 +52,10 @@ func (access *lifecycleAccess) IncrementVersions(ctx context.Context, ids []uint
 	return access.versionErr
 }
 
+func (access *lifecycleAccess) EnsureVersions(ctx context.Context, ids []uint) (map[uint]int, error) {
+	return authgorm.NewAccessVersions(access.db).EnsureMany(ctx, ids)
+}
+
 func lifecycleFixture(t *testing.T) (*gorm.DB, *identitygorm.Repository, *lifecycleAccess, *application.UserService, domain.User) {
 	t.Helper()
 	db := testutil.OpenIsolatedSQLite(t)

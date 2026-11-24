@@ -147,6 +147,13 @@ function matchWorkbenchRoute(pathname: string): MatchedRoute {
     if (segments.length === 1) {
       return { key: 'roles', breadcrumbs: [root, { label: '角色管理' }], canAccess: context => canAccessModule(context, 'roles') };
     }
+    if (segments.length === 2 && segments[1] === 'new') {
+      return {
+        key: 'roles',
+        breadcrumbs: [root, { label: '角色管理', to: '/roles' }, { label: '新建角色' }],
+        canAccess: context => canAccessModule(context, 'roles') && hasPermission(context, 'admin.roles.post'),
+      };
+    }
     const id = decodeSegment(segments[1]);
     const detailPath = `/roles/${segments[1]}`;
     if (segments.length === 2) {
@@ -172,6 +179,13 @@ function matchWorkbenchRoute(pathname: string): MatchedRoute {
   if (segments[0] === 'users') {
     if (segments.length === 1) {
       return { key: 'users', breadcrumbs: [root, { label: '用户管理' }], canAccess: context => canAccessModule(context, 'users') };
+    }
+    if (segments.length === 2 && segments[1] === 'new') {
+      return {
+        key: 'users',
+        breadcrumbs: [root, { label: '用户管理', to: '/users' }, { label: '新建用户' }],
+        canAccess: context => canAccessModule(context, 'users') && hasPermission(context, 'admin.users.post'),
+      };
     }
     const id = decodeSegment(segments[1]);
     const detailPath = `/users/${segments[1]}`;
@@ -199,6 +213,13 @@ function matchWorkbenchRoute(pathname: string): MatchedRoute {
         key: 'organizations',
         breadcrumbs: [root, { label: '组织管理' }],
         canAccess: context => canAccessModule(context, 'organizations') && hasPermission(context, 'admin.organizations.tree.get'),
+      };
+    }
+    if (segments.length === 2 && segments[1] === 'new') {
+      return {
+        key: 'organizations',
+        breadcrumbs: [root, { label: '组织管理', to: '/organizations' }, { label: '新建组织' }],
+        canAccess: context => canAccessModule(context, 'organizations') && hasPermissions(context, ['admin.organizations.tree.get', 'admin.organizations.post']),
       };
     }
     const id = decodeSegment(segments[1]);

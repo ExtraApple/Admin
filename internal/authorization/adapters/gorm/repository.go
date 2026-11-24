@@ -116,8 +116,15 @@ func (repository *Repository) roleFieldExists(ctx context.Context, field, value 
 
 func (repository *Repository) CreateRole(ctx context.Context, role *domain.Role) error {
 	record := roleFromDomain(*role)
-	if err := repository.connection(ctx).Create(&record).Error; err != nil {
+	db := repository.connection(ctx)
+	if err := db.Create(&record).Error; err != nil {
 		return err
+	}
+	if role.Status == 0 && record.Status != 0 {
+		if err := db.Model(&record).UpdateColumn("status", 0).Error; err != nil {
+			return err
+		}
+		record.Status = 0
 	}
 	role.ID = record.ID
 	return nil

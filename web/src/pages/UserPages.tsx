@@ -2,11 +2,13 @@ import { Fragment, useEffect, useState, type Dispatch, type SetStateAction } fro
 import { Link, useNavigate } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { api, ApiError } from '@/lib/api';
-import type { AdminUser, Organization, Page, Role } from '@/lib/models';
+import type { AdminUser, AdminUserCreateInput, Organization, Page, Role } from '@/lib/models';
+import { passwordRequirementsText, validateNewPassword } from '@/lib/password-policy';
 import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { allPages, Choice, Confirm, DataTable, ErrorNotice, flattenTree, Guard, ListFilters, Notice, OrganizationChoices, OrganizationsText, PageHeading, Pagination, protectedReason, ResourceState, sameIds, SelectionSummary, Status, toggleId, UnsavedGuard, useListQuery, useObjectId, useResource, useSavedNavigation } from '@/components/management/shared';
 
 type UserAction = 'status' | 'kick' | 'delete';
@@ -64,7 +66,88 @@ export function UsersList() {
     { id: 'status', header: '状态', cell: ({ row }) => <Status value={row.original.status} /> },
     { id: 'actions', header: '操作', cell: ({ row }) => <UserMenu user={row.original} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} align="end" /> },
   ];
-  return <><PageHeading title="用户管理" intro="核对真实角色、状态及当前范围内的组织归属。列表只统计可管理范围内的结果。" />{actions.feedback}<Card className="mg-list mg-user-list"><div className="mg-toolbar"><strong>范围内用户</strong><ListFilters list={list} label="搜索用户名或昵称" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? compact ? <div className="mg-user-cards">{resource.data.list.map(user => <article className="mg-person-card" key={user.id}><div className="mg-card-head"><div>{identity(user)}</div><Status value={user.status} /></div><p>角色 · {user.roles.map(role => role.name).join('、') || '未分配角色'}</p><p>可见组织 · <OrganizationsText user={user} /></p><div className="mg-card-actions"><UserMenu user={user} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} align="start" /></div></article>)}</div> : <DataTable columns={columns} data={resource.data.list} caption="范围内真实用户列表" /> : <Notice title="没有符合条件的用户">换个用户名、昵称或状态试试。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></>;
+  return <><PageHeading title="用户管理" intro="核对真实角色、状态及当前范围内的组织归属。列表只统计可管理范围内的结果。" actions={can('admin.users.post') && <Button asChild><Link to="/users/new">新建用户</Link></Button>} />{actions.feedback}<Card className="mg-list mg-user-list"><div className="mg-toolbar"><strong>范围内用户</strong><ListFilters list={list} label="搜索用户名或昵称" /></div><ResourceState {...resource} />{resource.data && <>{resource.data.list.length ? compact ? <div className="mg-user-cards">{resource.data.list.map(user => <article className="mg-person-card" key={user.id}><div className="mg-card-head"><div>{identity(user)}</div><Status value={user.status} /></div><p>角色 · {user.roles.map(role => role.name).join('、') || '未分配角色'}</p><p>可见组织 · <OrganizationsText user={user} /></p><div className="mg-card-actions"><UserMenu user={user} open={open} setOpen={setOpen} disabled={actions.busy} onAction={actions.choose} align="start" /></div></article>)}</div> : <DataTable columns={columns} data={resource.data.list} caption="范围内真实用户列表" /> : <Notice title="没有符合条件的用户">换个用户名、昵称或状态试试。</Notice>}<Pagination list={list} total={resource.data.total} loading={resource.loading} /></>}</Card></>;
+}
+
+export function UserCreate() {
+  const { can } = useSession();
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [status, setStatus] = useState(1);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [validationError, setValidationError] = useState('');
+  const navigation = useSavedNavigation('/users');
+  const dirty = !navigation.saved && (username !== '' || email !== '' || nickname !== '' || status !== 1 || password !== '' || confirmPassword !== '');
+
+  const submit = async () => {
+    if (busy) return;
+    const usernameLength = [...username].length;
+    if (!username.trim() || usernameLength < 3 || usernameLength > 100) {
+      setValidationError('用户名需要 3–100 个字符，且不能全为空白。');
+      return;
+    }
+    if (!email.trim() || [...email].length > 100) {
+      setValidationError('请填写有效的邮箱地址（不超过 100 个字符）。');
+      return;
+    }
+    if (nickname !== '' && (!nickname.trim() || [...nickname].length > 100)) {
+      setValidationError('昵称不能全为空白，且不能超过 100 个字符。');
+      return;
+    }
+    const passwordIssue = validateNewPassword(password);
+    if (passwordIssue) {
+      setValidationError(passwordIssue);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setValidationError('两次输入的密码不一致。');
+      return;
+    }
+    setValidationError('');
+    setError(null);
+    setBusy(true);
+    try {
+      const payload: AdminUserCreateInput = { username, email, password, nickname, status };
+      const created = await api.post<AdminUser>('/api/admin/users', payload);
+      navigation.finish(can('admin.users.id.get') ? `/users/${created.id}` : '/users', '用户已创建。');
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <>
+    <PageHeading title="新建用户" back={{ to: '/users', label: '返回用户列表' }} intro="创建纯用户身份；仅全量数据范围管理员可提交，创建后可前往用户详情页分别配置角色与组织归属。" />
+    <UnsavedGuard dirty={dirty} busy={busy} />
+    <Card className="mg-panel mg-create-panel">
+      <form className="mg-menu-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
+        <fieldset disabled={busy} className="mg-fieldset">
+          <legend className="sr-only">新建用户信息</legend>
+          <div className="mg-form-grid">
+            <label>用户名<Input value={username} required minLength={3} maxLength={100} autoComplete="off" placeholder="3–100 个字符" onChange={event => setUsername(event.target.value)} /></label>
+            <label>邮箱<Input type="email" value={email} required maxLength={100} autoComplete="off" placeholder="name@example.com" onChange={event => setEmail(event.target.value)} /></label>
+            <label>昵称<Input value={nickname} maxLength={100} placeholder="可选" onChange={event => setNickname(event.target.value)} /></label>
+            <label>状态<select value={status} onChange={event => setStatus(Number(event.target.value))}><option value={1}>启用</option><option value={0}>停用</option></select></label>
+            <label>初始密码<Input type="password" value={password} required minLength={6} autoComplete="new-password" onChange={event => setPassword(event.target.value)} /></label>
+            <label>确认密码<Input type="password" value={confirmPassword} required minLength={6} autoComplete="new-password" onChange={event => setConfirmPassword(event.target.value)} /></label>
+          </div>
+          <p className="mg-hint">{passwordRequirementsText}</p>
+          <p className="mg-hint">新建账号不会自动发送验证邮件，初始邮箱为未验证状态；角色与组织归属需创建后在详情页按权限分别分配。</p>
+        </fieldset>
+        <ErrorNotice error={error} />
+        {validationError && <div className="mg-error" role="alert"><p>{validationError}</p></div>}
+        <div className="mg-edit-footer">
+          <Button asChild variant="outline" disabled={busy}><Link to="/users">取消</Link></Button>
+          <Button type="submit" disabled={busy}>{busy ? '正在创建…' : '创建用户'}</Button>
+        </div>
+      </form>
+    </Card>
+  </>;
 }
 export function UserDetail() {
   const id = useObjectId();

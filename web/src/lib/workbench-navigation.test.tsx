@@ -102,13 +102,16 @@ describe('workbench initialization, breadcrumbs, and route resolution', () => {
     ['/authorization-overview', [{ label: '工作台', to: '/' }, { label: '授权总览' }]],
     ['/authorization-risks', [{ label: '工作台', to: '/' }, { label: '风险清单' }]],
     ['/roles', [{ label: '工作台', to: '/' }, { label: '角色管理' }]],
+    ['/roles/new', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '新建角色' }]],
     ['/roles/3', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3' }]],
     ['/roles/3/permissions', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑权限' }]],
     ['/roles/3/menus', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑菜单' }]],
     ['/roles/3/data-scope', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑数据范围' }]],
+    ['/users/new', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '新建用户' }]],
     ['/users/12', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12' }]],
     ['/users/12/roles', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑角色' }]],
     ['/users/12/organizations', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑组织' }]],
+    ['/organizations/new', [{ label: '工作台', to: '/' }, { label: '组织管理', to: '/organizations' }, { label: '新建组织' }]],
     ['/organizations/5', [{ label: '工作台', to: '/' }, { label: '组织管理', to: '/organizations' }, { label: '组织详情 #5' }]],
     ['/organizations/5/move', [{ label: '工作台', to: '/' }, { label: '组织管理', to: '/organizations' }, { label: '组织详情 #5', to: '/organizations/5' }, { label: '调整上级' }]],
     ['/menus', [{ label: '工作台', to: '/' }, { label: '菜单管理' }]],
@@ -133,6 +136,12 @@ describe('workbench initialization, breadcrumbs, and route resolution', () => {
     expect(resolveWorkbenchModule('/roles/3/unknown', administrator)).toBeNull();
     expect(resolveWorkbenchModule('/apis/42', configurationAdministrator)).toBeNull();
     expect(resolveWorkbenchModule('/profile', restrictedContext)?.key).toBe('profile');
+    expect(resolveWorkbenchModule('/roles/new', listOnlyRoles)).toBeNull();
+    expect(resolveWorkbenchModule('/roles/new', { ...listOnlyRoles, permissions: ['admin.roles.get', 'admin.roles.post'] })?.key).toBe('roles');
+    expect(resolveWorkbenchModule('/users/new', { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users')] })).toBeNull();
+    expect(resolveWorkbenchModule('/users/new', { ...restrictedContext, permissions: ['admin.users.get', 'admin.users.post'], menus: [moduleMenu('users')] })?.key).toBe('users');
+    expect(resolveWorkbenchModule('/organizations/new', { ...restrictedContext, permissions: ['admin.organizations.get', 'admin.organizations.post'], menus: [moduleMenu('organizations')] })).toBeNull();
+    expect(resolveWorkbenchModule('/organizations/new', { ...restrictedContext, permissions: ['admin.organizations.get', 'admin.organizations.tree.get', 'admin.organizations.post'], menus: [moduleMenu('organizations')] })?.key).toBe('organizations');
   });
 });
 
