@@ -96,6 +96,11 @@ func (reader identityOrganizationReader) UserOrganizations(ctx context.Context, 
 	return result, nil
 }
 
+func (reader identityOrganizationReader) ClearUserOrganizations(ctx context.Context, userID uint) error {
+	return reader.memberships.ClearUserOrganizations(ctx, userID)
+}
+
 var _ identityapplication.AdminOrganizationReader = identityOrganizationReader{}
+var _ identityapplication.UserOrganizationCleaner = identityOrganizationReader{}
 
 var _ organization.UserDirectory = (*identityapplication.DirectoryService)(nil)

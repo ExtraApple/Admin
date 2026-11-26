@@ -34,6 +34,7 @@ type Repository interface {
 	UserOrganizationFacts(context.Context, []uint) ([]UserOrganizationFact, error)
 	ApplyUserMembershipDelta(context.Context, uint, []uint, []uint) error
 	DeleteMemberships(context.Context, uint) error
+	DeleteUserMemberships(context.Context, uint) error
 	CreateMemberships(context.Context, []Membership) error
 	ApplyMembershipDelta(context.Context, uint, []uint, []uint) error
 }
@@ -267,6 +268,10 @@ func (repository *gormRepository) CurrentMemberUserIDsByOrganizations(ctx contex
 
 func (repository *gormRepository) DeleteMemberships(ctx context.Context, unitID uint) error {
 	return repository.connection(ctx).Where("organization_id = ?", unitID).Delete(&Membership{}).Error
+}
+
+func (repository *gormRepository) DeleteUserMemberships(ctx context.Context, userID uint) error {
+	return repository.connection(ctx).Where("user_id = ?", userID).Delete(&Membership{}).Error
 }
 
 func (repository *gormRepository) CreateMemberships(ctx context.Context, memberships []Membership) error {

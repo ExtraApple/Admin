@@ -18,6 +18,8 @@ type User struct {
 	Email                  string
 	PendingEmail           string
 	EmailVerifiedAt        *time.Time
+	DeletedAt              *time.Time
+	AnonymizedAt           *time.Time
 }
 
 type EmailVerificationCredential struct {
@@ -31,6 +33,8 @@ type EmailVerificationCredential struct {
 }
 
 func (user User) Enabled() bool { return user.Status == 1 }
+func (user User) SoftDeleted() bool { return user.DeletedAt != nil }
+func (user User) Anonymized() bool  { return user.AnonymizedAt != nil }
 
 type AccessSnapshot struct {
 	Roles       []string

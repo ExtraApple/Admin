@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	authgorm "admin/internal/authorization/adapters/gorm"
 	identitygorm "admin/internal/identity/adapters/gorm"
@@ -150,5 +151,28 @@ func TestSeedAdminPreservesActiveAdministratorPassword(t *testing.T) {
 	version, err := authgorm.NewAccessVersions(db).Current(context.Background(), user.ID)
 	if err != nil || version != 7 {
 		t.Fatalf("active administrator version = %d, %v", version, err)
+	}
+}
+
+func TestSeedAdminDoesNotRestoreAnonymizedTombstone(t *testing.T) {
+	db, conf, user, _ := seedLifecycleFixture(t)
+	if err := db.Delete(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := db.Unscoped().Model(&identitygorm.UserModel{}).Where("id = ?", user.ID).Updates(map[string]any{
+		"anonymized_at": now,
+		"status":        0,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Even if an anonymized tombstone somehow retains the configured username, SeedAdminUser must not restore it.
+	_ = db.Transaction(func(tx *gorm.DB) error { return identitygorm.SeedAdminUser(tx, conf) })
+	var after identitygorm.UserModel
+	if err := db.Unscoped().First(&after, user.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !after.DeletedAt.Valid || after.AnonymizedAt == nil || after.Password != user.Password {
+		t.Fatalf("SeedAdminUser mutated anonymized tombstone: %#v", after)
 	}
 }

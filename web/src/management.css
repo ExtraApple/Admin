@@ -68,6 +68,16 @@
 .mg-user-list th:nth-child(4) { width: 100px; }
 .mg-user-list th:last-child { width: 136px; text-align: right; }
 .mg-user-list td:last-child { text-align: right; }
+.mg-deleted-user-list .mg-table-desktop td { font-size: 13.5px; }
+.mg-deleted-user-list th:first-child { width: 25%; }
+.mg-deleted-user-list th:nth-child(2) { width: 175px; }
+.mg-deleted-user-list th:nth-child(3) { width: 17%; }
+.mg-deleted-user-list th:nth-child(4) { width: 18%; }
+.mg-deleted-user-list th:last-child { width: 190px; text-align: right; }
+.mg-deleted-user-list td:last-child { text-align: right; }
+.mg-deleted-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.mg-confirm-list { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.mg-confirm-input { display: grid; gap: 6px; margin-top: 12px; color: var(--mg-ink); font-size: 13px; font-weight: 600; }
 .mg-role-list th:first-child { width: 28%; }
 .mg-role-list th:nth-child(2) { width: 22%; }
 .mg-role-list th:nth-child(3) { width: 100px; }

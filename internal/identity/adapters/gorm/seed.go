@@ -45,7 +45,7 @@ func SeedAdminUser(tx *gorm.DB, conf *platformconfig.Config) error {
 	}
 
 	var user UserModel
-	err = tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("username = ?", conf.Admin.Username).First(&user).Error
+	err = tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("username = ? AND anonymized_at IS NULL", conf.Admin.Username).First(&user).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
@@ -82,7 +82,7 @@ func restoreSeedAdminUser(tx *gorm.DB, user UserModel, password string) error {
 	if err != nil {
 		return err
 	}
-	return tx.Unscoped().Model(&user).Updates(map[string]any{"password": string(hashed), "status": 1, "deleted_at": nil}).Error
+	return tx.Unscoped().Model(&UserModel{}).Where("id = ? AND anonymized_at IS NULL", user.ID).Updates(map[string]any{"password": string(hashed), "status": 1, "deleted_at": nil}).Error
 }
 
 func hasActiveSuperAdmin(tx *gorm.DB, roleID uint) (bool, error) {

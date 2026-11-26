@@ -50,9 +50,6 @@ func (repository *profileRepository) Update(_ context.Context, _ uint, changes a
 	return nil
 }
 
-func (repository *profileRepository) ExistsByUsernameOrEmail(context.Context, string, string) (bool, error) {
-	return false, nil
-}
 func (repository *profileRepository) ExistsIdentityConflict(context.Context, string, string) (bool, error) {
 	return false, nil
 }

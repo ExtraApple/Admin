@@ -108,6 +108,7 @@ describe('workbench initialization, breadcrumbs, and route resolution', () => {
     ['/roles/3/menus', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑菜单' }]],
     ['/roles/3/data-scope', [{ label: '工作台', to: '/' }, { label: '角色管理', to: '/roles' }, { label: '角色详情 #3', to: '/roles/3' }, { label: '编辑数据范围' }]],
     ['/users/new', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '新建用户' }]],
+    ['/users/deleted', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '已删除用户' }]],
     ['/users/12', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12' }]],
     ['/users/12/roles', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑角色' }]],
     ['/users/12/organizations', [{ label: '工作台', to: '/' }, { label: '用户管理', to: '/users' }, { label: '用户详情 #12', to: '/users/12' }, { label: '编辑组织' }]],
@@ -140,6 +141,8 @@ describe('workbench initialization, breadcrumbs, and route resolution', () => {
     expect(resolveWorkbenchModule('/roles/new', { ...listOnlyRoles, permissions: ['admin.roles.get', 'admin.roles.post'] })?.key).toBe('roles');
     expect(resolveWorkbenchModule('/users/new', { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users')] })).toBeNull();
     expect(resolveWorkbenchModule('/users/new', { ...restrictedContext, permissions: ['admin.users.get', 'admin.users.post'], menus: [moduleMenu('users')] })?.key).toBe('users');
+    expect(resolveWorkbenchModule('/users/deleted', { ...restrictedContext, permissions: ['admin.users.get'], menus: [moduleMenu('users')] })).toBeNull();
+    expect(resolveWorkbenchModule('/users/deleted', { ...restrictedContext, permissions: ['admin.users.get', 'admin.deleted-users.get'], menus: [moduleMenu('users')] })?.key).toBe('users');
     expect(resolveWorkbenchModule('/organizations/new', { ...restrictedContext, permissions: ['admin.organizations.get', 'admin.organizations.post'], menus: [moduleMenu('organizations')] })).toBeNull();
     expect(resolveWorkbenchModule('/organizations/new', { ...restrictedContext, permissions: ['admin.organizations.get', 'admin.organizations.tree.get', 'admin.organizations.post'], menus: [moduleMenu('organizations')] })?.key).toBe('organizations');
   });

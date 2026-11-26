@@ -5,6 +5,7 @@ import (
  "errors"
  "strconv"
  "strings"
+ "time"
 
  "admin/internal/identity/domain"
 )
@@ -27,6 +28,20 @@ type AdminUser struct {
  AccessVersion int `json:"access_version"`
 }
 type AdminUserPage struct { List []AdminUser `json:"list"`; Total int64 `json:"total"`; Page int `json:"page"`; Size int `json:"size"` }
+type DeletedAdminUser struct {
+ ID uint `json:"id"`
+ Username string `json:"username"`
+ Nickname string `json:"nickname"`
+ Avatar string `json:"avatar"`
+ Email string `json:"email"`
+ Status int `json:"status"`
+ DeletedAt time.Time `json:"deleted_at"`
+ Protected bool `json:"protected"`
+ Roles []RoleSummary `json:"roles"`
+ Organizations []OrganizationSummary `json:"organizations"`
+ AccessVersion int `json:"access_version"`
+}
+type DeletedAdminUserPage struct { List []DeletedAdminUser `json:"list"`; Total int64 `json:"total"`; Page int `json:"page"`; Size int `json:"size"` }
 
 // AdminAuthorizationReader returns batch authorization facts, never legacy users.role.
 type AdminAuthorizationReader interface {
@@ -38,6 +53,7 @@ type AdminOrganizationReader interface { UserOrganizations(context.Context,uint,
 type AdminUserRepository interface {
  FindByID(context.Context,uint)(domain.User,error)
  List(context.Context,int,int,domain.UserScope,UserFilter)([]domain.User,int64,error)
+ ListDeleted(context.Context,int,int,string)([]domain.User,int64,error)
 }
 
 // AdminUserService owns the safe administrative read model separately from self-service writes.
@@ -72,6 +88,102 @@ func (service *AdminUserService) Get(ctx context.Context,operatorID,targetID uin
  result,err:=service.project(ctx,operatorID,[]domain.User{user})
  if err!=nil{return AdminUser{},err}
  return result[0],nil
+}
+func (service *AdminUserService) ProjectUser(ctx context.Context, operatorID uint, user domain.User) (AdminUser, error) {
+	result, err := service.project(ctx, operatorID, []domain.User{user})
+	if err != nil {
+		return AdminUser{}, err
+	}
+	return result[0], nil
+}
+func (service *AdminUserService) ListDeleted(ctx context.Context, operatorID uint, page, size int, keyword string) (DeletedAdminUserPage, error) {
+	if operatorID == 0 {
+		return DeletedAdminUserPage{}, NewError(CodePermissionDenied, nil)
+	}
+	page, size = normalizeUserPage(page, size)
+	keyword = strings.TrimSpace(keyword)
+	scope, err := service.authorization.UserScope(ctx, operatorID)
+	if err != nil {
+		return DeletedAdminUserPage{}, NewError(CodeInternalError, err)
+	}
+	if !scope.All {
+		return DeletedAdminUserPage{}, NewError(CodePermissionDenied, nil)
+	}
+	users, total, err := service.users.ListDeleted(ctx, (page-1)*size, size, keyword)
+	if err != nil {
+		return DeletedAdminUserPage{}, NewError(CodeInternalError, err)
+	}
+	result, err := service.projectDeleted(ctx, operatorID, users)
+	if err != nil {
+		return DeletedAdminUserPage{}, err
+	}
+	return DeletedAdminUserPage{List: result, Total: total, Page: page, Size: size}, nil
+}
+func (service *AdminUserService) projectDeleted(ctx context.Context, operatorID uint, users []domain.User) ([]DeletedAdminUser, error) {
+	result := make([]DeletedAdminUser, len(users))
+	if len(users) == 0 {
+		return result, nil
+	}
+	ids := make([]uint, len(users))
+	indexes := make(map[uint]int, len(users))
+	for index, user := range users {
+		ids[index] = user.ID
+		indexes[user.ID] = index
+		var deletedAt time.Time
+		if user.DeletedAt != nil {
+			deletedAt = user.DeletedAt.UTC()
+		}
+		result[index] = DeletedAdminUser{
+			ID:            user.ID,
+			Username:      user.Username,
+			Nickname:      user.Nickname,
+			Avatar:        "/api/avatars/default",
+			Email:         user.Email,
+			Status:        user.Status,
+			DeletedAt:     deletedAt,
+			Roles:         []RoleSummary{},
+			Organizations: []OrganizationSummary{},
+		}
+	}
+	err := service.transactions.Run(ctx, func(tx context.Context) error {
+		versions, err := service.authorization.EnsureVersions(tx, ids)
+		if err != nil {
+			return err
+		}
+		roles, err := service.authorization.UserRoles(tx, ids)
+		if err != nil {
+			return err
+		}
+		organizations, err := service.organizations.UserOrganizations(tx, operatorID, ids)
+		if err != nil {
+			return err
+		}
+		for id, index := range indexes {
+			version := versions[id]
+			if version < 1 {
+				return NewError(CodeInternalError, nil)
+			}
+			result[index].AccessVersion = version
+		}
+		for _, role := range roles {
+			if index, ok := indexes[role.UserID]; ok {
+				result[index].Roles = append(result[index].Roles, RoleSummary{ID: role.ID, Code: role.Code, Name: role.Name, Status: role.Status})
+				if role.Code == "admin" {
+					result[index].Protected = true
+				}
+			}
+		}
+		for _, org := range organizations {
+			if index, ok := indexes[org.UserID]; ok && org.Manageable {
+				result[index].Organizations = append(result[index].Organizations, OrganizationSummary{ID: org.ID, Name: org.Name})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, NewError(CodeInternalError, err)
+	}
+	return result, nil
 }
 func (service *AdminUserService) project(ctx context.Context,operatorID uint,users []domain.User)([]AdminUser,error){
  result:=make([]AdminUser,len(users))

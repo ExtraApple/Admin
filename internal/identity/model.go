@@ -23,6 +23,7 @@ type User struct {
 	Email                  string     `gorm:"type:varchar(100);not null;uniqueIndex;comment:当前邮箱"`
 	PendingEmail           string     `gorm:"type:varchar(100);comment:待验证邮箱"`
 	EmailVerifiedAt        *time.Time `gorm:"comment:邮箱验证完成时间"`
+	AnonymizedAt           *time.Time `gorm:"index;comment:受控匿名化完成时间"`
 }
 
 // EmailVerificationCredential is a one-time, hashed email verification token.

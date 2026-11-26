@@ -128,7 +128,7 @@ func (service *Service) Register(ctx context.Context, request RegisterRequest) (
 	if err := validatePassword(request.Password); err != nil {
 		return domain.User{}, err
 	}
-	exists, err := service.users.ExistsByUsernameOrEmail(ctx, request.Username, request.Email)
+	exists, err := service.users.ExistsIdentityConflict(ctx, request.Username, request.Email)
 	if err != nil {
 		return domain.User{}, NewError(CodeInternalError, err)
 	}
@@ -141,7 +141,7 @@ func (service *Service) Register(ctx context.Context, request RegisterRequest) (
 	}
 	user := domain.User{Username: request.Username, Password: hashed, Email: request.Email, Nickname: request.Nickname, Role: "user", Status: 1}
 	if err := service.users.Create(ctx, &user); err != nil {
-		return domain.User{}, NewError(CodeInternalError, err)
+		return domain.User{}, service.classifyRegisterCreateFailure(ctx, request.Username, request.Email, err)
 	}
 	if service.emailVerificationIssuer != nil && service.verificationEmailSender != nil {
 		token, err := service.emailVerificationIssuer.Issue(ctx, user.ID, user.Email)
@@ -154,6 +154,13 @@ func (service *Service) Register(ctx context.Context, request RegisterRequest) (
 		}
 	}
 	return user, nil
+}
+
+func (service *Service) classifyRegisterCreateFailure(ctx context.Context, username, email string, cause error) *Error {
+	if exists, err := service.users.ExistsIdentityConflict(ctx, username, email); err == nil && exists {
+		return NewError(CodeConflict, nil)
+	}
+	return NewError(CodeInternalError, cause)
 }
 
 func (service *Service) Login(ctx context.Context, request LoginRequest) (LoginResult, error) {

@@ -71,10 +71,15 @@ func (repository *Repository) FindByIDForUpdate(ctx context.Context, userID uint
 	return toDomain(user), nil
 }
 
-func (repository *Repository) ExistsByUsernameOrEmail(ctx context.Context, username, email string) (bool, error) {
-	var count int64
-	err := repository.connection(ctx).Model(&UserModel{}).Where("username = ? OR email = ?", username, email).Count(&count).Error
-	return count > 0, err
+func (repository *Repository) FindByIDForUpdateUnscoped(ctx context.Context, userID uint) (domain.User, error) {
+	var user UserModel
+	if err := repository.connection(ctx).Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.User{}, application.ErrUserNotFound
+		}
+		return domain.User{}, err
+	}
+	return toDomain(user), nil
 }
 
 func (repository *Repository) ExistsIdentityConflict(ctx context.Context, username, email string) (bool, error) {
@@ -101,7 +106,12 @@ func (repository *Repository) Create(ctx context.Context, user *domain.User) err
 	return nil
 }
 func toDomain(user UserModel) domain.User {
-	return domain.User{ID: user.ID, Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email, PendingEmail: user.PendingEmail, EmailVerifiedAt: user.EmailVerifiedAt}
+	var deletedAt *time.Time
+	if user.DeletedAt.Valid {
+		t := user.DeletedAt.Time
+		deletedAt = &t
+	}
+	return domain.User{ID: user.ID, Username: user.Username, Password: user.Password, Nickname: user.Nickname, Avatar: user.Avatar, AvatarObjectName: user.AvatarObjectName, AvatarContentType: user.AvatarContentType, AvatarContentSHA256: user.AvatarContentSHA256, AvatarValidationStatus: user.AvatarValidationStatus, AvatarValidatedAt: user.AvatarValidatedAt, Role: user.Role, Status: user.Status, Email: user.Email, PendingEmail: user.PendingEmail, EmailVerifiedAt: user.EmailVerifiedAt, DeletedAt: deletedAt, AnonymizedAt: user.AnonymizedAt}
 }
 
 func fromDomain(user domain.User) UserModel {
@@ -176,8 +186,31 @@ func (repository *Repository) List(ctx context.Context, offset, limit int, scope
 	return users, total, nil
 }
 
+func (repository *Repository) ListDeleted(ctx context.Context, offset, limit int, keyword string) ([]domain.User, int64, error) {
+	query := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Where("deleted_at IS NOT NULL AND anonymized_at IS NULL")
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		query = query.Where("(username LIKE ? OR nickname LIKE ? OR email LIKE ?)", like, like, like)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var records []UserModel
+	if err := query.Order("deleted_at desc, id desc").Limit(limit).Offset(offset).Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+	users := make([]domain.User, len(records))
+	for index := range records {
+		users[index] = toDomain(records[index])
+	}
+	return users, total, nil
+}
+
 func (repository *Repository) EmailExists(ctx context.Context, email string, exceptID uint) (bool, error) {
-	query := repository.connection(ctx).Model(&UserModel{}).Where("email = ? OR pending_email = ?", email, email)
+	query := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Where("(email = ? OR (deleted_at IS NULL AND pending_email <> '' AND pending_email = ?))", email, email)
 	if exceptID != 0 {
 		query = query.Where("id != ?", exceptID)
 	}
@@ -214,6 +247,53 @@ func (repository *Repository) Delete(ctx context.Context, userID uint) error {
 
 func (repository *Repository) UpdatePassword(ctx context.Context, userID uint, password string) error {
 	return repository.connection(ctx).Model(&UserModel{}).Where("id = ?", userID).Update("password", password).Error
+}
+
+func (repository *Repository) InvalidateEmailCredentials(ctx context.Context, userID uint, at time.Time) error {
+	return repository.connection(ctx).Model(&identity.EmailVerificationCredential{}).
+		Where("user_id = ? AND used_at IS NULL", userID).
+		Update("used_at", at).Error
+}
+
+func (repository *Repository) Restore(ctx context.Context, userID uint) error {
+	result := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Where("id = ? AND deleted_at IS NOT NULL AND anonymized_at IS NULL", userID).
+		Update("deleted_at", nil)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return application.NewError(application.CodeConflict, nil)
+	}
+	return nil
+}
+
+func (repository *Repository) Anonymize(ctx context.Context, userID uint, mutation application.AnonymizeUserMutation) error {
+	result := repository.connection(ctx).Unscoped().Model(&UserModel{}).
+		Where("id = ? AND deleted_at IS NOT NULL AND anonymized_at IS NULL", userID).
+		Updates(map[string]any{
+			"username":                 mutation.Username,
+			"email":                    mutation.Email,
+			"password":                 mutation.Password,
+			"nickname":                 "",
+			"status":                   0,
+			"pending_email":            "",
+			"email_verified_at":        nil,
+			"avatar":                   "",
+			"avatar_object_name":       "",
+			"avatar_content_type":      "",
+			"avatar_content_sha256":    "",
+			"avatar_validation_status": "",
+			"avatar_validated_at":      nil,
+			"anonymized_at":            mutation.AnonymizedAt,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return application.NewError(application.CodeConflict, nil)
+	}
+	return nil
 }
 
 var _ application.UserManagementRepository = (*Repository)(nil)
@@ -363,8 +443,8 @@ func (repository *Repository) Confirm(ctx context.Context, userID uint, tokenHas
 		return application.EmailVerificationConfirmation{}, application.ErrEmailVerificationInvalid
 	}
 	var occupied int64
-	if err := db.Model(&identity.User{}).
-		Where("(email = ? OR pending_email = ?) AND id <> ?", credential.Email, credential.Email, userID).
+	if err := db.Unscoped().Model(&identity.User{}).
+		Where("(email = ? OR (deleted_at IS NULL AND pending_email <> '' AND pending_email = ?)) AND id <> ?", credential.Email, credential.Email, userID).
 		Count(&occupied).Error; err != nil {
 		return application.EmailVerificationConfirmation{}, err
 	}

@@ -92,6 +92,13 @@ func (service *Service) UserRoleSummaries(ctx context.Context, userIDs []uint) (
 	return summaries, nil
 }
 
+func (service *Service) ClearUserRoles(ctx context.Context, userID uint) error {
+	if err := service.repository.DeleteUserRoles(ctx, userID); err != nil {
+		return wrapError(err)
+	}
+	return nil
+}
+
 func (service *Service) CreateRole(ctx context.Context, request CreateRoleRequest) (domain.Role, error) {
 	scope, err := domain.ParseDataScope(request.DataScope)
 	if err != nil {

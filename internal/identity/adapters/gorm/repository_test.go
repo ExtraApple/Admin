@@ -39,9 +39,9 @@ func TestRepositoryPersistsIdentityUserWithoutLeakingGORMModel(t *testing.T) {
 	if loaded.ID != user.ID || loaded.Email != "alice@example.com" || loaded.Password != "hash" {
 		t.Fatalf("loaded user = %#v", loaded)
 	}
-	exists, err := repository.ExistsByUsernameOrEmail(context.Background(), "other", "alice@example.com")
+	exists, err := repository.ExistsIdentityConflict(context.Background(), "other", "alice@example.com")
 	if err != nil || !exists {
-		t.Fatalf("ExistsByUsernameOrEmail() = %v, %v", exists, err)
+		t.Fatalf("ExistsIdentityConflict() = %v, %v", exists, err)
 	}
 }
 
@@ -335,5 +335,66 @@ func TestManagementFactsDistinguishDeletedReferencesWithoutWideningDirectory(t *
 	directory, err := repository.ListUsersByIDs(ctx, []uint{deleted.ID, live.ID})
 	if err != nil || len(directory) != 1 || directory[0].ID != live.ID || directory[0].Status != 0 {
 		t.Fatalf("public directory = %#v, %v", directory, err)
+	}
+}
+
+func TestRepositoryEmailConflictChecksIncludeSoftDeletedEmails(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(identitygorm.UserModel{}, identitymodule.EmailVerificationCredential{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repository := identitygorm.NewRepository(db)
+
+	active := domain.User{Username: "active", Password: "h", Email: "active@example.test", PendingEmail: "active-pending@example.test", Role: "user", Status: 1}
+	deleted := domain.User{Username: "deleted", Password: "h", Email: "deleted@example.test", PendingEmail: "deleted-pending@example.test", Role: "user", Status: 1}
+	self := domain.User{Username: "self", Password: "h", Email: "self@example.test", PendingEmail: "deleted@example.test", Role: "user", Status: 1}
+	for _, user := range []*domain.User{&active, &deleted, &self} {
+		if err := repository.Create(ctx, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repository.Delete(ctx, deleted.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		email    string
+		exceptID uint
+		want     bool
+	}{
+		{"active email", "active@example.test", self.ID, true},
+		{"active pending email", "active-pending@example.test", self.ID, true},
+		{"soft-deleted email", "deleted@example.test", self.ID, true},
+		{"soft-deleted pending email", "deleted-pending@example.test", self.ID, false},
+		{"own email excluded", "self@example.test", self.ID, false},
+	} {
+		got, err := repository.EmailExists(ctx, tc.email, tc.exceptID)
+		if err != nil || got != tc.want {
+			t.Fatalf("EmailExists(%s) = %v, %v; want %v", tc.name, got, err, tc.want)
+		}
+	}
+
+	rawToken := bytes.Repeat([]byte{0x55}, 32)
+	digest := sha256.Sum256(rawToken)
+	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	credential := identitymodule.EmailVerificationCredential{
+		UserID:    self.ID,
+		Email:     "deleted@example.test",
+		TokenHash: hex.EncodeToString(digest[:]),
+		ExpiresAt: now.Add(15 * time.Minute),
+	}
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := identityapplication.NewEmailVerificationService(repository, nil, identityapplication.WithEmailVerificationClock(func() time.Time { return now }))
+	err := service.Confirm(ctx, self.ID, base64.RawURLEncoding.EncodeToString(rawToken))
+	if code, ok := identityapplication.CodeOf(err); !ok || code != identityapplication.CodeConflict {
+		t.Fatalf("Confirm(soft-deleted email) err = %v (code %q), want %q", err, code, identityapplication.CodeConflict)
+	}
+	loaded, err := repository.FindByID(ctx, self.ID)
+	if err != nil || loaded.Email != "self@example.test" || loaded.PendingEmail != "deleted@example.test" {
+		t.Fatalf("Confirm(soft-deleted email) mutated user = %#v, err = %v", loaded, err)
 	}
 }

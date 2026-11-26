@@ -35,6 +35,8 @@ func TestRoutesDeclareIdentityAuthenticationSurface(t *testing.T) {
 		"DELETE /api/admin/users/:id":                routecatalog.PermissionControlled,
 		"PUT /api/admin/users/:id/status":            routecatalog.PermissionControlled,
 		"PUT /api/admin/users/:id/kick":              routecatalog.PermissionControlled,
+		"POST /api/admin/users/:id/restore":          routecatalog.PermissionControlled,
+		"POST /api/admin/users/:id/anonymize":        routecatalog.PermissionControlled,
 		"POST /api/user/email-verifications":         routecatalog.Authenticated,
 		"POST /api/user/email-verifications/confirm": routecatalog.Authenticated,
 		"GET /api/user/email-verification-policy":    routecatalog.Authenticated,

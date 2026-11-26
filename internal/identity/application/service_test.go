@@ -9,6 +9,8 @@ import (
 	jwtadapter "admin/internal/identity/adapters/jwt"
 	"admin/internal/identity/application"
 	"admin/internal/identity/domain"
+	identitygorm "admin/internal/identity/adapters/gorm"
+	"admin/testsupport/testutil"
 )
 
 type captchaFake struct {
@@ -29,7 +31,7 @@ func (fake userRepositoryFake) FindByUsername(context.Context, string) (domain.U
 func (fake userRepositoryFake) FindByID(context.Context, uint) (domain.User, error) {
 	return fake.user, nil
 }
-func (userRepositoryFake) ExistsByUsernameOrEmail(context.Context, string, string) (bool, error) {
+func (userRepositoryFake) ExistsIdentityConflict(context.Context, string, string) (bool, error) {
 	return false, nil
 }
 func (userRepositoryFake) Create(context.Context, *domain.User) error { return nil }
@@ -562,4 +564,105 @@ func TestSessionStoreFaultsAreNotAuthenticationRejections(t *testing.T) {
 	if _, err := service.Refresh(ctx, application.RefreshRequest{RefreshToken: login.RefreshToken, AttemptID: "failure-attempt-00001"}); !errors.Is(err, application.ErrRefreshTokenInvalid) {
 		t.Fatal("missing session refresh did not reject")
 	}
+}
+
+func TestRegisterDetectsActivePendingSoftDeletedAndRaceConflicts(t *testing.T) {
+	db := testutil.OpenIsolatedSQLite(t)
+	if err := db.AutoMigrate(&identitygorm.UserModel{}); err != nil {
+		t.Fatal(err)
+	}
+	repository := identitygorm.NewRepository(db)
+	ctx := context.Background()
+
+	active := domain.User{Username: "active_user", Password: "h", Email: "active@example.test", PendingEmail: "pending@example.test", Role: "user", Status: 1}
+	deleted := domain.User{Username: "deleted_user", Password: "h", Email: "deleted@example.test", PendingEmail: "deleted-pending@example.test", Role: "user", Status: 1}
+	if err := repository.Create(ctx, &active); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Create(ctx, &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Delete(ctx, deleted.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	hasher := &countingPasswordHasher{}
+	service := application.NewService(repository, &captchaFake{verified: true}, hasher, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
+
+	for _, tc := range []struct {
+		name     string
+		username string
+		email    string
+	}{
+		{"active username", "active_user", "fresh1@example.test"},
+		{"active email", "fresh1", "active@example.test"},
+		{"active pending email", "fresh2", "pending@example.test"},
+		{"soft-deleted username", "deleted_user", "fresh3@example.test"},
+		{"soft-deleted email", "fresh4", "deleted@example.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			beforeHashCalls := hasher.calls
+			_, err := service.Register(ctx, application.RegisterRequest{
+				Username:    tc.username,
+				Password:    "Valid1!Pass",
+				Email:       tc.email,
+				CaptchaID:   "id",
+				CaptchaCode: "123456",
+			})
+			if code, ok := application.CodeOf(err); !ok || code != application.CodeConflict {
+				t.Fatalf("Register(%s) err = %v (code %q), want %q", tc.name, err, code, application.CodeConflict)
+			}
+			if hasher.calls != beforeHashCalls {
+				t.Fatalf("Register(%s) hashed password before rejecting conflict", tc.name)
+			}
+		})
+	}
+
+	// Soft-deleted user's unconfirmed pending_email does not hold a unique constraint and must not block registration.
+	created, err := service.Register(ctx, application.RegisterRequest{
+		Username:    "fresh_user",
+		Password:    "Valid1!Pass",
+		Email:       "deleted-pending@example.test",
+		CaptchaID:   "id",
+		CaptchaCode: "123456",
+	})
+	if err != nil || created.ID == 0 {
+		t.Fatalf("Register(deleted pending email) = %#v, err = %v", created, err)
+	}
+
+	t.Run("concurrent unique constraint race", func(t *testing.T) {
+		raceRepo := &managementRepositoryFake{
+			identityConflictValues: []bool{false, true},
+			createErr:              errors.New("UNIQUE constraint failed"),
+		}
+		raceService := application.NewService(raceRepo, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
+		_, err := raceService.Register(ctx, application.RegisterRequest{
+			Username:    "race_user",
+			Password:    "Valid1!Pass",
+			Email:       "race@example.test",
+			CaptchaID:   "id",
+			CaptchaCode: "123456",
+		})
+		if code, ok := application.CodeOf(err); !ok || code != application.CodeConflict {
+			t.Fatalf("Register(unique race) err = %v (code %q), want %q", err, code, application.CodeConflict)
+		}
+	})
+
+	t.Run("non-conflict create failure remains internal error", func(t *testing.T) {
+		failingRepo := &managementRepositoryFake{
+			identityConflictValues: []bool{false, false},
+			createErr:              errors.New("database unavailable"),
+		}
+		failingService := application.NewService(failingRepo, &captchaFake{verified: true}, passwordFake{}, &loginAttemptFake{}, newSessionFake(), authorizationFake{}, &tokenFake{})
+		_, err := failingService.Register(ctx, application.RegisterRequest{
+			Username:    "down_user",
+			Password:    "Valid1!Pass",
+			Email:       "down@example.test",
+			CaptchaID:   "id",
+			CaptchaCode: "123456",
+		})
+		if code, ok := application.CodeOf(err); !ok || code != application.CodeInternalError {
+			t.Fatalf("Register(db error) err = %v (code %q), want %q", err, code, application.CodeInternalError)
+		}
+	})
 }

@@ -67,6 +67,12 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 	createUser.OpenAPI.Description = "仅允许 all 数据范围管理员创建纯用户身份，不写入角色或组织归属，旧 role 列固定写入 user，不触发验证邮件。密码复用共享策略（至少 6 个 Unicode 字符、至多 72 UTF-8 字节及三类字符）；超限或复杂度不足返回 422 password / IDENTITY_PASSWORD_INVALID，非全量范围返回 403 IDENTITY_PERMISSION_DENIED，用户名或邮箱（含待验证与软删唯一约束）冲突返回 409 IDENTITY_CONFLICT。"
 	updateUser := permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id", "Update User", "admin.users.id.put", handler.updateUser, identity.AdminUpdateUserRequest{}, userResponse{})
 	updateUser.OpenAPI.Description = "管理保护和邮箱禁写先校验；纯昵称变更及合法全同值更新不创建或提升授权版本，旧有效会话保持。真实已接受角色／状态变化仍与资料同事务失效一次；空请求拒绝。旧 role 字段不作为 RBAC 管理身份来源，Kick 和状态翻转不适用资料豁免。"
+	restoreUser := permissionIdentityRoute(http.MethodPost, "/api/admin/users/:id/restore", "Restore Deleted User", "admin.users.id.restore.post", handler.restoreUser, nil, adminUserDetailResponse{})
+	restoreUser.OpenAPI.Responses[http.StatusNotFound] = routecatalog.ErrorResponse("user was not found", identityUserNotFound())
+	restoreUser.OpenAPI.Description = "仅允许 all 数据范围管理员将非本人、非受保护且处于可恢复软删除状态的用户恢复为活跃状态。沿用删除时已提升的授权版本，不复活删前 Token 或未消费邮箱验证凭据，也不恢复软删期间已清理的角色/组织归属；活跃或已匿名化用户返回 409 IDENTITY_CONFLICT，不存在返回 404 IDENTITY_USER_NOT_FOUND。"
+	anonymizeUser := permissionIdentityRoute(http.MethodPost, "/api/admin/users/:id/anonymize", "Anonymize Deleted User", "admin.users.id.anonymize.post", handler.anonymizeUser, identity.AdminAnonymizeUserRequest{}, nil)
+	anonymizeUser.OpenAPI.Responses[http.StatusNotFound] = routecatalog.ErrorResponse("user was not found", identityUserNotFound())
+	anonymizeUser.OpenAPI.Description = "仅允许 all 数据范围管理员对非本人、非受保护且已软删除但尚未匿名化的用户执行不可逆受控匿名化。请求体必填 confirm_username 且须与锁定后的当前用户名精确一致（不匹配返回 422 confirm_username / IDENTITY_CONFIRM_USERNAME_MISMATCH）。事务内清除角色与组织归属、作废未消费邮箱验证凭据、改写唯一键占位释放原用户名与邮箱、清空 PII 与头像元数据、写入 anonymized_at 并提升且保留授权版本；事务提交后受控清理私有 image bucket 中的可信自定义头像，保留 users.id 墓碑以维持审计/文件/消息引用完整。"
 	register := identityRoute(http.MethodPost, "/api/register", "Register", routecatalog.Public, handler.register, identity.RegisterRequest{}, userResponse{})
 	register.OpenAPI.Description = "New passwords require at least 6 Unicode characters and three of uppercase, lowercase, number and punctuation/symbol categories, with at most 72 UTF-8 bytes. Oversized passwords return 422 / IDENTITY_VALIDATION_INVALID with password / IDENTITY_PASSWORD_INVALID before hashing; missing fields and minimum-length structural errors remain 400."
 	changePassword := identityRoute(http.MethodPut, "/api/user/password", "Change Password", routecatalog.Authenticated, handler.changePassword, identity.ChangePasswordRequest{}, nil)
@@ -102,6 +108,8 @@ func routesWithEmailVerification(service *application.Service, users *applicatio
 		permissionIdentityRoute(http.MethodDelete, "/api/admin/users/:id", "Delete User", "admin.users.id.delete", handler.deleteUser, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/status", "Toggle User Status", "admin.users.id.status.put", handler.toggleStatus, nil, nil),
 		permissionIdentityRoute(http.MethodPut, "/api/admin/users/:id/kick", "Kick User", "admin.users.id.kick.put", handler.kickUser, nil, nil),
+		restoreUser,
+		anonymizeUser,
 	}
 
 }
@@ -385,6 +393,36 @@ func (handler *routeHandler) deleteUser(c *gin.Context) {
 	}
 	if err := handler.users.Delete(c.Request.Context(), c.GetUint("userID"), targetID); err != nil {
 		writeIdentityError(c, err)
+		return
+	}
+	identitySuccess(c, nil)
+}
+
+func (handler *routeHandler) restoreUser(c *gin.Context) {
+	targetID, ok := parseTargetID(c)
+	if !ok {
+		return
+	}
+	user, err := handler.users.Restore(c.Request.Context(), c.GetUint("userID"), targetID)
+	if err != nil {
+		writeAdminUserError(c, err)
+		return
+	}
+	identitySuccess(c, user)
+}
+
+func (handler *routeHandler) anonymizeUser(c *gin.Context) {
+	targetID, ok := parseTargetID(c)
+	if !ok {
+		return
+	}
+	var request identity.AdminAnonymizeUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		identityRequestError(c, err)
+		return
+	}
+	if err := handler.users.Anonymize(c.Request.Context(), c.GetUint("userID"), targetID, request.ConfirmUsername); err != nil {
+		writeAdminUserError(c, err)
 		return
 	}
 	identitySuccess(c, nil)

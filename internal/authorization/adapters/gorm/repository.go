@@ -241,6 +241,10 @@ func (repository *Repository) ApplyRoleUserChanges(ctx context.Context, roleID u
 	return db.Create(&records).Error
 }
 
+func (repository *Repository) DeleteUserRoles(ctx context.Context, userID uint) error {
+	return repository.connection(ctx).Where("user_id = ?", userID).Delete(&UserRole{}).Error
+}
+
 func (repository *Repository) ReplaceRoleDataScope(ctx context.Context, roleID uint, scope domain.DataScope, organizationIDs []uint) error {
 	db := repository.connection(ctx)
 	if err := db.Model(&Role{}).Where("id = ?", roleID).Update("data_scope", string(scope)).Error; err != nil {

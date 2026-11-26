@@ -57,6 +57,12 @@ func (service *UserMembershipService) UserOrganizations(ctx context.Context, ope
 	}
 	return facts, nil
 }
+func (service *UserMembershipService) ClearUserOrganizations(ctx context.Context, userID uint) error {
+	if err := service.repository.DeleteUserMemberships(ctx, userID); err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	return nil
+}
 func (service *UserMembershipService) Set(ctx context.Context, operatorID, targetID uint, request UpdateUserOrganizationsRequest) (int, error) {
 	if operatorID == 0 || targetID == 0 || operatorID == targetID || request.ExpectedAccessVersion < 1 {
 		return 0, NewError(CodeValidationInvalid, nil)

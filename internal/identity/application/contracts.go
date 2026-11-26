@@ -11,7 +11,7 @@ import (
 type UserRepository interface {
 	FindByUsername(context.Context, string) (domain.User, error)
 	FindByID(context.Context, uint) (domain.User, error)
-	ExistsByUsernameOrEmail(context.Context, string, string) (bool, error)
+	ExistsIdentityConflict(context.Context, string, string) (bool, error)
 	Create(context.Context, *domain.User) error
 }
 
@@ -69,10 +69,45 @@ type UserManagementRepository interface {
 	UserRepository
 	UserLockRepository
 	EmailExists(context.Context, string, uint) (bool, error)
-	ExistsIdentityConflict(context.Context, string, string) (bool, error)
 	Update(context.Context, uint, UserChanges) error
 	UpdatePassword(context.Context, uint, string) error
+	InvalidateEmailCredentials(context.Context, uint, time.Time) error
 	Delete(context.Context, uint) error
+	FindByIDForUpdateUnscoped(context.Context, uint) (domain.User, error)
+	Restore(context.Context, uint) error
+	Anonymize(context.Context, uint, AnonymizeUserMutation) error
+}
+
+type AnonymizeUserMutation struct {
+	Username     string
+	Email        string
+	Password     string
+	AnonymizedAt time.Time
+}
+
+// UserRoleCleaner deletes all role links for a user within the caller's transaction.
+type UserRoleCleaner interface {
+	ClearUserRoles(context.Context, uint) error
+}
+
+// UserOrganizationCleaner deletes all organization memberships for a user within the caller's transaction.
+type UserOrganizationCleaner interface {
+	ClearUserOrganizations(context.Context, uint) error
+}
+
+// TrustedAvatarCleaner deletes a verified system-generated avatar object after commit.
+type TrustedAvatarCleaner interface {
+	Delete(context.Context, string, string) error
+}
+
+// AdminUserProjector projects a restored domain.User into the desensitized AdminUser view.
+type AdminUserProjector interface {
+	ProjectUser(context.Context, uint, domain.User) (AdminUser, error)
+}
+
+// LifecycleLogger records controlled post-commit cleanup warnings without leaking storage metadata.
+type LifecycleLogger interface {
+	WarnAvatarCleanupFailed(userID uint)
 }
 
 type UserLockRepository interface {

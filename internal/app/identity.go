@@ -14,6 +14,7 @@ import (
 	identityhttp "admin/internal/identity/adapters/http"
 	identityjwt "admin/internal/identity/adapters/jwt"
 	identitymail "admin/internal/identity/adapters/mail"
+	identityobjectstorage "admin/internal/identity/adapters/objectstorage"
 	identitypassword "admin/internal/identity/adapters/password"
 	identityredis "admin/internal/identity/adapters/redis"
 	identityapplication "admin/internal/identity/application"
@@ -46,7 +47,12 @@ type identityComposition struct {
 	repository        identityapplication.UserRepository
 }
 
-func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore, organizations identityapplication.AdminOrganizationReader) (identityComposition, error) {
+type identityAdminOrganizations interface {
+	identityapplication.AdminOrganizationReader
+	identityapplication.UserOrganizationCleaner
+}
+
+func newIdentityComposition(resources Resources, config platformconfig.Config, authorization *authapplication.Service, navigation identityapplication.NavigationReader, core identityCore, organizations identityAdminOrganizations) (identityComposition, error) {
 	store := identityredis.NewStore(resources.Redis)
 	tokens := identityjwt.NewService(identityjwt.Config{
 		Secret:            config.Jwt.Secret,
@@ -80,6 +86,11 @@ func newIdentityComposition(resources Resources, config platformconfig.Config, a
 	if emailSender != nil {
 		users.ConfigureEmailVerification(emailVerification, emailSender)
 	}
+	var avatarCleaner identityapplication.TrustedAvatarCleaner
+	if resources.MinIO != nil {
+		avatarCleaner = identityobjectstorage.New(resources.MinIO)
+	}
+	users.ConfigureLifecycle(access, organizations, avatarCleaner, adminUsers, identityLifecycleLogger{logger: resources.Logger})
 	contextService := identityapplication.NewContextService(core.repository, authorizationReader, navigation)
 	avatars := newAvatarService(resources, core.repository)
 	return identityComposition{service: service, users: users, adminUsers: adminUsers, context: contextService, avatars: avatars, store: store, emailVerification: emailVerification, repository: core.repository}, nil
@@ -182,6 +193,23 @@ func (adapter *identityAccessManager) EnsureVersions(ctx context.Context, userID
 	return adapter.versions.EnsureMany(ctx, userIDs)
 }
 
+func (adapter *identityAccessManager) ClearUserRoles(ctx context.Context, userID uint) error {
+	return adapter.authorization.ClearUserRoles(ctx, userID)
+}
+
+type identityLifecycleLogger struct{ logger *zap.Logger }
+
+func (adapter identityLifecycleLogger) WarnAvatarCleanupFailed(userID uint) {
+	if adapter.logger == nil {
+		return
+	}
+	adapter.logger.Error("identity anonymized user avatar cleanup failed",
+		zap.String("component", "identity"),
+		zap.Uint("user_id", userID),
+		zap.String("error_code", "avatar_cleanup_failed"),
+	)
+}
+
 var _ identityapplication.AdminAuthorizationReader = (*identityAccessManager)(nil)
 
 func runIdentityEmailVerificationCleanup(ctx context.Context, service *identityapplication.EmailVerificationService, logger *zap.Logger) {
@@ -200,3 +228,4 @@ func runIdentityEmailVerificationCleanup(ctx context.Context, service *identitya
 }
 
 var _ identityapplication.AccessManager = (*identityAccessManager)(nil)
+var _ identityapplication.UserRoleCleaner = (*identityAccessManager)(nil)

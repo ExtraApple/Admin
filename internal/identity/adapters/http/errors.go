@@ -52,6 +52,7 @@ func identityValidationInvalid() httpresponse.ErrorDefinition {
 			{Field: "old_password", Code: "IDENTITY_OLD_PASSWORD_INVALID", Message: "old password is invalid"},
 			{Field: "current_password", Code: "IDENTITY_CURRENT_PASSWORD_INVALID", Message: "current password is invalid"},
 			{Field: "email", Code: "IDENTITY_ADMIN_EMAIL_NOT_WRITABLE", Message: "administrator email changes use the identity email flow"},
+			{Field: "confirm_username", Code: "IDENTITY_CONFIRM_USERNAME_MISMATCH", Message: "confirm username does not match target user"},
 		},
 	}
 }

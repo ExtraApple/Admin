@@ -187,6 +187,13 @@ function matchWorkbenchRoute(pathname: string): MatchedRoute {
         canAccess: context => canAccessModule(context, 'users') && hasPermission(context, 'admin.users.post'),
       };
     }
+    if (segments.length === 2 && segments[1] === 'deleted') {
+      return {
+        key: 'users',
+        breadcrumbs: [root, { label: '用户管理', to: '/users' }, { label: '已删除用户' }],
+        canAccess: context => canAccessModule(context, 'users') && hasPermission(context, 'admin.deleted-users.get'),
+      };
+    }
     const id = decodeSegment(segments[1]);
     const detailPath = `/users/${segments[1]}`;
     if (segments.length === 2) {

@@ -47,6 +47,7 @@ type Repository interface {
 	// Membership changes contain only normalized additions and removals; retained rows are untouched.
 	ApplyUserRoleChanges(context.Context, uint, []uint, []uint) error
 	ApplyRoleUserChanges(context.Context, uint, []uint, []uint) error
+	DeleteUserRoles(context.Context, uint) error
 	ReplaceRoleDataScope(context.Context, uint, domain.DataScope, []uint) error
 	RoleDataScope(context.Context, uint) (domain.RoleDataScope, error)
 	RolesForUser(context.Context, uint) ([]domain.Role, error)

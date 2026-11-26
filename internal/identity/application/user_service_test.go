@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"admin/internal/identity/application"
 	"admin/internal/identity/domain"
@@ -74,8 +75,21 @@ func (fake *managementRepositoryFake) UpdatePassword(_ context.Context, _ uint, 
 	fake.password = password
 	return nil
 }
+func (fake *managementRepositoryFake) InvalidateEmailCredentials(context.Context, uint, time.Time) error {
+	return nil
+}
 func (fake *managementRepositoryFake) Delete(context.Context, uint) error {
 	fake.deleted = true
+	return nil
+}
+func (fake *managementRepositoryFake) FindByIDForUpdateUnscoped(_ context.Context, _ uint) (domain.User, error) {
+	fake.lockCalls++
+	return fake.user, nil
+}
+func (fake *managementRepositoryFake) Restore(context.Context, uint) error {
+	return nil
+}
+func (fake *managementRepositoryFake) Anonymize(context.Context, uint, application.AnonymizeUserMutation) error {
 	return nil
 }
 

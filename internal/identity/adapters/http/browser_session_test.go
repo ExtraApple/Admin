@@ -24,7 +24,7 @@ func (browserUsers) FindByUsername(context.Context, string) (domain.User, error)
 func (browserUsers) FindByID(context.Context, uint) (domain.User, error) {
 	return domain.User{ID: 7, Username: "alice", Status: 1}, nil
 }
-func (browserUsers) ExistsByUsernameOrEmail(context.Context, string, string) (bool, error) {
+func (browserUsers) ExistsIdentityConflict(context.Context, string, string) (bool, error) {
 	return false, nil
 }
 func (browserUsers) Create(context.Context, *domain.User) error { return nil }

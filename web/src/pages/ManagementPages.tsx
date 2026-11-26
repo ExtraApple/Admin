@@ -3,7 +3,7 @@ import { AuthorizationGuard } from '@/components/management/shared';
 import { Guard } from '@/components/management/shared';
 import { AuthorizationOverviewPage, AuthorizationRisksPage } from './AuthorizationOverviewPages';
 import { GuardedRoleEditor, RoleCreate, RoleDetail, RolesList } from './RolePages';
-import { GuardedUserEditor, UserCreate, UserDetail, UsersList } from './UserPages';
+import { DeletedUsersList, GuardedUserEditor, UserCreate, UserDetail, UsersList } from './UserPages';
 import { GuardedOrganizationMove, OrganizationCreate, OrganizationDetail, OrganizationsList } from './OrganizationPages';
 import { MenusPage, ApisPage } from './ConfigurationPages';
 import { AuditGuard, AuditLogsPage } from './AuditLogPages';
@@ -20,6 +20,7 @@ export const managementRoutes: RouteObject[] = [
   { path: 'roles/:id/data-scope', element: <GuardedRoleEditor kind="data-scope" /> },
   { path: 'users', element: <Guard module="users" permissions={['admin.users.get']}><UsersList /></Guard> },
   { path: 'users/new', element: <Guard module="users" permissions={['admin.users.post']}><UserCreate /></Guard> },
+  { path: 'users/deleted', element: <Guard module="users" permissions={['admin.deleted-users.get']}><DeletedUsersList /></Guard> },
   { path: 'users/:id', element: <Guard module="users" permissions={['admin.users.id.get']}><UserDetail /></Guard> },
   { path: 'users/:id/roles', element: <GuardedUserEditor kind="roles" /> },
   { path: 'users/:id/organizations', element: <GuardedUserEditor kind="organizations" /> },

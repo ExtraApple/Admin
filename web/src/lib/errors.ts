@@ -29,6 +29,7 @@ export const errorTranslations: Readonly<Record<string, string>> = {
   IDENTITY_OLD_PASSWORD_INVALID: '原密码不正确。',
   IDENTITY_CURRENT_PASSWORD_INVALID: '当前密码不正确。',
   IDENTITY_ADMIN_EMAIL_NOT_WRITABLE: '邮箱变更须使用个人邮箱验证流程。',
+  IDENTITY_CONFIRM_USERNAME_MISMATCH: '输入的确认用户名与目标用户不一致，请核对后重试。',
   IDENTITY_EMAIL_VERIFICATION_RATE_LIMITED: '邮箱验证请求过于频繁，请稍后手动重试。',
   IDENTITY_EMAIL_VERIFICATION_DELIVERY_FAILED: '验证邮件暂时无法发送，请稍后重试。',
   IDENTITY_EMAIL_VERIFICATION_INVALID: '邮箱验证链接无效或已过期。',

@@ -170,6 +170,22 @@ export interface Role { id: number; name: string; code: string; description: str
 export interface RoleSummary { id: number; code: string; name: string; status: number }
 export interface OrganizationSummary { id: number; name: string }
 export interface AdminUser { id: number; username: string; nickname: string; avatar: string; email: string; status: number; roles: RoleSummary[]; organizations: OrganizationSummary[]; has_unmanaged_organizations: boolean; access_version: number }
+export interface DeletedAdminUser {
+  id: number;
+  username: string;
+  nickname: string;
+  avatar: string;
+  email: string;
+  status: number;
+  deleted_at: string;
+  protected: boolean;
+  roles: RoleSummary[];
+  organizations: OrganizationSummary[];
+  access_version: number;
+}
+export interface AdminUserAnonymizeInput {
+  confirm_username: string;
+}
 export interface Permission { id: number; name: string; code: string; group: string; sort: number }
 export interface Menu { id: number; parent_id: number; name: string; path: string; component: string; icon: string; permission_code: string; sort: number; type: number; status: number; children?: Menu[] }
 export interface Organization { id: number; parent_id: number; name: string; code: string; remark: string; sort: number; status: number; manageable: boolean; children?: Organization[] }

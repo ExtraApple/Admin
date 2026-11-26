@@ -4,7 +4,10 @@ import (
 	"admin/internal/identity/domain"
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type UpdateSelfRequest struct {
@@ -42,6 +45,11 @@ type UserService struct {
 	access                  AccessManager
 	emailVerificationIssuer EmailVerificationIssuer
 	verificationEmailSender VerificationEmailSender
+	roleCleaner             UserRoleCleaner
+	organizationCleaner     UserOrganizationCleaner
+	avatarCleaner           TrustedAvatarCleaner
+	adminProjector          AdminUserProjector
+	lifecycleLogger         LifecycleLogger
 }
 
 func NewUserService(users UserManagementRepository, passwords PasswordHasher, transactions TransactionRunner, access AccessManager) *UserService {
@@ -51,6 +59,14 @@ func NewUserService(users UserManagementRepository, passwords PasswordHasher, tr
 func (service *UserService) ConfigureEmailVerification(issuer EmailVerificationIssuer, sender VerificationEmailSender) {
 	service.emailVerificationIssuer = issuer
 	service.verificationEmailSender = sender
+}
+
+func (service *UserService) ConfigureLifecycle(roles UserRoleCleaner, organizations UserOrganizationCleaner, avatars TrustedAvatarCleaner, projector AdminUserProjector, logger LifecycleLogger) {
+	service.roleCleaner = roles
+	service.organizationCleaner = organizations
+	service.avatarCleaner = avatars
+	service.adminProjector = projector
+	service.lifecycleLogger = logger
 }
 
 func (service *UserService) Get(ctx context.Context, userID uint) (domain.User, error) {
@@ -329,12 +345,188 @@ func (service *UserService) UpdateByAdmin(ctx context.Context, operatorID, targe
 }
 
 func (service *UserService) Delete(ctx context.Context, operatorID, targetID uint) error {
-	return service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, _ domain.User) error {
+	return service.mutateManagedTarget(ctx, operatorID, targetID, func(tx context.Context, user domain.User) error {
+		if user.PendingEmail != "" {
+			empty := ""
+			if err := service.users.Update(tx, targetID, UserChanges{PendingEmail: &empty}); err != nil {
+				return err
+			}
+		}
+		if err := service.users.InvalidateEmailCredentials(tx, targetID, time.Now().UTC()); err != nil {
+			return err
+		}
 		if err := service.users.Delete(tx, targetID); err != nil {
 			return err
 		}
 		return service.access.IncrementVersions(tx, []uint{targetID})
 	})
+}
+
+func (service *UserService) Restore(ctx context.Context, operatorID, targetID uint) (AdminUser, error) {
+	if operatorID == 0 {
+		return AdminUser{}, NewError(CodePermissionDenied, nil)
+	}
+	if targetID == 0 || operatorID == targetID {
+		return AdminUser{}, NewError(CodeValidationInvalid, nil)
+	}
+	scope, err := service.access.UserScope(ctx, operatorID)
+	if err != nil {
+		return AdminUser{}, NewError(CodeInternalError, err)
+	}
+	if !scope.All {
+		return AdminUser{}, NewError(CodePermissionDenied, nil)
+	}
+	var restored domain.User
+	err = service.transactions.Run(ctx, func(tx context.Context) error {
+		restored = domain.User{}
+		protected, err := service.access.IsProtectedUser(tx, operatorID, targetID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		user, err := service.users.FindByIDForUpdateUnscoped(tx, targetID)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return ErrUserNotFound
+			}
+			return NewError(CodeInternalError, err)
+		}
+		currentScope, err := service.access.ManagementUserScope(tx, operatorID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if !currentScope.All || protected {
+			return NewError(CodePermissionDenied, nil)
+		}
+		if !user.SoftDeleted() || user.Anonymized() {
+			return NewError(CodeConflict, nil)
+		}
+		if err := service.users.Restore(tx, targetID); err != nil {
+			return err
+		}
+		user.DeletedAt = nil
+		restored = user
+		return nil
+	})
+	if err != nil {
+		if _, classified := CodeOf(err); classified {
+			return AdminUser{}, err
+		}
+		return AdminUser{}, NewError(CodeInternalError, err)
+	}
+	if service.adminProjector != nil {
+		return service.adminProjector.ProjectUser(ctx, operatorID, restored)
+	}
+	versions, err := service.access.EnsureVersions(ctx, []uint{restored.ID})
+	if err != nil {
+		return AdminUser{}, NewError(CodeInternalError, err)
+	}
+	version := versions[restored.ID]
+	if version < 1 {
+		return AdminUser{}, NewError(CodeInternalError, nil)
+	}
+	avatar := "/api/avatars/default"
+	if _, trusted := domain.TrustedAvatarObjectName(restored, restored.ID); trusted {
+		avatar = "/api/avatars/" + strconv.FormatUint(uint64(restored.ID), 10)
+	}
+	return AdminUser{
+		ID:                        restored.ID,
+		Username:                  restored.Username,
+		Nickname:                  restored.Nickname,
+		Avatar:                    avatar,
+		Email:                     restored.Email,
+		Status:                    restored.Status,
+		Roles:                     []RoleSummary{},
+		Organizations:             []OrganizationSummary{},
+		HasUnmanagedOrganizations: false,
+		AccessVersion:             version,
+	}, nil
+}
+
+func (service *UserService) Anonymize(ctx context.Context, operatorID, targetID uint, confirmUsername string) error {
+	if operatorID == 0 {
+		return NewError(CodePermissionDenied, nil)
+	}
+	if targetID == 0 || operatorID == targetID {
+		return NewError(CodeValidationInvalid, nil)
+	}
+	if service.roleCleaner == nil || service.organizationCleaner == nil {
+		return NewError(CodeInternalError, errors.New("lifecycle cleanup dependencies not configured"))
+	}
+	scope, err := service.access.UserScope(ctx, operatorID)
+	if err != nil {
+		return NewError(CodeInternalError, err)
+	}
+	if !scope.All {
+		return NewError(CodePermissionDenied, nil)
+	}
+	var trustedAvatarObject string
+	var hasTrustedAvatar bool
+	err = service.transactions.Run(ctx, func(tx context.Context) error {
+		trustedAvatarObject = ""
+		hasTrustedAvatar = false
+		protected, err := service.access.IsProtectedUser(tx, operatorID, targetID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		user, err := service.users.FindByIDForUpdateUnscoped(tx, targetID)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return ErrUserNotFound
+			}
+			return NewError(CodeInternalError, err)
+		}
+		currentScope, err := service.access.ManagementUserScope(tx, operatorID)
+		if err != nil {
+			return NewError(CodeInternalError, err)
+		}
+		if !currentScope.All || protected {
+			return NewError(CodePermissionDenied, nil)
+		}
+		if !user.SoftDeleted() || user.Anonymized() {
+			return NewError(CodeConflict, nil)
+		}
+		if confirmUsername != user.Username {
+			return NewValidationError([]FieldError{{
+				Field:     "confirm_username",
+				ErrorCode: "IDENTITY_CONFIRM_USERNAME_MISMATCH",
+				Message:   "confirm username does not match target user",
+			}}, nil)
+		}
+		trustedAvatarObject, hasTrustedAvatar = domain.TrustedAvatarObjectName(user, targetID)
+		if err := service.roleCleaner.ClearUserRoles(tx, targetID); err != nil {
+			return err
+		}
+		if err := service.organizationCleaner.ClearUserOrganizations(tx, targetID); err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if err := service.users.InvalidateEmailCredentials(tx, targetID, now); err != nil {
+			return err
+		}
+		suffix := fmt.Sprintf("%d_%d", targetID, now.UnixNano())
+		mutation := AnonymizeUserMutation{
+			Username:     "deleted_" + suffix,
+			Email:        "deleted_" + suffix + "@deleted.invalid",
+			Password:     "!",
+			AnonymizedAt: now,
+		}
+		if err := service.users.Anonymize(tx, targetID, mutation); err != nil {
+			return err
+		}
+		return service.access.IncrementVersions(tx, []uint{targetID})
+	})
+	if err != nil {
+		if _, classified := CodeOf(err); classified {
+			return err
+		}
+		return NewError(CodeInternalError, err)
+	}
+	if hasTrustedAvatar && service.avatarCleaner != nil {
+		if err := service.avatarCleaner.Delete(ctx, AvatarBucket, trustedAvatarObject); err != nil && service.lifecycleLogger != nil {
+			service.lifecycleLogger.WarnAvatarCleanupFailed(targetID)
+		}
+	}
+	return nil
 }
 
 func (service *UserService) ToggleStatus(ctx context.Context, operatorID, targetID uint) (int, error) {

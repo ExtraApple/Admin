@@ -135,6 +135,10 @@ type AdminCreateUserRequest struct {
 	Status   *int   `json:"status" binding:"omitempty,oneof=0 1"`
 }
 
+type AdminAnonymizeUserRequest struct {
+	ConfirmUsername string `json:"confirm_username" binding:"required"`
+}
+
 type InitialContextResponse struct {
 	User        UserInfo     `json:"user"`
 	Roles       []string     `json:"roles"`
