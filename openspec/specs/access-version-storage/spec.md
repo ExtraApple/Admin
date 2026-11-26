@@ -21,6 +21,11 @@ Refresh Token 提供统一的实时失效版本，并与用户身份资料解耦
 - **THEN** 系统 SHALL 保留该用户的授权版本记录
 - **AND** 数据库外键 SHALL NOT 级联删除授权版本
 
+#### Scenario: 用户被受控匿名化
+- **WHEN** 已软删除的用户记录执行受控匿名化转为墓碑
+- **THEN** 系统 SHALL 在同一数据库事务中对该用户执行 `EnsureAndIncrement` 并永久保留其 `user_access_versions` 记录
+- **AND** 系统 SHALL NOT 删除该用户的授权版本记录
+
 ### Requirement: 新表是唯一读取事实来源
 Access Token 和 Refresh Token 的授权版本校验 SHALL 只读取
 `user_access_versions`。
